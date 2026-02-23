@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DMM Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-base: #f2f0ec;
+  --bg-card: #ffffff;
+  --bg-input: #f8f7f5;
+  --bg-input-focus: #ffffff;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #a0a0a0;
+  --accent: #c43030;
+  --accent-hover: #a82828;
+  --accent-light: #fef2f2;
+  --accent-glow: rgba(196,48,48,.2);
+  --border: rgba(0,0,0,.08);
+  --border-strong: rgba(0,0,0,.12);
+  --border-focus: var(--accent);
+  --success: #22c55e;
+  --success-bg: #f0fdf4;
+  --success-border: #bbf7d0;
+  --error: #ef4444;
+  --error-bg: #fef2f2;
+  --error-border: #fecaca;
+  --spotify: #1db954;
+  --deezer: #a238ff;
+  --apple: #fc3c44;
+  --amazon: #00a8e1;
+  --radius: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+  --radius-xs: 8px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 0 0 1px rgba(0,0,0,.03), 0 4px 12px rgba(0,0,0,.05), 0 16px 40px rgba(0,0,0,.04);
+  --shadow-lg: 0 0 0 1px rgba(0,0,0,.03), 0 8px 24px rgba(0,0,0,.06), 0 24px 60px rgba(0,0,0,.06);
+  --shadow-btn: 0 2px 8px rgba(196,48,48,.25), 0 1px 3px rgba(0,0,0,.1);
+  --shadow-btn-hover: 0 4px 16px rgba(196,48,48,.35), 0 2px 6px rgba(0,0,0,.1);
+  --transition: .2s cubic-bezier(.25,.46,.45,.94);
+  --transition-bounce: .35s cubic-bezier(.34,1.56,.64,1);
+  --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-title: 'Cormorant Garamond', 'Georgia', serif;
+  --font-label: 'Raleway', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================
+   SUBTLE AMBIENT BACKGROUND
+   ============================================================ */
+.bg-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.bg-glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: .4;
+  animation: orbDrift 25s ease-in-out infinite alternate;
+}
+
+.bg-glow-orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(196,48,48,.08) 0%, transparent 70%);
+  top: -120px;
+  right: -60px;
+  animation-duration: 28s;
+}
+
+.bg-glow-orb-2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(196,120,48,.06) 0%, transparent 70%);
+  bottom: -100px;
+  left: -60px;
+  animation-duration: 32s;
+  animation-delay: -8s;
+}
+
+@keyframes orbDrift {
+  0% { transform: translate(0,0) scale(1); }
+  50% { transform: translate(20px,-30px) scale(1.05); }
+  100% { transform: translate(-15px,15px) scale(.97); }
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 52px 24px 80px;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.header .logo {
+  display: inline-block;
+  max-height: 38px;
+  width: auto;
+  margin-bottom: 18px;
+  opacity: .85;
+  transition: opacity var(--transition);
+}
+
+.header .logo:hover { opacity: 1; }
+
+.header h1 {
+  font-family: var(--font-title);
+  font-size: 52px;
+  font-weight: 400;
+  letter-spacing: -.02em;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.header .subtitle {
+  font-family: var(--font-body);
+  color: var(--text-secondary);
+  font-size: 16px;
+  margin-top: 8px;
+  font-weight: 400;
+  letter-spacing: .01em;
+}
+
+/* ============================================================
+   TABS — big obvious segmented control
+   ============================================================ */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 0;
+  padding: 5px;
+  background: rgba(0,0,0,.04);
+  border-radius: var(--radius) var(--radius) 0 0;
+  position: relative;
+}
+
+.tab-btn {
+  position: relative;
+  flex: 1;
+  padding: 14px 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.tab-btn:hover {
+  color: var(--text-secondary);
+  background: rgba(255,255,255,.5);
+}
+
+.tab-btn.active {
+  color: var(--text-primary);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+/* ============================================================
+   FLOATING CARDS (tab panels)
+   ============================================================ */
+.tab-panel {
+  display: none;
+  background: var(--bg-card);
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding: 40px;
+  box-shadow: var(--shadow-lg);
+  animation: panelIn .4s cubic-bezier(.25,.46,.45,.94);
+}
+
+.tab-panel.active { display: block; }
+
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(10px) scale(.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ============================================================
+   FORM ELEMENTS
+   ============================================================ */
+label {
+  display: block;
+  font-family: var(--font-label);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  margin-top: 28px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+label:first-child { margin-top: 0; }
+
+input[type="text"], input[type="date"] {
+  width: 100%;
+  padding: 16px 20px;
+  background: var(--bg-input);
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  outline: none;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+input[type="text"]::placeholder { color: var(--text-tertiary); font-weight: 400; }
+
+input[type="text"]:focus, input[type="date"]:focus {
+  border-color: var(--accent);
+  background: var(--bg-input-focus);
+  box-shadow: 0 0 0 4px rgba(196,48,48,.1), var(--shadow-sm);
+}
+
+/* ============================================================
+   RADIO GROUP — big pill toggles
+   ============================================================ */
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 12px 20px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-xs);
+  margin: 0;
+  transition: all var(--transition);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.radio-group label:hover {
+  border-color: var(--border-strong);
+  background: #fafafa;
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.radio-group label:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(196,48,48,.25);
+  transform: translateY(-1px);
+}
+
+.radio-group input[type="radio"] {
+  display: none;
+}
+
+/* ============================================================
+   CHECKBOX
+   ============================================================ */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+  padding: 14px 18px;
+  background: var(--bg-input);
+  border-radius: var(--radius-xs);
+  border: 2px solid transparent;
+  transition: all var(--transition);
+  cursor: pointer;
+}
+
+.checkbox-row:hover {
+  background: #f4f3f0;
+}
+
+.checkbox-row:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.checkbox-row label {
+  margin: 0;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.checkbox-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   DROPZONE — big and inviting
+   ============================================================ */
+.dropzone {
+  margin-top: 10px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 44px 24px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  background: var(--bg-input);
+}
+
+.dropzone:hover, .dropzone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--text-secondary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.dropzone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.dropzone .icon { font-size: 40px; margin-bottom: 14px; }
+.dropzone strong { color: var(--accent); font-weight: 700; }
+
+.file-list { margin-top: 16px; font-size: 14px; color: var(--text-secondary); text-align: left; }
+.file-list div {
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+}
+.file-list .remove-btn {
+  color: var(--error);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: .7;
+  transition: opacity var(--transition);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.file-list .remove-btn:hover { opacity: 1; }
+
+/* ============================================================
+   BUTTONS — vibrant, unmissable
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 32px;
+  padding: 16px 36px;
+  background: linear-gradient(135deg, #d43535 0%, var(--accent) 50%, var(--accent-hover) 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  position: relative;
+  overflow: hidden;
+  text-decoration: none;
+  box-shadow: var(--shadow-btn);
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,.2) 0%, transparent 50%);
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-btn-hover);
+}
+
+.btn:hover::before { opacity: .6; }
+
+.btn:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-btn);
+}
+
+.btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-secondary {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 2px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-secondary::before { display: none; }
+
+.btn-secondary:hover {
+  background: #ffffff;
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.btn-small {
+  padding: 12px 22px;
+  font-size: 11px;
+  margin-top: 0;
+}
+
+/* Platform badge inside buttons */
+.btn .platform-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* ============================================================
+   SPINNER
+   ============================================================ */
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255,255,255,.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   PROGRESS AREA
+   ============================================================ */
+.progress-area {
+  display: none;
+  margin-top: 28px;
+  animation: panelIn .4s cubic-bezier(.25,.46,.45,.94);
+}
+
+.progress-area.visible { display: block; }
+
+.progress-bar-wrap {
+  height: 4px;
+  background: rgba(0,0,0,.06);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent), #e85555, var(--accent));
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+  box-shadow: 0 0 10px rgba(196,48,48,.3);
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; width: 30%; margin-left: 0; }
+  50% { width: 50%; margin-left: 25%; }
+  100% { background-position: -200% 0; width: 30%; margin-left: 70%; }
+}
+
+.log-box {
+  background: #1e1e24;
+  border: none;
+  color: #b0b0b8;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  font-size: 12.5px;
+  line-height: 1.8;
+  padding: 20px;
+  border-radius: var(--radius-sm);
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 4px 20px rgba(0,0,0,.15), 0 0 0 1px rgba(0,0,0,.05) inset;
+}
+
+/* Custom scrollbar for log box */
+.log-box::-webkit-scrollbar { width: 6px; }
+.log-box::-webkit-scrollbar-track { background: transparent; }
+.log-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
+.log-box::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.2); }
+
+/* ============================================================
+   RESULTS AREA
+   ============================================================ */
+.result-area {
+  display: none;
+  margin-top: 24px;
+  animation: panelIn .4s cubic-bezier(.25,.46,.45,.94);
+}
+
+.result-area.visible { display: block; }
+
+.result-success {
+  background: var(--success-bg);
+  border: 2px solid var(--success-border);
+  border-radius: var(--radius-sm);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.result-success strong { color: #16a34a; font-weight: 700; font-size: 15px; }
+
+.result-success .check-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--success);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(34,197,94,.3);
+}
+
+.result-success .check-icon svg { width: 14px; height: 14px; }
+
+.result-error {
+  background: var(--error-bg);
+  border: 2px solid var(--error-border);
+  border-radius: var(--radius-sm);
+  padding: 20px 24px;
+  color: var(--error);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.result-report {
+  background: #1e1e24;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 22px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  font-size: 12.5px;
+  line-height: 1.8;
+  max-height: 500px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 14px;
+  color: #b0b0b8;
+  box-shadow: 0 4px 20px rgba(0,0,0,.15);
+}
+
+.result-report::-webkit-scrollbar { width: 6px; }
+.result-report::-webkit-scrollbar-track { background: transparent; }
+.result-report::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
+
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* ============================================================
+   CONDITIONAL FIELDS
+   ============================================================ */
+.conditional { display: none; }
+.conditional.visible { display: block; margin-top: 28px; }
+.conditional.visible label:first-child { margin-top: 0; }
+
+/* ============================================================
+   TOAST — floating notification
+   ============================================================ */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #1e1e24;
+  color: #ffffff;
+  padding: 16px 32px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0;
+  transition: transform .4s cubic-bezier(.34,1.56,.64,1), opacity .3s;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: 0 8px 32px rgba(0,0,0,.2);
+}
+
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+/* ============================================================
+   PLATFORM BADGES — vibrant colored pills
+   ============================================================ */
+.platform-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.platform-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border-radius: 24px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  box-shadow: var(--shadow-sm);
+}
+
+.platform-badge .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.platform-badge.spotify { background: #f0fdf4; color: #16a34a; border: 1.5px solid #bbf7d0; }
+.platform-badge.spotify .dot { background: #1db954; }
+.platform-badge.deezer { background: #faf5ff; color: #9333ea; border: 1.5px solid #e9d5ff; }
+.platform-badge.deezer .dot { background: #a238ff; }
+.platform-badge.apple { background: #fff1f2; color: #e11d48; border: 1.5px solid #fecdd3; }
+.platform-badge.apple .dot { background: #fc3c44; }
+.platform-badge.amazon { background: #ecfeff; color: #0891b2; border: 1.5px solid #a5f3fc; }
+.platform-badge.amazon .dot { background: #00a8e1; }
+.platform-badge.other { background: #f5f5f5; color: var(--text-tertiary); border: 1.5px solid #e5e5e5; }
+.platform-badge.other .dot { background: var(--text-tertiary); }
+
+/* ============================================================
+   STATUS PILL
+   ============================================================ */
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: center;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 24px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--success-bg);
+  color: #16a34a;
+  border: 1.5px solid var(--success-border);
+}
+
+.status-pill .pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(34,197,94,.4);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .4; transform: scale(.85); }
+}
+
+/* ============================================================
+   KEYBOARD HINT
+   ============================================================ */
+.kbd {
+  display: inline-block;
+  padding: 3px 8px;
+  background: #f5f5f5;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.footer-note {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .02em;
+  margin-top: 52px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+/* ============================================================
+   SONG PICKER
+   ============================================================ */
+.song-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-input);
+  border-radius: var(--radius-xs);
+  border: 2px solid transparent;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.song-row:hover { background: #f4f3f0; }
+
+.song-row:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.song-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.song-row .song-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.song-row .song-stats {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 600px) {
+  .container { padding: 28px 16px 60px; }
+  .tab-panel { padding: 24px; }
+  .header h1 { font-size: 38px; }
+  .tabs { flex-direction: column; }
+  .radio-group { flex-direction: column; }
+  .bg-glow-orb-1 { width: 300px; height: 300px; }
+  .bg-glow-orb-2 { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Subtle ambient warmth -->
+<div class="bg-glow">
+  <div class="bg-glow-orb bg-glow-orb-1"></div>
+  <div class="bg-glow-orb bg-glow-orb-2"></div>
+</div>
+
+<div class="container">
+  <div class="header">
+    <img class="logo" src="https://images.squarespace-cdn.com/content/v1/590102829de4bb02e43309fd/1503502770341-VCOKSUOU944GCVSODOI7/DMM-final-logo-extended.png" alt="Dorado Music Marketing">
+    <h1>DMM Tools</h1>
+    <p class="subtitle">Run reports without touching the terminal</p>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('radio')">Radio Report</button>
+    <button class="tab-btn" onclick="switchTab('press')">Press Pickup</button>
+    <button class="tab-btn" onclick="switchTab('dsp')">DSP Pickup</button>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- TAB 1: Radio Report -->
+  <!-- ================================================================== -->
+  <div id="tab-radio" class="tab-panel active">
+    <label>Data Source</label>
+    <div class="radio-group">
+      <label><input type="radio" name="radio-mode" value="soundcharts" checked onchange="radioModeChanged()"><span>Fetch from Soundcharts</span></label>
+      <label><input type="radio" name="radio-mode" value="csv" onchange="radioModeChanged()"><span>Upload CSV</span></label>
+    </div>
+
+    <div class="conditional visible" id="radio-soundcharts-fields">
+      <label for="radio-artist">Artist Name</label>
+      <input type="text" id="radio-artist" placeholder="e.g. Djo">
+
+      <label>Region</label>
+      <div class="radio-group">
+        <label><input type="radio" name="radio-region" value="latam" checked><span>LATAM</span></label>
+        <label><input type="radio" name="radio-region" value="all"><span>All Countries</span></label>
+      </div>
+
+      <label>Time Range</label>
+      <div class="radio-group">
+        <label><input type="radio" name="radio-range" value="7d" onchange="radioRangeChanged()"><span>7 Days</span></label>
+        <label><input type="radio" name="radio-range" value="7d_prev" onchange="radioRangeChanged()"><span>Prev 7 Days</span></label>
+        <label><input type="radio" name="radio-range" value="28d" checked onchange="radioRangeChanged()"><span>28 Days</span></label>
+        <label><input type="radio" name="radio-range" value="1y" onchange="radioRangeChanged()"><span>1 Year</span></label>
+        <label><input type="radio" name="radio-range" value="custom" onchange="radioRangeChanged()"><span>Custom Range</span></label>
+      </div>
+
+      <div id="radio-custom-range-fields" style="display:none; margin-top:16px;">
+        <div style="display:flex; gap:16px; align-items:end;">
+          <div style="flex:1;">
+            <label for="radio-start-date" style="margin-top:0;">Start Date</label>
+            <input type="date" id="radio-start-date">
+          </div>
+          <div style="flex:1;">
+            <label for="radio-end-date" style="margin-top:0;">End Date</label>
+            <input type="date" id="radio-end-date">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="conditional" id="radio-csv-fields">
+      <label for="radio-artist-csv">Artist Name</label>
+      <input type="text" id="radio-artist-csv" placeholder="e.g. Djo">
+
+      <label>Airplay CSV Files</label>
+      <div class="dropzone" id="radio-dropzone">
+        <input type="file" id="radio-files" multiple accept=".csv">
+        <div class="icon">&#128196;</div>
+        <div>Drag &amp; drop CSV files here, or <strong>click to browse</strong></div>
+        <div class="file-list" id="radio-file-list"></div>
+      </div>
+    </div>
+
+    <button class="btn" id="radio-fetch-btn" onclick="runRadio()">Fetch Songs</button>
+
+    <div class="progress-area" id="radio-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="radio-log"></div>
+    </div>
+
+    <div id="radio-song-picker" style="display:none; margin-top:28px; animation: panelIn .4s cubic-bezier(.25,.46,.45,.94);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <label style="margin:0;">Select Songs to Include</label>
+        <a href="#" style="font-size:13px; font-weight:600; color:var(--accent); text-decoration:none;" onclick="event.preventDefault(); toggleAllSongs();" id="radio-toggle-all">Deselect All</a>
+      </div>
+      <input type="text" id="radio-song-filter" placeholder="Filter songs..." oninput="filterSongs()" style="margin-bottom:12px; padding:12px 16px; font-size:14px;">
+      <div id="radio-song-list"></div>
+    </div>
+
+    <button class="btn" id="radio-generate-btn" style="display:none;" onclick="generateRadioReport()">Generate Report</button>
+
+    <div class="progress-area" id="radio-generate-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="radio-generate-log"></div>
+    </div>
+
+    <div class="result-area" id="radio-result"></div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- TAB 2: Press Pickup -->
+  <!-- ================================================================== -->
+  <div id="tab-press" class="tab-panel">
+    <label for="press-artist">Artist Name</label>
+    <input type="text" id="press-artist" placeholder="e.g. Bleachers">
+
+    <label>Search Period</label>
+    <div class="radio-group">
+      <label><input type="radio" name="press-days" value="7"><span>Last 7 days</span></label>
+      <label><input type="radio" name="press-days" value="14"><span>Last 14 days</span></label>
+      <label><input type="radio" name="press-days" value="28" checked><span>Last 28 days</span></label>
+    </div>
+
+    <button class="btn" id="press-btn" onclick="runPress()">Search for Press Coverage</button>
+
+    <div class="progress-area" id="press-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="press-log"></div>
+    </div>
+
+    <div class="result-area" id="press-result"></div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- TAB 3: DSP Pickup -->
+  <!-- ================================================================== -->
+  <div id="tab-dsp" class="tab-panel">
+    <label>Mode</label>
+    <div class="radio-group">
+      <label><input type="radio" name="dsp-mode" value="artist" checked onchange="dspModeChanged()"><span>Specific artist</span></label>
+      <label><input type="radio" name="dsp-mode" value="week" onchange="dspModeChanged()"><span>This week's releases</span></label>
+      <label><input type="radio" name="dsp-mode" value="all" onchange="dspModeChanged()"><span>All releases</span></label>
+    </div>
+
+    <div id="dsp-artist-field" class="conditional visible">
+      <label for="dsp-artist">Artist Name</label>
+      <input type="text" id="dsp-artist" placeholder="e.g. Bleachers">
+    </div>
+
+    <div id="dsp-week-field" class="conditional">
+      <label for="dsp-week">Week (release Friday)</label>
+      <input type="date" id="dsp-week">
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="dsp-spotify-only">
+      <label for="dsp-spotify-only">Spotify only (faster)</label>
+    </div>
+
+    <button class="btn" id="dsp-btn" onclick="runDsp()">Check Playlists</button>
+
+    <div class="progress-area" id="dsp-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="dsp-log"></div>
+    </div>
+
+    <div class="result-area" id="dsp-result"></div>
+  </div>
+
+  <div class="footer-note">
+    Dorado Music Marketing &mdash; Spotify &middot; Deezer &middot; Apple Music &middot; Amazon &middot; Claro
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// =====================================================================
+// Tabs
+// =====================================================================
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById('tab-' + name);
+  panel.classList.add('active');
+  const tabs = ['radio', 'press', 'dsp'];
+  const idx = tabs.indexOf(name);
+  document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+  // Re-trigger entrance animation
+  panel.style.animation = 'none';
+  panel.offsetHeight; // reflow
+  panel.style.animation = '';
+}
+
+// =====================================================================
+// Radio mode toggle
+// =====================================================================
+function radioModeChanged() {
+  const mode = document.querySelector('input[name="radio-mode"]:checked').value;
+  document.getElementById('radio-soundcharts-fields').classList.toggle('visible', mode === 'soundcharts');
+  document.getElementById('radio-csv-fields').classList.toggle('visible', mode === 'csv');
+  // Update button text and hide song picker when switching modes
+  const fetchBtn = document.getElementById('radio-fetch-btn');
+  fetchBtn.textContent = mode === 'soundcharts' ? 'Fetch Songs' : 'Generate Report';
+  document.getElementById('radio-song-picker').style.display = 'none';
+  document.getElementById('radio-generate-btn').style.display = 'none';
+  radioFetchJobId = null;
+}
+
+function radioRangeChanged() {
+  const range = document.querySelector('input[name="radio-range"]:checked').value;
+  document.getElementById('radio-custom-range-fields').style.display = range === 'custom' ? 'block' : 'none';
+}
+
+// =====================================================================
+// Dropzone
+// =====================================================================
+const dropzone = document.getElementById('radio-dropzone');
+const fileInput = document.getElementById('radio-files');
+const fileListEl = document.getElementById('radio-file-list');
+let selectedFiles = [];
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => addFiles(fileInput.files));
+
+function addFiles(files) {
+  for (const f of files) {
+    if (f.name.endsWith('.csv') && !selectedFiles.some(s => s.name === f.name)) {
+      selectedFiles.push(f);
+    }
+  }
+  renderFileList();
+}
+
+function removeFile(idx) {
+  selectedFiles.splice(idx, 1);
+  renderFileList();
+}
+
+function renderFileList() {
+  if (!selectedFiles.length) {
+    fileListEl.innerHTML = '';
+    return;
+  }
+  fileListEl.innerHTML = selectedFiles.map((f, i) =>
+    `<div><span>${f.name}</span><a href="#" class="remove-btn" onclick="event.preventDefault();removeFile(${i})">remove</a></div>`
+  ).join('');
+}
+
+// =====================================================================
+// DSP conditional fields
+// =====================================================================
+function dspModeChanged() {
+  const mode = document.querySelector('input[name="dsp-mode"]:checked').value;
+  document.getElementById('dsp-artist-field').classList.toggle('visible', mode === 'artist');
+  document.getElementById('dsp-week-field').classList.toggle('visible', mode === 'week');
+}
+
+// =====================================================================
+// Log colorization
+// =====================================================================
+function colorizeLog(text) {
+  return text
+    .replace(/✓ MATCH:.*/g, m => `<span style="color:#4ade80">${escapeHtml(m)}</span>`)
+    .replace(/Error .*/g, m => `<span style="color:#f87171">${escapeHtml(m)}</span>`)
+    .replace(/→ (\d+) tracks loaded/g, (m, n) => `<span style="color:#6b7280">→ ${n} tracks loaded</span>`)
+    .replace(/→ (\d+) tracks \(cached\)/g, (m, n) => `<span style="color:#6b7280">→ ${n} tracks (cached)</span>`)
+    .replace(/\[Spotify\]/g, '<span style="color:var(--spotify)">[Spotify]</span>')
+    .replace(/\[Deezer\]/g, '<span style="color:var(--deezer)">[Deezer]</span>')
+    .replace(/\[Apple Music\]/g, '<span style="color:var(--apple)">[Apple Music]</span>');
+}
+
+// =====================================================================
+// Polling helper
+// =====================================================================
+function pollJob(jobId, logEl, progressEl, resultEl, onDone) {
+  progressEl.classList.add('visible');
+  resultEl.classList.remove('visible');
+  resultEl.innerHTML = '';
+  let settled = false;
+
+  const interval = setInterval(async () => {
+    if (settled) return;
+    try {
+      const resp = await fetch('/api/status/' + jobId);
+      const data = await resp.json();
+
+      // Update log with colorization
+      const rawLog = data.log.map(l => escapeHtml(l)).join('\n');
+      logEl.innerHTML = colorizeLog(rawLog);
+      logEl.scrollTop = logEl.scrollHeight;
+
+      if (data.status === 'done' || data.status === 'error') {
+        if (settled) return;
+        settled = true;
+        clearInterval(interval);
+        progressEl.classList.remove('visible');
+        onDone(data);
+      }
+    } catch (e) {
+      if (settled) return;
+      settled = true;
+      clearInterval(interval);
+      progressEl.classList.remove('visible');
+      onDone({ status: 'error', error: 'Lost connection to server.' });
+    }
+  }, 500);
+}
+
+function setLoading(btn, loading) {
+  if (loading) {
+    btn.disabled = true;
+    btn._origText = btn.textContent;
+    btn.innerHTML = '<span class="spinner"></span> Running...';
+  } else {
+    btn.disabled = false;
+    btn.textContent = btn._origText || btn.textContent;
+  }
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+const checkSvg = '<svg viewBox="0 0 12 12" fill="none" stroke="white" stroke-width="2"><path d="M2 6l3 3 5-5"/></svg>';
+
+// =====================================================================
+// Radio Report
+// =====================================================================
+let radioFetchJobId = null;
+
+async function runRadio() {
+  const mode = document.querySelector('input[name="radio-mode"]:checked').value;
+
+  if (mode === 'soundcharts') {
+    return fetchRadioSongs();
+  } else {
+    const btn = document.getElementById('radio-fetch-btn');
+    const logEl = document.getElementById('radio-log');
+    const progressEl = document.getElementById('radio-progress');
+    const resultEl = document.getElementById('radio-result');
+    return runRadioCsv(btn, logEl, progressEl, resultEl);
+  }
+}
+
+async function fetchRadioSongs() {
+  const artist = document.getElementById('radio-artist').value.trim();
+  if (!artist) return showToast('Please enter an artist name.');
+
+  const btn = document.getElementById('radio-fetch-btn');
+  const logEl = document.getElementById('radio-log');
+  const progressEl = document.getElementById('radio-progress');
+  const resultEl = document.getElementById('radio-result');
+
+  // Reset UI
+  document.getElementById('radio-song-picker').style.display = 'none';
+  document.getElementById('radio-generate-btn').style.display = 'none';
+  resultEl.classList.remove('visible');
+  resultEl.innerHTML = '';
+  radioFetchJobId = null;
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const timeRange = document.querySelector('input[name="radio-range"]:checked').value;
+    const fetchBody = { artist, region: document.querySelector('input[name="radio-region"]:checked').value, time_range: timeRange };
+    if (timeRange === 'custom') {
+      fetchBody.start_date = document.getElementById('radio-start-date').value;
+      fetchBody.end_date = document.getElementById('radio-end-date').value;
+      if (!fetchBody.start_date || !fetchBody.end_date) {
+        setLoading(btn, false);
+        return showToast('Please select both start and end dates.');
+      }
+    }
+    const resp = await fetch('/api/radio/soundcharts/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fetchBody),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      if (result.status === 'error') {
+        resultEl.classList.add('visible');
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        radioFetchJobId = data.job_id;
+        renderSongPicker(result.result.songs, result.result.range_label, result.result.is_custom);
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+function renderSongPicker(songs, rangeLabel, isCustom) {
+  rangeLabel = rangeLabel || '28D';
+  const refNote = isCustom ? ' (28D reference)' : '';
+  const listEl = document.getElementById('radio-song-list');
+  listEl.innerHTML = songs.map((s, i) => `
+    <label class="song-row">
+      <input type="checkbox" checked value="${escapeAttr(s.song)}" class="radio-song-cb">
+      <span class="song-name">${escapeHtml(s.song)}</span>
+      <span class="song-stats">${s.total_plays.toLocaleString()} plays (${rangeLabel})${refNote} &middot; ${s.station_count} station${s.station_count !== 1 ? 's' : ''}</span>
+    </label>
+  `).join('');
+  document.getElementById('radio-song-picker').style.display = 'block';
+  document.getElementById('radio-generate-btn').style.display = '';
+  document.getElementById('radio-toggle-all').textContent = 'Deselect All';
+  document.getElementById('radio-song-filter').value = '';
+}
+
+function toggleAllSongs() {
+  const boxes = document.querySelectorAll('.radio-song-cb');
+  const allChecked = Array.from(boxes).every(cb => cb.checked);
+  boxes.forEach(cb => cb.checked = !allChecked);
+  document.getElementById('radio-toggle-all').textContent = allChecked ? 'Select All' : 'Deselect All';
+}
+
+function filterSongs() {
+  const q = document.getElementById('radio-song-filter').value.toLowerCase();
+  document.querySelectorAll('#radio-song-list .song-row').forEach(row => {
+    const name = row.querySelector('.song-name').textContent.toLowerCase();
+    row.style.display = name.includes(q) ? '' : 'none';
+  });
+}
+
+async function generateRadioReport() {
+  const selected = Array.from(document.querySelectorAll('.radio-song-cb:checked')).map(cb => cb.value);
+  if (!selected.length) return showToast('Please select at least one song.');
+  if (!radioFetchJobId) return showToast('Please fetch songs first.');
+
+  const artist = document.getElementById('radio-artist').value.trim();
+  const btn = document.getElementById('radio-generate-btn');
+  const logEl = document.getElementById('radio-generate-log');
+  const progressEl = document.getElementById('radio-generate-progress');
+  const resultEl = document.getElementById('radio-result');
+
+  resultEl.classList.remove('visible');
+  resultEl.innerHTML = '';
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const timeRange = document.querySelector('input[name="radio-range"]:checked').value;
+    const genBody = { fetch_job_id: radioFetchJobId, artist, selected_songs: selected, time_range: timeRange };
+    if (timeRange === 'custom') {
+      genBody.start_date = document.getElementById('radio-start-date').value;
+      genBody.end_date = document.getElementById('radio-end-date').value;
+    }
+    const resp = await fetch('/api/radio/soundcharts/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(genBody),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        resultEl.innerHTML = `
+          <div class="result-success">
+            <span class="check-icon">${checkSvg}</span>
+            <strong>Report generated successfully!</strong>
+          </div>
+          <div class="result-actions">
+            <a class="btn btn-small" href="/api/download/${data.job_id}" download>Download Word Document</a>
+          </div>`;
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+async function runRadioCsv(btn, logEl, progressEl, resultEl) {
+  const artist = document.getElementById('radio-artist-csv').value.trim();
+  if (!artist) return showToast('Please enter an artist name.');
+  if (!selectedFiles.length) return showToast('Please upload at least one CSV file.');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  const fd = new FormData();
+  fd.append('artist', artist);
+  selectedFiles.forEach(f => fd.append('csvfiles', f));
+
+  try {
+    const resp = await fetch('/api/radio/run', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        resultEl.innerHTML = `
+          <div class="result-success">
+            <span class="check-icon">${checkSvg}</span>
+            <strong>Report generated successfully!</strong>
+          </div>
+          <div class="result-actions">
+            <a class="btn btn-small" href="/api/download/${data.job_id}" download>Download Word Document</a>
+          </div>`;
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+// =====================================================================
+// Press Pickup
+// =====================================================================
+async function runPress() {
+  const artist = document.getElementById('press-artist').value.trim();
+  if (!artist) return showToast('Please enter an artist name.');
+
+  const days = document.querySelector('input[name="press-days"]:checked').value;
+  const btn = document.getElementById('press-btn');
+  const logEl = document.getElementById('press-log');
+  const progressEl = document.getElementById('press-progress');
+  const resultEl = document.getElementById('press-result');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const resp = await fetch('/api/press/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artist, days: parseInt(days) }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Press search complete!</strong></div>`;
+        if (result.result) {
+          html += `<div class="result-report">${escapeHtml(result.result)}</div>`;
+        }
+        html += `<div class="result-actions">`;
+        if (result.has_file) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}" download>Download Report</a>`;
+        }
+        if (result.result) {
+          html += `<button class="btn btn-small btn-secondary" onclick="copyText(this)" data-text="${escapeAttr(result.result)}">Copy to Clipboard</button>`;
+        }
+        html += `</div>`;
+        resultEl.innerHTML = html;
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+// =====================================================================
+// DSP Pickup
+// =====================================================================
+async function runDsp() {
+  const mode = document.querySelector('input[name="dsp-mode"]:checked').value;
+  const artist = document.getElementById('dsp-artist').value.trim();
+  const week = document.getElementById('dsp-week').value;
+  const spotifyOnly = document.getElementById('dsp-spotify-only').checked;
+
+  if (mode === 'artist' && !artist) return showToast('Please enter an artist name.');
+
+  const btn = document.getElementById('dsp-btn');
+  const logEl = document.getElementById('dsp-log');
+  const progressEl = document.getElementById('dsp-progress');
+  const resultEl = document.getElementById('dsp-result');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const resp = await fetch('/api/dsp/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, artist, week: week || 'current', spotify_only: spotifyOnly }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        // Parse platform match counts from the report text
+        const counts = parsePlatformCounts(result.result || '');
+
+        let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Playlist check complete!</strong></div>`;
+
+        // Platform badges
+        if (counts) {
+          html += `<div class="platform-summary">`;
+          if (counts.spotify) html += `<span class="platform-badge spotify"><span class="dot"></span>${counts.spotify} Spotify</span>`;
+          if (counts.deezer) html += `<span class="platform-badge deezer"><span class="dot"></span>${counts.deezer} Deezer</span>`;
+          if (counts.apple) html += `<span class="platform-badge apple"><span class="dot"></span>${counts.apple} Apple Music</span>`;
+          if (counts.amazon) html += `<span class="platform-badge amazon"><span class="dot"></span>${counts.amazon} Amazon</span>`;
+          if (counts.other) html += `<span class="platform-badge other"><span class="dot"></span>${counts.other} Other</span>`;
+          html += `</div>`;
+        }
+
+        if (result.result) {
+          html += `<div class="result-report">${colorizeReport(escapeHtml(result.result))}</div>`;
+        }
+        html += `<div class="result-actions">`;
+        if (result.has_file) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/txt" download>Download .txt</a>`;
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/json" download>Download .json</a>`;
+        }
+        if (result.result) {
+          html += `<button class="btn btn-small btn-secondary" onclick="copyText(this)" data-text="${escapeAttr(result.result)}">Copy to Clipboard</button>`;
+        }
+        html += `</div>`;
+        resultEl.innerHTML = html;
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+// =====================================================================
+// Helpers
+// =====================================================================
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function escapeAttr(s) {
+  return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function copyText(btn) {
+  const text = btn.getAttribute('data-text');
+  navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!'));
+}
+
+function parsePlatformCounts(reportText) {
+  if (!reportText) return null;
+  const m = { spotify: 0, deezer: 0, apple: 0 };
+  for (const line of reportText.split('\n')) {
+    if (!line.includes('Position #')) continue;
+    if (line.includes('[Spotify]')) m.spotify++;
+    else if (line.includes('[Deezer]')) m.deezer++;
+    else if (line.includes('[Apple Music]')) m.apple++;
+  }
+  if (!m.spotify && !m.deezer && !m.apple) return null;
+  return m;
+}
+
+function colorizeReport(html) {
+  return html
+    .replace(/\[Spotify\]/g, '<span style="color:#4ade80">[Spotify]</span>')
+    .replace(/\[Deezer\]/g, '<span style="color:#c084fc">[Deezer]</span>')
+    .replace(/\[Apple Music\]/g, '<span style="color:#fb7185">[Apple Music]</span>')
+    .replace(/\[Amazon Music\]/g, '<span style="color:#22d3ee">[Amazon Music]</span>')
+    .replace(/Position #(\d+)/g, 'Position <span style="color:#f87171;font-weight:600">#$1</span>')
+    .replace(/^(={2,})/gm, '<span style="color:#4b5563">$1</span>')
+    .replace(/^(-{2,})/gm, '<span style="color:#4b5563">$1</span>');
+}
+
+// Default week date to this Friday
+(function() {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = (5 - day + 7) % 7;
+  const friday = new Date(d);
+  friday.setDate(d.getDate() + (diff === 0 && d.getHours() > 12 ? 7 : diff));
+  document.getElementById('dsp-week').value = friday.toISOString().split('T')[0];
+
+  // Default custom range dates: 28 days ago → today
+  const today = new Date();
+  const ago28 = new Date(today);
+  ago28.setDate(today.getDate() - 28);
+  document.getElementById('radio-end-date').value = today.toISOString().split('T')[0];
+  document.getElementById('radio-start-date').value = ago28.toISOString().split('T')[0];
+})();
+</script>
+</body>
+</html>

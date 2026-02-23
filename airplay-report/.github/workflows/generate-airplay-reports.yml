@@ -1,0 +1,76 @@
+# .github/workflows/generate-airplay-reports.yml
+#
+# Triggers:
+#   1. When new CSV files are pushed to data/ folders
+#   2. Manual trigger from GitHub UI
+#   3. On a schedule (e.g., every Friday after new data arrives)
+#
+# Output:
+#   - Generated .docx reports committed to reports/ folder
+#   - Optionally uploaded to Google Drive (uncomment that section)
+
+name: Generate Airplay Reports
+
+on:
+  push:
+    paths:
+      - 'data/**/*.csv'
+      - 'artists.json'
+  workflow_dispatch:
+    inputs:
+      artist:
+        description: 'Specific artist to process (leave empty for all)'
+        required: false
+        default: ''
+  schedule:
+    # Every Friday at 18:00 UTC (1pm Lima time)
+    - cron: '0 18 * * 5'
+
+jobs:
+  generate-reports:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install -g docx
+
+      - name: Generate reports
+        run: |
+          chmod +x batch_generate.sh
+          if [ -n "${{ github.event.inputs.artist }}" ]; then
+            ./batch_generate.sh --artist "${{ github.event.inputs.artist }}"
+          else
+            ./batch_generate.sh
+          fi
+
+      - name: Commit reports
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add reports/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            DATE=$(date +%Y-%m-%d)
+            git commit -m "Update airplay reports — ${DATE}"
+            git push
+          fi
+
+      # --- Optional: Upload to Google Drive ---
+      # Uncomment below and add GOOGLE_CREDENTIALS secret to your repo
+      #
+      # - name: Upload to Google Drive
+      #   uses: adityak74/google-drive-upload-git-action@main
+      #   with:
+      #     credentials: ${{ secrets.GOOGLE_CREDENTIALS }}
+      #     filename: "reports/*.docx"
+      #     folderId: "YOUR_GOOGLE_DRIVE_FOLDER_ID"
+      #     overwrite: "true"
