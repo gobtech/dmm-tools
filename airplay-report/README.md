@@ -7,7 +7,9 @@ Generates formatted `.docx` radio airplay reports from CSV data. Supports multip
 The web UI at `http://localhost:5000` (run `python web/app.py` from the project root) auto-fetches airplay data from Soundcharts and generates the report in one click — no manual CSV downloads needed. It supports:
 
 - **LATAM-only** (default) or **all countries** region filter
-- Automatic artist search on Soundcharts
+- **Time ranges**: 7 Days, Previous 7 Days, 28 Days, 1 Year, or **Custom Date Range** (calendar picker)
+- Automatic Soundcharts login (no manual token extraction)
+- Song picker with search filter — select which songs to include
 - Paginated data fetch via Soundcharts GraphQL API
 - Direct .docx download
 

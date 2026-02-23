@@ -21,7 +21,7 @@ python web/app.py
 ```
 
 The web UI provides:
-- **Radio Report**: Type an artist name → auto-fetches from Soundcharts → downloads .docx (LATAM or all countries)
+- **Radio Report**: Type an artist name → auto-fetches from Soundcharts → downloads .docx (LATAM or all countries, with custom date range support)
 - **Press Pickup**: Type an artist name + date range → searches Brave → displays formatted report
 - **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms
 
@@ -38,7 +38,8 @@ cp Untitled_*_all.csv data/playlist_database.csv
 
 # 3. Set API keys in .env
 export BRAVE_API_KEY="..."          # Brave Search (for Press Pickup)
-export SOUNDCHARTS_TOKEN="..."      # Soundcharts session token (for Radio Report)
+export SOUNDCHARTS_EMAIL="..."      # Soundcharts login (for Radio Report)
+export SOUNDCHARTS_PASSWORD="..."
 ```
 
 ## CLI Usage
@@ -87,14 +88,14 @@ python dsp-pickup/dsp_pickup.py --all --spotify-only --output reports/dsp_full.t
 ```
 dmm-tools/
 ├── README.md
-├── .env                            ← API keys (BRAVE_API_KEY, SOUNDCHARTS_TOKEN)
+├── .env                            ← API keys (BRAVE_API_KEY, SOUNDCHARTS_EMAIL/PASSWORD)
 ├── data/
 │   ├── press_database.csv          ← Notion export (media outlets)
 │   ├── playlist_database.csv       ← Notion export (target playlists)
 │   └── djo/                        ← Manual Soundcharts CSVs (optional fallback)
 ├── shared/
 │   ├── database.py                 ← Shared data loaders + press matching
-│   └── soundcharts.py              ← Soundcharts API client (search, airplay fetch)
+│   └── soundcharts.py              ← Soundcharts API client (auto-login, search, airplay fetch)
 ├── web/
 │   ├── app.py                      ← Flask web server
 │   └── templates/
@@ -120,16 +121,15 @@ dmm-tools/
 > Free tier: $5/month (~1,000 queries). Press pickup uses ~50 queries per artist search (smart early-stop pagination).
 
 ### Soundcharts (for Radio Report)
-The Radio Report auto-fetches airplay data using a Soundcharts session token (no paid API tier required — uses the internal web API with your existing paid account).
+The Radio Report auto-fetches airplay data using your Soundcharts account credentials (no paid API tier required — uses the internal web API with your existing paid account). Authentication is fully automatic — the app logs in programmatically and refreshes the token before it expires.
 
-1. Log in to [app.soundcharts.com](https://app.soundcharts.com)
-2. Open DevTools (`F12`) → Network tab
-3. Navigate to any artist page
-4. Click any request to `graphql.soundcharts.com`
-5. Copy the `Authorization: Bearer eyJ...` header value (everything after `Bearer `)
-6. Add to `.env`: `export SOUNDCHARTS_TOKEN="eyJ..."`
+1. Add your Soundcharts credentials to `.env`:
+   ```bash
+   export SOUNDCHARTS_EMAIL="your@email.com"
+   export SOUNDCHARTS_PASSWORD="your-password"
+   ```
 
-> Token expires ~48 hours after login. Refresh by repeating steps 1-6.
+> No manual token extraction needed. The app handles login and token refresh automatically.
 
 ## Data Sources
 
@@ -153,5 +153,4 @@ Similar workflows can be set up for press and DSP pickup — store API keys as G
 
 - **Amazon Music / Claro Música playlists**: No public API. The DSP tool flags these for manual checking.
 - **New media outlet discovery**: The tool flags outlets not in the database, but adding them to Notion is manual.
-- **Soundcharts token refresh**: Token expires ~48hrs. Must be manually refreshed from browser DevTools.
 - **Slack responses**: Still human territory.

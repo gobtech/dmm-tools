@@ -61,16 +61,9 @@ pip install requests
 
 ### Soundcharts (for Radio Report)
 
-The Radio Report auto-fetches airplay data using your existing Soundcharts paid account session — no separate API subscription needed.
+The Radio Report auto-fetches airplay data using your existing Soundcharts paid account — no separate API subscription needed. Authentication is fully automatic: the app logs in with your credentials and refreshes the token before it expires (~48hr lifetime). No manual token extraction from browser DevTools required.
 
-1. Log in to [app.soundcharts.com](https://app.soundcharts.com)
-2. Open DevTools (`F12`) → Network tab
-3. Navigate to any artist page
-4. Click any request to `graphql.soundcharts.com` or `search.soundcharts.com`
-5. In the Headers tab, find `Authorization: Bearer eyJ...`
-6. Copy everything after `Bearer ` — this is your `SOUNDCHARTS_TOKEN`
-
-> The token expires ~48 hours after login. When it expires, repeat steps 1-6 to get a fresh one.
+Just add your Soundcharts login credentials to `.env` (see Step 4).
 
 > **Note:** The DSP Pickup tool does **not** require any API keys. Spotify playlists are checked via public embed page scraping, Deezer uses its public API, and Apple Music playlists are checked via public page scraping — no credentials needed for any of them.
 
@@ -85,7 +78,8 @@ Fill in your keys:
 
 ```bash
 export BRAVE_API_KEY="BSAM..."
-export SOUNDCHARTS_TOKEN="eyJ..."
+export SOUNDCHARTS_EMAIL="your@email.com"
+export SOUNDCHARTS_PASSWORD="your-password"
 ```
 
 Then load them:
@@ -122,7 +116,7 @@ python web/app.py
 
 Open http://localhost:5000 and test each tool:
 
-1. **Radio Report** — Select "Fetch from Soundcharts", enter an artist name, pick LATAM region, click Generate
+1. **Radio Report** — Select "Fetch from Soundcharts", enter an artist name, pick LATAM region and time range (7D/28D/1Y/Custom Range), click Fetch Songs, select songs, click Generate
 2. **Press Pickup** — Enter an artist name, pick a date range, click Search
 3. **DSP Pickup** — Enter an artist name, click Check Playlists
 
@@ -213,7 +207,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 | Source | How to update |
 |--------|--------------|
 | Soundcharts airplay | Automatic — fetched live via API on each Radio Report run |
-| Soundcharts token | Refresh from browser DevTools every ~48hrs (see Step 3) |
+| Soundcharts auth | Automatic — token refreshes programmatically via login |
 | Press database | Re-export from Notion, replace `data/press_database.csv` |
 | Playlist database | Re-export from Notion, replace `data/playlist_database.csv` |
 | Release schedule | Automatic — pulls live from Google Sheets on every run |
@@ -229,7 +223,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 | DSP pickup — Apple Music playlists (13) | Fully automated (page scraping, no API key) |
 | DSP pickup — Amazon Music playlists | Manual (no public API) |
 | DSP pickup — Claro Música playlists | Manual (no public API) |
-| Soundcharts token refresh | Manual (~48hr expiry, refresh from browser DevTools) |
+| Soundcharts token refresh | Fully automated (programmatic login, auto-refresh) |
 | New media outlet discovery | Flagged automatically, adding to Notion is manual |
 
 ## Troubleshooting
@@ -255,11 +249,14 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 **Press database matching misses an outlet**
 → The outlet probably doesn't have a website URL in the Notion database. Add the URL in Notion, re-export, and it'll match next time. Meanwhile, the tool flags it as `[NEW — not in DB]` and uses a generic description.
 
-**Radio Report: "SOUNDCHARTS_TOKEN not configured in .env"**
-→ Add your Soundcharts session token to `.env` (see Step 3 above). Make sure to restart the web server after editing `.env`.
+**Radio Report: "Soundcharts credentials not configured"**
+→ Add `SOUNDCHARTS_EMAIL` and `SOUNDCHARTS_PASSWORD` to `.env` (see Step 4 above). Restart the web server after editing `.env`.
+
+**Radio Report: "Soundcharts login failed: Bad credentials"**
+→ Check that the email and password in `.env` match your Soundcharts account. Make sure there are no extra quotes or spaces.
 
 **Radio Report: "Failed to fetch airplay data. Token may be expired."**
-→ Your Soundcharts token has expired (~48hrs). Log in to app.soundcharts.com, grab a fresh token from DevTools, and update `.env`.
+→ This shouldn't happen with auto-login, but if it does, restart the web server to force a fresh login. If the issue persists, verify your Soundcharts account is still active.
 
 **Radio Report: "Artist not found on Soundcharts"**
 → Check the artist name spelling. The search is fuzzy but needs a close match. Try the exact name as shown on Soundcharts.
