@@ -204,10 +204,6 @@ def radio_soundcharts():
     if not artist:
         return jsonify({'error': 'Please enter an artist name.'}), 400
 
-    token = os.environ.get('SOUNDCHARTS_TOKEN', '').strip()
-    if not token:
-        return jsonify({'error': 'SOUNDCHARTS_TOKEN not configured in .env'}), 400
-
     job_id = new_job()
 
     safe_artist = artist.lower().replace(' ', '_')
@@ -215,7 +211,12 @@ def radio_soundcharts():
 
     def run():
         try:
-            from shared.soundcharts import search_artist, fetch_airplay_data, airplay_to_csv
+            from shared.soundcharts import search_artist, fetch_airplay_data, airplay_to_csv, get_token
+
+            token = get_token()
+            if not token:
+                finish_job(job_id, error='Soundcharts credentials not configured. Add SOUNDCHARTS_EMAIL and SOUNDCHARTS_PASSWORD to .env')
+                return
 
             log_fn = lambda msg: log_line(job_id, msg)
 
@@ -328,15 +329,16 @@ def radio_soundcharts_fetch():
 
     sort_col, play_key = RANGE_MAP.get(time_range, RANGE_MAP['28d'])
 
-    token = os.environ.get('SOUNDCHARTS_TOKEN', '').strip()
-    if not token:
-        return jsonify({'error': 'SOUNDCHARTS_TOKEN not configured in .env'}), 400
-
     job_id = new_job()
 
     def run():
         try:
-            from shared.soundcharts import search_artist, fetch_airplay_data
+            from shared.soundcharts import search_artist, fetch_airplay_data, get_token
+
+            token = get_token()
+            if not token:
+                finish_job(job_id, error='Soundcharts credentials not configured. Add SOUNDCHARTS_EMAIL and SOUNDCHARTS_PASSWORD to .env')
+                return
 
             log_fn = lambda msg: log_line(job_id, msg)
 
@@ -449,10 +451,12 @@ def radio_soundcharts_generate():
 
             if time_range == 'custom':
                 # Custom range: fetch per-song data using SongBroadcastTopBroadcastPlayList
-                from shared.soundcharts import fetch_song_custom_range, LATAM_CODES
-                import os as _os
+                from shared.soundcharts import fetch_song_custom_range, LATAM_CODES, get_token as _get_token
 
-                token = _os.environ.get('SOUNDCHARTS_TOKEN', '').strip()
+                token = _get_token()
+                if not token:
+                    finish_job(job_id, error='Soundcharts credentials not configured.')
+                    return
                 song_uuids = fetch_job.get('song_uuids', {})
                 country_filter = LATAM_CODES if region == 'latam' else None
 

@@ -1,12 +1,13 @@
 """
 Soundcharts API client.
 Uses the internal web API (GraphQL + search) with a Bearer token
-from an active Soundcharts session.
+obtained via programmatic login.
 """
 
 import os
 import csv
 import time
+import threading
 import requests
 
 GRAPHQL_URL = 'https://graphql.soundcharts.com/'
@@ -132,12 +133,104 @@ COUNTRY_CODE_MAP = {
 }
 
 
-def get_token():
-    """Get Soundcharts Bearer token from environment."""
-    token = os.environ.get('SOUNDCHARTS_TOKEN', '').strip()
-    if not token:
+LOGIN_QUERY = """
+mutation Login($input: LoginInput!) {
+  Login(input: $input) {
+    token
+    expiresAt
+  }
+}
+"""
+
+# Thread-safe token cache
+_token_lock = threading.Lock()
+_cached_token = None
+_token_expires_at = 0
+
+
+def login(email=None, password=None):
+    """
+    Authenticate with Soundcharts and return a Bearer token.
+    Uses SOUNDCHARTS_EMAIL / SOUNDCHARTS_PASSWORD from env if not provided.
+    """
+    email = email or os.environ.get('SOUNDCHARTS_EMAIL', '').strip()
+    password = password or os.environ.get('SOUNDCHARTS_PASSWORD', '').strip()
+    if not email or not password:
         return None
-    return token
+
+    payload = {
+        'operationName': 'Login',
+        'query': LOGIN_QUERY,
+        'variables': {
+            'input': {
+                'email': email,
+                'password': password,
+            }
+        },
+    }
+
+    resp = requests.post(
+        GRAPHQL_URL,
+        json=payload,
+        headers={'Content-Type': 'application/json', 'Accept': '*/*'},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if 'errors' in data:
+        msg = data['errors'][0].get('message', 'Unknown error')
+        raise RuntimeError(f'Soundcharts login failed: {msg}')
+
+    login_data = data.get('data', {}).get('Login', {})
+    token = login_data.get('token')
+    if not token:
+        raise RuntimeError('Soundcharts login returned no token')
+
+    return token, login_data.get('expiresAt', 0)
+
+
+def get_token():
+    """
+    Get a valid Soundcharts Bearer token.
+    Priority: cached token (if fresh) → programmatic login → env SOUNDCHARTS_TOKEN fallback.
+    """
+    global _cached_token, _token_expires_at
+
+    with _token_lock:
+        # Return cached token if still fresh (refresh 5 min before expiry)
+        now = time.time()
+        if _cached_token and _token_expires_at > now + 300:
+            return _cached_token
+
+        # Try programmatic login
+        email = os.environ.get('SOUNDCHARTS_EMAIL', '').strip()
+        password = os.environ.get('SOUNDCHARTS_PASSWORD', '').strip()
+        if email and password:
+            try:
+                token, expires_at = login(email, password)
+                _cached_token = token
+                # expiresAt from API is an ISO timestamp string
+                try:
+                    from datetime import datetime, timezone
+                    dt = datetime.fromisoformat(expires_at)
+                    _token_expires_at = dt.timestamp()
+                except (ValueError, TypeError):
+                    _token_expires_at = now + 3600
+                return _cached_token
+            except Exception:
+                # If login fails but we have a cached token, use it
+                if _cached_token:
+                    return _cached_token
+
+        # Fallback: manual token from env
+        token = os.environ.get('SOUNDCHARTS_TOKEN', '').strip()
+        if token:
+            _cached_token = token
+            _token_expires_at = now + 3600  # assume 1hr validity
+            return token
+
+        return None
 
 
 def search_artist(name, token=None):
