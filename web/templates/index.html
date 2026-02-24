@@ -1839,7 +1839,8 @@ function colorizeReport(html) {
     .replace(/\[Amazon Music\]/g, '<span style="color:#22d3ee">[Amazon Music]</span>')
     .replace(/Position #(\d+)/g, 'Position <span style="color:#f87171;font-weight:600">#$1</span>')
     .replace(/^(={2,})/gm, '<span style="color:#4b5563">$1</span>')
-    .replace(/^(-{2,})/gm, '<span style="color:#4b5563">$1</span>');
+    .replace(/^(-{2,})/gm, '<span style="color:#4b5563">$1</span>')
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#93c5fd;text-decoration:underline">$1</a>');
 }
 
 // Default week date to this Friday

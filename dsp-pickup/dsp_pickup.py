@@ -414,6 +414,7 @@ def run_dsp_pickup(releases, playlists, output_path=None):
                     'playlist_name': pl['name'],
                     'playlist_country': pl['country'],
                     'playlist_followers': pl['followers'],
+                    'playlist_link': pl.get('link', ''),
                     'platform': 'Spotify',
                     **match,
                 })
@@ -442,6 +443,7 @@ def run_dsp_pickup(releases, playlists, output_path=None):
                     'playlist_name': pl['name'],
                     'playlist_country': pl['country'],
                     'playlist_followers': pl['followers'],
+                    'playlist_link': pl.get('link', ''),
                     'platform': 'Deezer',
                     **match,
                 })
@@ -475,6 +477,7 @@ def run_dsp_pickup(releases, playlists, output_path=None):
                     'playlist_name': pl['name'],
                     'playlist_country': pl['country'],
                     'playlist_followers': pl['followers'],
+                    'playlist_link': pl.get('link', ''),
                     'platform': 'Apple Music',
                     **match,
                 })
@@ -514,9 +517,10 @@ def run_dsp_pickup(releases, playlists, output_path=None):
                 output_lines.append(f"  {title}:")
                 for m in sorted(matches, key=lambda x: x.get('playlist_name', '')):
                     followers = f" ({m['playlist_followers']} followers)" if m.get('playlist_followers') else ""
+                    link = f"\n      {m['playlist_link']}" if m.get('playlist_link') else ""
                     output_lines.append(
                         f"    • {m['playlist_name']} [{m['platform']}] — "
-                        f"{m['playlist_country']}{followers} — Position #{m['position']}"
+                        f"{m['playlist_country']}{followers} — Position #{m['position']}{link}"
                     )
     
     # Note manual checks needed
