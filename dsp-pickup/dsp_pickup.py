@@ -301,43 +301,62 @@ def check_release_in_playlist(release, playlist_tracks):
     """
     release_artist = normalize_name(release['artist'])
     release_title = normalize_name(release['title'])
-    focus_track = normalize_name(release.get('focus_track', '') or release['title'])
-    
+
+    # Clean focus_track: treat placeholders like "-", "–", "N/A", "TBD" as empty
+    raw_focus = (release.get('focus_track', '') or '').strip()
+    if raw_focus in ('-', '–', '—', 'N/A', 'n/a', 'TBD', 'tbd', ''):
+        focus_track = ''
+    else:
+        focus_track = normalize_name(raw_focus)
+
     for track in playlist_tracks:
         # Check if any artist matches
         artist_match = False
         for pl_artist in track.get('artists_list', [track.get('artist', '')]):
-            if normalize_name(pl_artist) == release_artist:
+            pl_artist_norm = normalize_name(pl_artist)
+            if not pl_artist_norm:
+                continue
+            if pl_artist_norm == release_artist:
                 artist_match = True
                 break
-            # Partial match for artist name
-            if release_artist in normalize_name(pl_artist) or normalize_name(pl_artist) in release_artist:
-                artist_match = True
-                break
-        
+            # Partial match — require minimum length to avoid false positives
+            if len(release_artist) >= 3 and len(pl_artist_norm) >= 3:
+                if release_artist in pl_artist_norm or pl_artist_norm in release_artist:
+                    artist_match = True
+                    break
+
         if not artist_match:
             continue
-        
+
         # Check track/album title match
         pl_track = normalize_name(track.get('track', ''))
         pl_album = normalize_name(track.get('album', ''))
-        
-        title_match = (
-            release_title == pl_track or
-            release_title in pl_track or
-            pl_track in release_title or
-            focus_track == pl_track or
-            focus_track in pl_track or
-            release_title == pl_album
-        )
-        
+
+        # Skip empty values in substring checks to prevent "" matching everything
+        title_match = False
+        if release_title and pl_track:
+            if release_title == pl_track:
+                title_match = True
+            # Substring match only if the shorter string is long enough (>=4 chars)
+            elif len(release_title) >= 4 and len(pl_track) >= 4:
+                if release_title in pl_track or pl_track in release_title:
+                    title_match = True
+        if not title_match and focus_track and pl_track:
+            if focus_track == pl_track:
+                title_match = True
+            elif len(focus_track) >= 4 and len(pl_track) >= 4:
+                if focus_track in pl_track or pl_track in focus_track:
+                    title_match = True
+        if not title_match and release_title and pl_album:
+            if release_title == pl_album:
+                title_match = True
+
         if title_match:
             return {
                 'playlist_track': track.get('track', ''),
                 'playlist_artist': track.get('artist', ''),
                 'position': track.get('position', '?'),
                 'added_at': track.get('added_at', ''),
-                'match_type': 'exact' if title_match else 'artist_only',
             }
     
     return None
@@ -463,14 +482,34 @@ def run_dsp_pickup(releases, playlists, output_path=None):
 
     # Format output
     output_lines = ["DSP Pickup Report", "=" * 50, ""]
-    
+
+    # List all artists/releases that were checked
+    checked_artists = {}
+    for r in releases:
+        a = r['artist']
+        if a not in checked_artists:
+            checked_artists[a] = []
+        checked_artists[a].append(r['title'])
+
+    output_lines.append(f"Releases checked ({len(releases)}):")
+    for artist in sorted(checked_artists.keys()):
+        titles = ', '.join(checked_artists[artist])
+        output_lines.append(f"  • {artist} — {titles}")
+    output_lines.append("")
+
     if not results:
         output_lines.append("No matches found in any checked playlists.")
     else:
+        # Show which artists had no matches
+        no_match_artists = [a for a in sorted(checked_artists.keys()) if a not in results]
+        if no_match_artists:
+            output_lines.append(f"No placements found for: {', '.join(no_match_artists)}")
+            output_lines.append("")
+
         for artist in sorted(results.keys()):
             output_lines.append(f"\n{artist}")
             output_lines.append("-" * len(artist))
-            
+
             for title, matches in sorted(results[artist].items()):
                 output_lines.append(f"  {title}:")
                 for m in sorted(matches, key=lambda x: x.get('playlist_name', '')):
@@ -507,45 +546,72 @@ def run_dsp_pickup(releases, playlists, output_path=None):
     return results
 
 
-def parse_week_date(week_str):
-    """Parse week string into date range (Monday-Sunday)."""
-    if week_str.lower() == 'current':
-        today = datetime.now()
-        # Find this week's Friday (releases drop Friday)
-        days_since_friday = (today.weekday() - 4) % 7
-        friday = today - timedelta(days=days_since_friday)
-        return friday.strftime('%b %-d'), friday
-    else:
-        date = datetime.strptime(week_str, '%Y-%m-%d')
-        return date.strftime('%b %-d'), date
+def _parse_release_date(date_str, ref_year=None):
+    """Parse date strings like 'Feb 23', 'Mar 6', 'April 10' into datetime."""
+    if ref_year is None:
+        ref_year = datetime.now().year
+    date_str = date_str.strip()
+    # Try common formats: "Feb 23", "Mar 6", "April 10"
+    for fmt in ('%b %d', '%B %d'):
+        try:
+            return datetime.strptime(f"{date_str} {ref_year}", f'{fmt} %Y')
+        except ValueError:
+            continue
+    return None
 
 
 def filter_releases_by_week(releases, target_date_str):
-    """Filter releases to only those from a specific week."""
+    """
+    Filter releases to a specific week block from the release schedule.
+    Uses the week_block field (derived from separator rows in the Google Sheet)
+    to identify which releases belong together in a week.
+    Falls back to date proximity if week_block data is missing.
+    """
     # Parse target date
     if target_date_str.lower() == 'current':
-        today = datetime.now()
-        days_since_friday = (today.weekday() - 4) % 7
-        target = today - timedelta(days=days_since_friday)
+        target = datetime.now()
     else:
         target = datetime.strptime(target_date_str, '%Y-%m-%d')
-    
-    # Filter releases within 7 days of target
-    filtered = []
+
+    # Group releases by week_block
+    blocks = {}
     for r in releases:
-        date_str = r.get('date', '').strip()
-        if not date_str:
+        wb = r.get('week_block', -1)
+        if wb not in blocks:
+            blocks[wb] = []
+        blocks[wb].append(r)
+
+    # Find the block whose date range contains the target date
+    best_block = None
+    best_distance = None
+    for wb, block_releases in blocks.items():
+        # Parse all dates in this block
+        dates = []
+        for r in block_releases:
+            d = _parse_release_date(r.get('date', ''), target.year)
+            if d:
+                dates.append(d)
+        if not dates:
             continue
-        try:
-            # Parse "Jan 5", "Feb 14" etc — assume current year
-            release_date = datetime.strptime(f"{date_str} {target.year}", '%b %d %Y')
-            diff = abs((release_date - target).days)
-            if diff <= 3:  # Within 3 days of target (Friday releases)
-                filtered.append(r)
-        except ValueError:
-            continue
-    
-    return filtered
+
+        block_start = min(dates)
+        block_end = max(dates)
+
+        # Target falls within this block's date range
+        if block_start <= target <= block_end:
+            return block_releases
+
+        # Track closest block as fallback
+        dist = min(abs((target - block_start).days), abs((target - block_end).days))
+        if best_distance is None or dist < best_distance:
+            best_distance = dist
+            best_block = wb
+
+    # Fallback: return the closest block (within 7 days)
+    if best_block is not None and best_distance <= 7:
+        return blocks[best_block]
+
+    return []
 
 
 def main():

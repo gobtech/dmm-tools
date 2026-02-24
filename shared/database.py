@@ -199,9 +199,10 @@ def load_release_schedule(csv_path_or_url):
     """
     Load release schedule from local CSV or published Google Sheets URL.
     Returns list of releases with artist, title, date, spotify_uri, isrc, etc.
+    Each release includes a 'week_block' index based on separator rows in the sheet.
     """
     import io
-    
+
     content = None
     if csv_path_or_url.startswith('http'):
         import urllib.request
@@ -210,14 +211,23 @@ def load_release_schedule(csv_path_or_url):
     else:
         with open(csv_path_or_url, encoding='utf-8') as f:
             content = f.read()
-    
+
     releases = []
+    week_block = 0
     reader = csv.DictReader(io.StringIO(content))
     for row in reader:
         artist = row.get('ARTIST', '').strip()
         title = row.get('TITLE', '').strip()
         date = row.get('DATE', '').strip()
-        
+
+        # Empty rows (gray separators in the sheet) mark week boundaries
+        if not artist and not title and not date:
+            week_block += 1
+            continue
+
+        if not artist:
+            continue
+
         # Handle trailing space in column name
         spotify_uri = (row.get('SPOTIFY URI', '') or row.get('SPOTIFY URI ', '') or '').strip()
         isrc = row.get('ISRC', '').strip()
@@ -225,10 +235,7 @@ def load_release_schedule(csv_path_or_url):
         priority = row.get('PRIORITY', '').strip()
         label = row.get('LABEL', '').strip()
         format_ = row.get('FORMAT', '').strip()
-        
-        if not artist:
-            continue
-        
+
         # Extract Spotify track/album ID from URI
         spotify_id = None
         spotify_type = None
@@ -237,7 +244,7 @@ def load_release_schedule(csv_path_or_url):
             if match:
                 spotify_type = match.group(1)
                 spotify_id = match.group(2)
-        
+
         releases.append({
             'artist': artist,
             'title': title,
@@ -250,8 +257,9 @@ def load_release_schedule(csv_path_or_url):
             'priority': priority,
             'label': label,
             'format': format_,
+            'week_block': week_block,
         })
-    
+
     return releases
 
 
