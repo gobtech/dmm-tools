@@ -10,7 +10,7 @@ This toolkit replaces that manual work with three tools:
 
 - **Radio Report Generator** — Auto-fetches airplay data directly from Soundcharts (using your existing paid account session) and produces formatted Word documents with radio play data grouped by country and station. Defaults to LATAM-only data, with an option for all countries. What used to involve manual CSV downloads and copy-pasting into Google Docs now runs in seconds with zero transcription errors.
 
-- **Press Pickup Tool** — Searches Brave for Spanish and Portuguese-language press coverage of artists (with smart paginated search — up to 100 results per query with early-stop optimization), matches results against DMM's internal media database (1,500+ outlets with descriptions and reach metrics from Notion), and generates formatted reports sorted by country. When an outlet isn't found in the database, it uses a generic music media description.
+- **Press Pickup Tool** — Searches for Spanish and Portuguese-language press coverage using a 3-source hybrid approach: Google News RSS (free, unlimited — primary press source across 5 LATAM regions), Brave Search (free, 2,000/month — supplementary press), and Serper.dev (3 credits/search — actual Google results including social media posts from Instagram, Facebook, and X). Results are matched against DMM's internal media database (1,500+ outlets with descriptions and reach metrics from Notion) and formatted into reports sorted by country. Social media posts are displayed with platform labels. When an outlet isn't found in the database, it uses a generic music media description.
 
 - **DSP Pickup Tool** — Checks 82 LATAM editorial playlists across Spotify, Deezer, Apple Music, Amazon Music, and Claro Música against DMM's release schedule (pulled live from a shared Google Sheet) to find artist placements. Spotify (50 playlists), Deezer (6 playlists), and Apple Music (13 playlists) are fully automated — Spotify uses public embed page scraping (no API key needed), Deezer uses its public API, and Apple Music uses public page scraping. Amazon and Claro are flagged for manual checking since they lack public APIs.
 
@@ -46,18 +46,26 @@ Python (for press + DSP pickup) — use a virtual environment:
 cd ~/projects/dmm-tools
 python3 -m venv .venv
 source .venv/bin/activate
-pip install requests
+pip install requests googlenewsdecoder
 ```
 
 ## Step 3: Get API keys
 
-### Brave Search (for Press Pickup)
+### Serper.dev (for Press Pickup — Google results + social media)
+
+1. Go to [serper.dev](https://serper.dev/)
+2. Sign up and create an API key
+3. Copy the key — this is your `SERPER_API_KEY`
+
+> New accounts get 2,500 free credits (one-time). Press Pickup uses only 3 credits per artist search (1 news query + 2 organic queries), so this lasts ~830 searches. Serper provides actual Google results including social media posts that Google News RSS and Brave miss.
+
+### Brave Search (supplementary for Press Pickup)
 
 1. Go to [brave.com/search/api](https://brave.com/search/api/)
 2. Sign up and create an API key
 3. Copy the key — this is your `BRAVE_API_KEY`
 
-> New accounts get $5/month in free credits (~1,000 queries). Press pickup uses ~50 API calls per artist search (smart early-stop pagination keeps costs low — ~$0.25 per search).
+> Free tier: 2,000 queries/month (recurring). Used as a supplementary source — the bulk of press results come from Google News RSS (free, unlimited) and Serper.
 
 ### Soundcharts (for Radio Report)
 
@@ -77,8 +85,9 @@ nano .env  # or: code .env
 Fill in your keys:
 
 ```bash
-export BRAVE_API_KEY="BSAM..."
-export SOUNDCHARTS_EMAIL="your@email.com"
+export SERPER_API_KEY="..."                # Serper.dev (Google results for Press Pickup)
+export BRAVE_API_KEY="BSAM..."             # Brave Search (supplementary for Press Pickup)
+export SOUNDCHARTS_EMAIL="your@email.com"  # Soundcharts (for Radio Report)
 export SOUNDCHARTS_PASSWORD="your-password"
 ```
 
@@ -217,7 +226,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 | Task | Status |
 |------|--------|
 | Radio play reports (Soundcharts auto-fetch) | Fully automated (LATAM default, all countries optional) |
-| Press pickup (Brave Search + database matching) | Fully automated (paginated search, up to 100 results/query) |
+| Press pickup (Google News RSS + Brave + Serper) | Fully automated (3-source hybrid: free RSS + Brave + 3 Serper credits/search, includes social media posts) |
 | DSP pickup — Spotify playlists (50) | Fully automated (embed scraping, no API key) |
 | DSP pickup — Deezer playlists (6) | Fully automated (public API, no key) |
 | DSP pickup — Apple Music playlists (13) | Fully automated (page scraping, no API key) |
@@ -228,17 +237,17 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 
 ## Troubleshooting
 
-**`Error: BRAVE_API_KEY environment variable required`**
-→ Run `source .env` or check that your `.env` file has the correct key
+**`Error: SERPER_API_KEY environment variable required`**
+→ Run `source .env` or check that your `.env` file has the correct Serper API key. Get one at [serper.dev](https://serper.dev/)
 
 **`Error: Cannot find module 'docx'`**
 → Run `npm install docx` from the `dmm-tools` directory (installs locally, not globally)
 
-**`ModuleNotFoundError: No module named 'requests'`**
-→ Make sure the venv is activated: `source ~/projects/dmm-tools/.venv/bin/activate`, then run `pip install requests`
+**`ModuleNotFoundError: No module named 'requests'`** (or `googlenewsdecoder`)
+→ Make sure the venv is activated: `source ~/projects/dmm-tools/.venv/bin/activate`, then run `pip install requests googlenewsdecoder`
 
-**Brave search returns no results**
-→ Try broadening the date range with `--days 30` or `--days 90`. Check that your Brave API key is valid and has remaining credits at [api-dashboard.search.brave.com](https://api-dashboard.search.brave.com)
+**Press pickup returns few or no results**
+→ Try broadening the date range with `--days 30` or `--days 90`. Check that your API keys are valid: Serper credits at [serper.dev/dashboard](https://serper.dev/dashboard), Brave quota at [api-dashboard.search.brave.com](https://api-dashboard.search.brave.com). Google News RSS is free and unlimited, so at minimum you should always get press articles
 
 **Spotify playlist says "Could not parse playlist"**
 → Some playlist types (mood mixes, personalized playlists) use a different embed format that doesn't include track data. These are rare among editorial playlists — the tool will skip them and continue.

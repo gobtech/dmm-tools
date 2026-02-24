@@ -7,7 +7,7 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | Tool | What it does | Manual time saved |
 |------|-------------|-------------------|
 | **Radio Report** | Auto-fetches airplay data from Soundcharts and generates formatted Word reports (LATAM-focused) | ~1-2 hrs/artist |
-| **Press Pickup** | Searches Brave for Spanish/Portuguese-language press, matches against media database, formats report | ~2-3 hrs/artist |
+| **Press Pickup** | Searches Google News, Brave, and Serper for Spanish/Portuguese-language press + social media posts, matches against media database, formats report | ~2-3 hrs/artist |
 | **DSP Pickup** | Checks 82 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music | ~3-4 hrs/week |
 
 ## Web UI (Recommended)
@@ -22,14 +22,14 @@ python web/app.py
 
 The web UI provides:
 - **Radio Report**: Type an artist name → auto-fetches from Soundcharts → downloads .docx (LATAM or all countries, with custom date range support)
-- **Press Pickup**: Type an artist name + date range → searches Brave → displays formatted report
+- **Press Pickup**: Type an artist name + date range → searches Google News RSS + Brave + Serper → displays formatted report (press articles + social media posts)
 - **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms
 
 ## Quick Setup
 
 ```bash
 # 1. Install dependencies
-pip install requests flask
+pip install requests flask googlenewsdecoder
 npm install docx
 
 # 2. Copy your data files
@@ -37,7 +37,8 @@ cp Descripción_de_prensa_*_all.csv data/press_database.csv
 cp Untitled_*_all.csv data/playlist_database.csv
 
 # 3. Set API keys in .env
-export BRAVE_API_KEY="..."          # Brave Search (for Press Pickup)
+export SERPER_API_KEY="..."         # Serper.dev (for Press Pickup — Google results)
+export BRAVE_API_KEY="..."          # Brave Search (supplementary, for Press Pickup)
 export SOUNDCHARTS_EMAIL="..."      # Soundcharts login (for Radio Report)
 export SOUNDCHARTS_PASSWORD="..."
 ```
@@ -88,7 +89,7 @@ python dsp-pickup/dsp_pickup.py --all --spotify-only --output reports/dsp_full.t
 ```
 dmm-tools/
 ├── README.md
-├── .env                            ← API keys (BRAVE_API_KEY, SOUNDCHARTS_EMAIL/PASSWORD)
+├── .env                            ← API keys (SERPER_API_KEY, BRAVE_API_KEY, SOUNDCHARTS_EMAIL/PASSWORD)
 ├── data/
 │   ├── press_database.csv          ← Notion export (media outlets)
 │   ├── playlist_database.csv       ← Notion export (target playlists)
@@ -105,7 +106,7 @@ dmm-tools/
 │   ├── batch_generate.sh
 │   └── artists.json
 ├── press-pickup/
-│   └── press_pickup.py             ← Press pickup automation (Brave Search)
+│   └── press_pickup.py             ← Press pickup automation (Google News RSS + Brave + Serper)
 ├── dsp-pickup/
 │   └── dsp_pickup.py               ← DSP playlist checker
 └── reports/                        ← Generated output
@@ -113,12 +114,19 @@ dmm-tools/
 
 ## API Keys Setup
 
-### Brave Search (for Press Pickup)
+### Serper.dev (primary Google results for Press Pickup)
+1. Go to [serper.dev](https://serper.dev/)
+2. Sign up and create an API key (2,500 free credits on signup)
+3. Add to `.env`: `export SERPER_API_KEY="..."`
+
+> Press Pickup uses 3 Serper credits per artist search (1 news + 2 organic queries). This provides actual Google results including social media posts (Instagram, Facebook, X).
+
+### Brave Search (supplementary for Press Pickup)
 1. Go to [brave.com/search/api](https://brave.com/search/api/)
 2. Sign up and create an API key
 3. Add to `.env`: `export BRAVE_API_KEY="BSAM..."`
 
-> Free tier: $5/month (~1,000 queries). Press pickup uses ~50 queries per artist search (smart early-stop pagination).
+> Free tier: 2,000 queries/month (recurring). Used as a supplementary source alongside Google News RSS and Serper.
 
 ### Soundcharts (for Radio Report)
 The Radio Report auto-fetches airplay data using your Soundcharts account credentials (no paid API tier required — uses the internal web API with your existing paid account). Authentication is fully automatic — the app logs in programmatically and refreshes the token before it expires.
