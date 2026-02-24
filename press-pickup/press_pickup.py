@@ -14,9 +14,8 @@ Requirements:
   pip install requests
 
 Setup:
-  1. Get a Brave Search API key: https://brave.com/search/api/
-  2. Set environment variable:
-     export BRAVE_API_KEY="your-brave-api-key"
+  Press articles: No API key required (Google News RSS).
+  Social media supplement (optional): export BRAVE_API_KEY="your-brave-api-key"
 
   Optional (for auto-generating missing media descriptions):
      export ANTHROPIC_API_KEY="your-anthropic-api-key"
@@ -78,102 +77,185 @@ LATAM_TLD_SUFFIXES = {
     '.cr', '.gt', '.hn', '.sv', '.ni', '.do', '.py', '.bo', '.cu',
 }
 
-# Domains to skip (not press / not LATAM)
+# Social media domains to include (not skip, not press — treated specially)
+SOCIAL_MEDIA_DOMAINS = {
+    'instagram.com': 'Instagram',
+    'facebook.com': 'Facebook',
+    'x.com': 'X (Twitter)',
+    'twitter.com': 'X (Twitter)',
+}
+
+# Domains to skip (streaming platforms, ticket sales, lyrics, etc.)
 SKIP_DOMAINS = {
     'spotify.com', 'apple.com', 'music.apple.com', 'youtube.com',
-    'youtu.be', 'tiktok.com', 'instagram.com', 'facebook.com',
-    'twitter.com', 'x.com', 'wikipedia.org', 'wikidata.org',
+    'youtu.be', 'tiktok.com', 'wikipedia.org', 'wikidata.org',
     'amazon.com', 'deezer.com', 'soundcloud.com', 'genius.com',
-    'letras.com', 'musica.com', 'last.fm', 'discogs.com',
+    'letras.com', 'letras.mus.br', 'musica.com', 'last.fm', 'discogs.com',
     'bandcamp.com', 'shazam.com', 'setlist.fm', 'songkick.com',
     'ticketmaster.com', 'stubhub.com', 'seatgeek.com',
 }
 
 
-def brave_search(query, api_key, num_results=20, freshness=None, pages=5):
+def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
     """
-    Search using Brave Search API with pagination.
-    Fetches multiple pages of results for deeper coverage.
-    Returns list of { title, link, snippet, domain }.
+    Search Google News via free RSS feed. No API key required.
+
+    Returns list of { title, link, snippet, domain, source }.
+    Links are decoded from Google News redirects to actual article URLs.
+    If days is set, filters results to only include articles from the last N days.
     """
     import requests
+    import xml.etree.ElementTree as ET
     import time
+    from email.utils import parsedate_to_datetime
+    from googlenewsdecoder import new_decoderv1
 
     # URL path segments that indicate non-press content
     NON_PRESS_PATHS = ('/product/', '/shop/', '/cart/', '/store/', '/merch/',
                        '/buy/', '/order/', '/checkout/', '/tienda/')
 
+    ceid = f'{gl}:{hl.split("-")[0]}'
+    rss_url = f'https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl={hl}&gl={gl}&ceid={ceid}'
+
+    try:
+        resp = requests.get(rss_url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+    except Exception as e:
+        print(f"    RSS fetch failed: {e}")
+        return []
+
     results = []
     seen_urls = set()
-    per_page = min(20, num_results)
 
-    for page in range(pages):
-        offset = page * per_page
+    # Date cutoff for filtering
+    cutoff = None
+    if days:
+        cutoff = datetime.now().astimezone() - timedelta(days=days)
 
-        params = {
-            'q': query,
-            'count': per_page,
-            'offset': offset,
-            'search_lang': 'es',
-            'text_decorations': 'false',
-        }
-        if freshness:
-            params['freshness'] = freshness
+    items = root.findall('.//item')[:max_results]
 
+    for item in items:
+        title_el = item.find('title')
+        link_el = item.find('link')
+        source_el = item.find('source')
+        desc_el = item.find('description')
+        pub_el = item.find('pubDate')
+
+        title = title_el.text if title_el is not None else ''
+        google_link = link_el.text if link_el is not None else ''
+        source_name = source_el.text if source_el is not None else ''
+        snippet = desc_el.text if desc_el is not None else ''
+
+        # Filter by date if cutoff is set
+        if cutoff and pub_el is not None and pub_el.text:
+            try:
+                pub_dt = parsedate_to_datetime(pub_el.text)
+                if pub_dt < cutoff:
+                    continue
+            except Exception:
+                pass  # Include if date can't be parsed
+
+        # Strip source name suffix from title (e.g. " - Indie Rocks! Magazine")
+        if source_name and title.endswith(f' - {source_name}'):
+            title = title[: -len(f' - {source_name}')]
+
+        # Decode Google News redirect URL to actual article URL
         try:
-            resp = requests.get(
-                'https://api.search.brave.com/res/v1/web/search',
-                headers={'X-Subscription-Token': api_key, 'Accept': 'application/json'},
-                params=params,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            print(f"    Page {page + 1} failed: {e}")
-            break
+            decoded = new_decoderv1(google_link)
+            if decoded.get('status'):
+                link = decoded['decoded_url']
+            else:
+                link = google_link  # Fallback to Google URL
+        except Exception:
+            link = google_link
 
-        web_results = data.get('web', {}).get('results', [])
+        domain = extract_domain(link) or ''
 
-        if not web_results:
-            break  # No more results available
+        # Skip non-press domains
+        if any(skip in domain for skip in SKIP_DOMAINS):
+            continue
 
-        new_count = 0
-        for item in web_results:
-            link = item.get('url', '')
-            domain = extract_domain(link) or ''
+        # Skip non-article URLs
+        link_lower = link.lower()
+        if any(seg in link_lower for seg in NON_PRESS_PATHS):
+            continue
 
-            # Skip non-press domains
-            if any(skip in domain for skip in SKIP_DOMAINS):
-                continue
+        if link not in seen_urls:
+            seen_urls.add(link)
+            results.append({
+                'title': title,
+                'link': link,
+                'snippet': snippet,
+                'domain': domain,
+                'source': source_name,
+            })
 
-            # Skip non-article URLs (product pages, shops, etc.)
-            link_lower = link.lower()
-            if any(seg in link_lower for seg in NON_PRESS_PATHS):
-                continue
+        # Brief pause between URL decodings to be polite
+        time.sleep(0.1)
 
-            if link not in seen_urls:
-                seen_urls.add(link)
-                new_count += 1
-                results.append({
-                    'title': item.get('title', ''),
-                    'link': link,
-                    'snippet': item.get('description', ''),
-                    'domain': domain,
-                })
+    return results
 
-        # Stop early if this page returned fewer than 5 new unique results —
-        # deeper pages are just recycling content, not worth the API call
-        if new_count < 5 and page > 0:
-            print(f"    Stopped at page {page + 1} (only {new_count} new results)")
-            break
 
-        # Also stop if Brave returned a short page (fewer results than requested)
-        if len(web_results) < per_page:
-            break
+def brave_search(query, api_key, num_results=20, freshness=None, search_type='web'):
+    """
+    Brave Search for organic or news results.
+    search_type: 'web' for organic, 'news' for news articles.
+    Returns list of { title, link, snippet, domain }.
+    """
+    import requests
 
-        # Brief pause between pages to respect rate limits
-        if page < pages - 1:
-            time.sleep(0.3)
+    NON_PRESS_PATHS = ('/product/', '/shop/', '/cart/', '/store/', '/merch/',
+                       '/buy/', '/order/', '/checkout/', '/tienda/')
+
+    endpoint = f'https://api.search.brave.com/res/v1/{search_type}/search'
+    params = {
+        'q': query,
+        'count': num_results,
+        'search_lang': 'es',
+        'text_decorations': 'false',
+    }
+    if freshness:
+        params['freshness'] = freshness
+
+    try:
+        resp = requests.get(
+            endpoint,
+            headers={'X-Subscription-Token': api_key, 'Accept': 'application/json'},
+            params=params,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"    Brave search failed: {e}")
+        return []
+
+    # News endpoint returns 'results' directly, web returns 'web.results'
+    if search_type == 'news':
+        raw_items = data.get('results', [])
+    else:
+        raw_items = data.get('web', {}).get('results', [])
+
+    results = []
+    for item in raw_items:
+        link = item.get('url', '')
+        domain = extract_domain(link) or ''
+
+        if any(skip in domain for skip in SKIP_DOMAINS):
+            continue
+
+        link_lower = link.lower()
+        if any(seg in link_lower for seg in NON_PRESS_PATHS):
+            continue
+
+        results.append({
+            'title': item.get('title', ''),
+            'link': link,
+            'snippet': item.get('description', ''),
+            'domain': domain,
+        })
 
     return results
 
@@ -242,6 +324,53 @@ Just output the description, nothing else."""
         return f"Online media outlet covering entertainment and music news."
 
 
+def _serper_date_within(date_str, cutoff):
+    """Check if a Serper date string falls within the cutoff.
+    Handles Spanish relative dates ('hace 3 días', 'hace 1 semana') and
+    absolute dates ('8 oct 2025', '11 feb 2026').
+    Returns True if the date is recent enough or can't be parsed.
+    """
+    if not date_str:
+        return True  # Include if no date
+
+    date_str = date_str.lower().strip()
+
+    # Relative dates: "hace X días/horas/semanas/meses"
+    match = re.match(r'hace\s+(\d+)\s+(hora|día|semana|mes|min)', date_str)
+    if match:
+        num = int(match.group(1))
+        unit = match.group(2)
+        if unit.startswith('min') or unit.startswith('hora'):
+            return True  # Always recent
+        elif unit.startswith('día'):
+            article_date = datetime.now().astimezone() - timedelta(days=num)
+        elif unit.startswith('semana'):
+            article_date = datetime.now().astimezone() - timedelta(weeks=num)
+        elif unit.startswith('mes'):
+            article_date = datetime.now().astimezone() - timedelta(days=num * 30)
+        else:
+            return True
+        return article_date >= cutoff
+
+    # Absolute dates: "8 oct 2025", "11 feb 2026"
+    MONTHS_ES = {
+        'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
+        'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12,
+    }
+    match = re.match(r'(\d{1,2})\s+(\w{3})\s+(\d{4})', date_str)
+    if match:
+        day, month_str, year = int(match.group(1)), match.group(2), int(match.group(3))
+        month = MONTHS_ES.get(month_str[:3])
+        if month:
+            try:
+                article_date = datetime(year, month, day).astimezone()
+                return article_date >= cutoff
+            except ValueError:
+                pass
+
+    return True  # Include if can't parse
+
+
 def parse_search_terms(raw_input):
     """Split free-text input into individual search keywords.
     Handles: 'PNAU, Meduza', 'PNAU ft. Meduza', 'PNAU & Meduza', 'PNAU Meduza', etc.
@@ -249,9 +378,7 @@ def parse_search_terms(raw_input):
     # Split on common separators (comma, ampersand, slash, ft., feat., etc.)
     terms = re.split(r'[,&/]\s*|\s+(?:ft\.?|feat\.?|featuring|x|w/)\s+', raw_input, flags=re.IGNORECASE)
     terms = [t.strip() for t in terms if t.strip()]
-    # If no explicit separator was found, split on whitespace as fallback
-    if len(terms) <= 1:
-        terms = raw_input.strip().split()
+    # If no explicit separator was found, treat the entire input as one term
     return terms if terms else [raw_input.strip()]
 
 
@@ -259,13 +386,6 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     """
     Main press pickup workflow for a single artist.
     """
-    api_key = os.environ.get('BRAVE_API_KEY')
-
-    if not api_key:
-        print("Error: BRAVE_API_KEY environment variable required.")
-        print("See --help for setup instructions.")
-        sys.exit(1)
-    
     # Load press database
     db_path = press_db_path or PRESS_DB_PATH
     if os.path.exists(db_path):
@@ -275,44 +395,130 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     else:
         print(f"Warning: Press database not found at {db_path}")
         press_index, press_entries = {}, []
-    
-    # Build search queries — Brave freshness format
-    if days <= 1:
-        freshness = 'pd'      # past day
-    elif days <= 7:
-        freshness = 'pw'      # past week
-    elif days <= 30:
-        freshness = 'pm'      # past month
-    else:
-        freshness = 'py'      # past year
-    
+
     keywords = parse_search_terms(artist)
 
-    queries = []
-    for kw in keywords:
-        queries.append(f'"{kw}" música')
-        queries.append(f'"{kw}" concierto')
-        queries.append(f'"{kw}" entrevista')
-        queries.append(f'"{kw}" lanzamiento')
-        queries.append(f'"{kw}" música show Brasil')
-    
+    # Search across LATAM regions via Google News RSS (free, unlimited)
+    regions = [
+        ('MX', 'es-419'),  # Mexico (Latin American Spanish)
+        ('AR', 'es-419'),  # Argentina
+        ('BR', 'pt-BR'),   # Brazil (Portuguese)
+        ('CL', 'es-419'),  # Chile
+        ('CO', 'es-419'),  # Colombia
+    ]
+
     print(f"\nSearching press for: {artist} (last {days} days)")
-    
+
     all_results = []
     seen_urls = set()
-    
-    pages_per_query = 5
-    print(f"  Fetching {pages_per_query} pages per query ({pages_per_query * 20} results each)")
 
-    for query in queries:
-        print(f"  Searching: {query}")
-        results = brave_search(query, api_key, num_results=20, freshness=freshness, pages=pages_per_query)
+    # 1) Google News RSS — free, unlimited, best for press articles
+    for gl, hl in regions:
+        query_parts = [f'"{kw}"' for kw in keywords]
+        query = ' OR '.join(query_parts)
+        print(f"  Google News [{gl}]: {query}")
+        results = google_news_rss(query, gl=gl, hl=hl, days=days)
         for r in results:
             if r['link'] not in seen_urls:
                 seen_urls.add(r['link'])
                 all_results.append(r)
-    
-    print(f"\nFound {len(all_results)} unique results")
+
+    print(f"  Found {len(all_results)} results from Google News")
+
+    # 2) Brave organic search — catches social media, blogs (free tier: 2000/month)
+    brave_key = os.environ.get('BRAVE_API_KEY')
+    if brave_key:
+        if days <= 1:
+            freshness = 'pd'
+        elif days <= 7:
+            freshness = 'pw'
+        elif days <= 30:
+            freshness = 'pm'
+        else:
+            freshness = 'py'
+
+        # Brave News — catches press articles Google News RSS might miss
+        for kw in keywords:
+            query = f'"{kw}"'
+            print(f"  Brave News: {query}")
+            results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='news')
+            for r in results:
+                if r['link'] not in seen_urls:
+                    seen_urls.add(r['link'])
+                    all_results.append(r)
+
+        # Brave Organic — catches blogs, smaller outlets
+        for kw in keywords:
+            query = f'"{kw}" música'
+            print(f"  Brave Web: {query}")
+            results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='web')
+            for r in results:
+                if r['link'] not in seen_urls:
+                    seen_urls.add(r['link'])
+                    all_results.append(r)
+
+    # 3) Serper — 3 credits per search: 1 news + 2 organic (social media + press keywords)
+    serper_key = os.environ.get('SERPER_API_KEY')
+    if serper_key:
+        import requests as _requests
+
+        if days <= 1:
+            tbs = 'qdr:d'
+        elif days <= 7:
+            tbs = 'qdr:w'
+        elif days <= 30:
+            tbs = 'qdr:m'
+        else:
+            tbs = 'qdr:y'
+
+        query_parts = [f'"{kw}"' for kw in keywords]
+        base = ' OR '.join(query_parts)
+
+        serper_calls = [
+            ('news',   base),
+            ('search', f'{base} música'),
+            ('search', f'{base} lanzamiento OR álbum OR disco OR entrevista'),
+        ]
+
+        for search_type, query in serper_calls:
+            label = 'News' if search_type == 'news' else 'Web'
+            print(f"  Serper {label}: {query}")
+            try:
+                payload = {'q': query, 'gl': 'mx', 'hl': 'es', 'num': 20}
+                # Only use tbs date filter for organic search; news is already sorted by recency
+                if search_type == 'search':
+                    payload['tbs'] = tbs
+                resp = _requests.post(
+                    f'https://google.serper.dev/{search_type}',
+                    headers={'X-API-KEY': serper_key, 'Content-Type': 'application/json'},
+                    json=payload,
+                )
+                resp.raise_for_status()
+                result_key = 'news' if search_type == 'news' else 'organic'
+                cutoff = datetime.now().astimezone() - timedelta(days=days)
+                for item in resp.json().get(result_key, []):
+                    # Filter news results by date (Serper returns 'date' like "hace 3 días", "8 oct 2025")
+                    if search_type == 'news':
+                        date_str = item.get('date', '')
+                        if not _serper_date_within(date_str, cutoff):
+                            continue
+
+                    link = item.get('link', '')
+                    domain = extract_domain(link) or ''
+                    if any(skip in domain for skip in SKIP_DOMAINS):
+                        continue
+                    if link not in seen_urls:
+                        seen_urls.add(link)
+                        all_results.append({
+                            'title': item.get('title', ''),
+                            'link': link,
+                            'snippet': item.get('snippet', ''),
+                            'domain': domain,
+                        })
+            except Exception as e:
+                print(f"    Serper failed: {e}")
+
+    print(f"\nFound {len(all_results)} total unique results")
     
     # Match against press database and group by country
     country_results = {}
@@ -326,7 +532,8 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
         # Require at least one keyword in the title (snippet alone is too loose —
         # e.g. "Meduza" the Russian news outlet can appear in unrelated articles)
         title_lower = result['title'].lower()
-        if not any(kw in title_lower for kw in keywords_lower):
+        snippet_lower = result['snippet'].lower()
+        if not any(kw in title_lower or kw in snippet_lower for kw in keywords_lower):
             skipped += 1
             continue
 
@@ -341,6 +548,12 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                 territory = media_entry['territory']
                 if ',' not in territory:
                     country = normalize_country(territory.upper())
+            if not country:
+                country = 'LATAM'
+        elif domain in SOCIAL_MEDIA_DOMAINS:
+            # Social media post — include under LATAM with platform name
+            media_name = SOCIAL_MEDIA_DOMAINS[domain]
+            description = result['title']
             if not country:
                 country = 'LATAM'
         elif is_latam_domain(domain):
@@ -416,7 +629,6 @@ Examples:
   python press_pickup.py --all --days 7
 
 Environment Variables:
-  BRAVE_API_KEY      Brave Search API key (required)
   ANTHROPIC_API_KEY  Anthropic API key (optional, for generating missing descriptions)
   PRESS_DB_PATH      Path to press description database CSV
   RELEASE_SCHEDULE_URL  Published Google Sheets URL for release schedule

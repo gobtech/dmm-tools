@@ -562,9 +562,6 @@ def press_run():
     except (TypeError, ValueError):
         days = 28
 
-    if not os.environ.get('BRAVE_API_KEY'):
-        return jsonify({'error': 'Brave Search API key is not configured. Please add BRAVE_API_KEY to your .env file.'}), 400
-
     job_id = new_job()
     safe_artist = artist.lower().replace(' ', '_')
     output_path = REPORT_DIR / f'{safe_artist}_press.txt'
@@ -609,7 +606,7 @@ def press_run():
             finish_job(job_id, result=result_text, output_path=output_path if output_path.exists() else None)
 
         except SystemExit:
-            finish_job(job_id, error='Brave Search API key is not configured. Please add BRAVE_API_KEY to your .env file.')
+            finish_job(job_id, error='Press pickup failed unexpectedly.')
         except Exception as e:
             finish_job(job_id, error=str(e))
 

@@ -35,17 +35,23 @@ def load_press_database(csv_path):
                 'reach': reach,
             })
     
+    # Domains too generic to index (social media platforms)
+    SKIP_INDEX_DOMAINS = {
+        'instagram.com', 'facebook.com', 'x.com', 'twitter.com',
+        'youtube.com', 'tiktok.com', 'linkedin.com', 'threads.net',
+    }
+
     # Build lookup index: multiple keys per entry for flexible matching
     index = {}
     for entry in entries:
         # Exact name (lowercased)
         key = entry['name'].lower().strip()
         index[key] = entry
-        
+
         # Also index by website domain if available
         if entry['website']:
             domain = extract_domain(entry['website'])
-            if domain:
+            if domain and domain not in SKIP_INDEX_DOMAINS:
                 index[domain] = entry
     
     return index, entries
@@ -70,7 +76,13 @@ def match_url_to_media(url, press_index):
     domain = extract_domain(url)
     if not domain:
         return None
-    
+
+    # Social media URLs should never match a press DB entry by domain
+    SOCIAL_DOMAINS = {'instagram.com', 'facebook.com', 'x.com', 'twitter.com',
+                      'youtube.com', 'tiktok.com', 'linkedin.com', 'threads.net'}
+    if domain in SOCIAL_DOMAINS:
+        return None
+
     # Direct domain match
     if domain in press_index:
         return press_index[domain]
