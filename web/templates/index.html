@@ -838,6 +838,218 @@ input[type="text"]:focus, input[type="date"]:focus {
 }
 
 /* ============================================================
+   TAB TIPS — collapsible info box
+   ============================================================ */
+.tab-tips {
+  margin-bottom: 28px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-input);
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+.tab-tips:has(.tab-tips-body.open) {
+  border-color: var(--border-strong);
+}
+.tab-tips-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  transition: color var(--transition);
+}
+.tab-tips-toggle:hover { color: var(--text-secondary); }
+.tab-tips-toggle .tip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  color: var(--bg-card);
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+  transition: background var(--transition);
+}
+.tab-tips-toggle:hover .tip-icon { background: var(--accent); }
+.tab-tips-toggle .chevron {
+  margin-left: auto;
+  font-size: 10px;
+  transition: transform var(--transition);
+}
+.tab-tips:has(.tab-tips-body.open) .chevron { transform: rotate(180deg); }
+
+.tab-tips-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .25s ease;
+}
+.tab-tips-body.open { grid-template-rows: 1fr; }
+.tab-tips-body > div {
+  overflow: hidden;
+}
+.tab-tips-list {
+  padding: 0 16px 14px;
+  margin: 0;
+  list-style: none;
+}
+.tab-tips-list li {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: 4px 0 4px 18px;
+  position: relative;
+}
+.tab-tips-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 11px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.tab-tips-list li strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.tab-tips-list li em {
+  color: var(--text-tertiary);
+  font-style: normal;
+  font-size: 12px;
+}
+
+/* ============================================================
+   WALKTHROUGH
+   ============================================================ */
+.walkthrough-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  z-index: 9000;
+  opacity: 0;
+  transition: opacity .25s ease;
+  pointer-events: auto;
+}
+.walkthrough-backdrop.visible { opacity: 1; }
+
+.walkthrough-highlight {
+  position: relative;
+  z-index: 9001 !important;
+  box-shadow: 0 0 0 4px var(--accent), 0 0 24px rgba(196,48,48,.35);
+  border-radius: var(--radius-xs);
+}
+
+.walkthrough-tooltip {
+  position: fixed;
+  z-index: 9002;
+  background: #1e1e24;
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 24px 28px 20px;
+  max-width: 380px;
+  width: calc(100vw - 40px);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.walkthrough-tooltip.visible { opacity: 1; }
+.walkthrough-tooltip.centered {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.walkthrough-tooltip p { margin: 0 0 18px; font-weight: 400; }
+
+.walkthrough-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.walkthrough-counter {
+  font-size: 12px;
+  color: rgba(255,255,255,.45);
+  font-weight: 600;
+  letter-spacing: .03em;
+}
+.walkthrough-actions { display: flex; gap: 10px; align-items: center; }
+
+.walkthrough-next {
+  padding: 9px 22px;
+  background: #fff;
+  color: #1e1e24;
+  border: none;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  transition: all var(--transition);
+}
+.walkthrough-next:hover { background: #e5e5e5; }
+
+.walkthrough-skip {
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.5);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: .04em;
+  transition: color var(--transition);
+}
+.walkthrough-skip:hover { color: rgba(255,255,255,.8); }
+
+.help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-tertiary);
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-left: 8px;
+  vertical-align: middle;
+  box-shadow: var(--shadow-sm);
+}
+.help-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 600px) {
@@ -876,6 +1088,26 @@ input[type="text"]:focus, input[type="date"]:focus {
   <!-- TAB 1: Radio Report -->
   <!-- ================================================================== -->
   <div id="tab-radio" class="tab-panel active">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>The <strong>two-step flow</strong>: first fetch songs, then pick which ones to include in the final Word document.</li>
+              <li>Soundcharts airplay data may have a <strong>24-48 hour delay</strong> from real-time broadcasts.</li>
+              <li><strong>LATAM</strong> region is the default &mdash; use "All Countries" only when you need worldwide data.</li>
+              <li><strong>Custom Range</strong> lets you set exact dates, but uses a different API call and may be slower.</li>
+              <li>Use the <strong>song filter</strong> in step two to quickly find specific tracks in large catalogs.</li>
+              <li><strong>CSV mode</strong> is for manually exported airplay data &mdash; most users should use Soundcharts.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <label>Data Source</label>
     <div class="radio-group">
       <label><input type="radio" name="radio-mode" value="soundcharts" checked onchange="radioModeChanged()"><span>Fetch from Soundcharts</span></label>
@@ -958,6 +1190,25 @@ input[type="text"]:focus, input[type="date"]:focus {
   <!-- TAB 2: Press Pickup -->
   <!-- ================================================================== -->
   <div id="tab-press" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Searches <strong>3 sources</strong>: Google News, Brave Search, and Serper for maximum coverage.</li>
+              <li>Results are matched against our <strong>1,500+ outlet database</strong> from Notion, grouped by country.</li>
+              <li><strong>Social media posts</strong> (Instagram, Facebook, X) are included via Serper but are listed separately from press outlets.</li>
+              <li>Spell the artist name <strong>exactly as it appears in press</strong> for best results. Try variations if coverage seems low.</li>
+              <li>Longer search periods find more results but may include <strong>older or less relevant</strong> articles.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <label for="press-artist">Artist Name</label>
     <input type="text" id="press-artist" placeholder="e.g. Bleachers">
 
@@ -982,6 +1233,25 @@ input[type="text"]:focus, input[type="date"]:focus {
   <!-- TAB 3: DSP Pickup -->
   <!-- ================================================================== -->
   <div id="tab-dsp" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Checks <strong>80+ LATAM editorial playlists</strong> across Spotify, Deezer, and Apple Music.</li>
+              <li><strong>"Spotify only"</strong> is significantly faster &mdash; use it when you just need a quick check.</li>
+              <li><strong>"This week's releases"</strong> and <strong>"All releases"</strong> pull from the live release schedule in Google Sheets.</li>
+              <li><strong>Amazon Music and Claro</strong> playlists are not checked automatically &mdash; these require manual verification.</li>
+              <li>Matching uses <strong>fuzzy search</strong>, so minor spelling differences between the release schedule and playlists are handled.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <label>Mode</label>
     <div class="radio-group">
       <label><input type="radio" name="dsp-mode" value="artist" checked onchange="dspModeChanged()"><span>Specific artist</span></label>
@@ -1015,7 +1285,8 @@ input[type="text"]:focus, input[type="date"]:focus {
   </div>
 
   <div class="footer-note">
-    Dorado Music Marketing &mdash; Spotify &middot; Deezer &middot; Apple Music &middot; Amazon &middot; Claro
+    Dorado Music Marketing &copy; 2026 &mdash; Internal use only. Confidential.
+    <button class="help-btn" onclick="startWalkthrough()" title="Replay walkthrough tour">?</button>
   </div>
 </div>
 
@@ -1587,6 +1858,149 @@ function colorizeReport(html) {
   document.getElementById('radio-end-date').value = today.toISOString().split('T')[0];
   document.getElementById('radio-start-date').value = ago28.toISOString().split('T')[0];
 })();
+
+// =====================================================================
+// Walkthrough
+// =====================================================================
+const walkthroughSteps = [
+  { target: null, text: 'Welcome to DMM Tools! This quick tour will show you how to use the three reporting tools. Click Next to begin.' },
+  { target: '.tabs', text: 'These three tabs are your tools: Radio Report for airplay data, Press Pickup for press coverage, and DSP Pickup for playlist placements.' },
+  { target: '#radio-artist', tab: 'radio', text: 'Start by typing an artist name. The tool will search Soundcharts for their airplay data.' },
+  { target: 'input[name="radio-range"]', tab: 'radio', text: 'Pick a time range for the report \u2014 7 days, 28 days, up to 1 year, or a custom date range.', targetParent: true },
+  { target: '#radio-fetch-btn', tab: 'radio', text: 'Click here to fetch songs. You\u2019ll then pick which songs to include and generate a downloadable Word report.' },
+  { target: '#press-artist', tab: 'press', text: 'Press Pickup searches Google News, Brave, and Serper for press coverage. Enter an artist name, pick a date range, and click Search.' },
+  { target: 'input[name="dsp-mode"]', tab: 'dsp', text: 'DSP Pickup checks 80+ LATAM editorial playlists for your artists. Search by artist, check this week\u2019s releases, or scan all releases at once.', targetParent: true },
+  { target: null, text: 'You\u2019re all set! Click the ? button at the bottom anytime to replay this tour.' },
+];
+
+let wtStep = 0;
+let wtBackdrop = null;
+let wtTooltip = null;
+let wtPrevTarget = null;
+
+function startWalkthrough() {
+  wtStep = 0;
+  // Create backdrop
+  if (!wtBackdrop) {
+    wtBackdrop = document.createElement('div');
+    wtBackdrop.className = 'walkthrough-backdrop';
+    document.body.appendChild(wtBackdrop);
+  }
+  // Create tooltip
+  if (!wtTooltip) {
+    wtTooltip = document.createElement('div');
+    wtTooltip.className = 'walkthrough-tooltip';
+    document.body.appendChild(wtTooltip);
+  }
+  // Show with transition
+  requestAnimationFrame(() => {
+    wtBackdrop.classList.add('visible');
+    showWtStep();
+  });
+}
+
+function showWtStep() {
+  const step = walkthroughSteps[wtStep];
+  const total = walkthroughSteps.length;
+  const isLast = wtStep === total - 1;
+
+  // Clear previous highlight
+  if (wtPrevTarget) {
+    wtPrevTarget.classList.remove('walkthrough-highlight');
+    wtPrevTarget = null;
+  }
+
+  // Switch tab if needed
+  if (step.tab) switchTab(step.tab);
+
+  // Build tooltip content
+  wtTooltip.innerHTML = `
+    <p>${step.text}</p>
+    <div class="walkthrough-footer">
+      <span class="walkthrough-counter">${wtStep + 1} of ${total}</span>
+      <div class="walkthrough-actions">
+        ${!isLast ? '<button class="walkthrough-skip" onclick="endWalkthrough()">Skip</button>' : ''}
+        <button class="walkthrough-next" onclick="${isLast ? 'endWalkthrough()' : 'nextWtStep()'}">${isLast ? 'Done' : 'Next'}</button>
+      </div>
+    </div>`;
+
+  // Position tooltip
+  wtTooltip.classList.remove('visible', 'centered');
+
+  if (!step.target) {
+    // Centered card (welcome / done)
+    wtTooltip.classList.add('centered');
+    wtTooltip.style.top = '';
+    wtTooltip.style.left = '';
+    requestAnimationFrame(() => wtTooltip.classList.add('visible'));
+  } else {
+    let el = step.targetParent
+      ? document.querySelector(step.target)?.closest('.radio-group')
+      : document.querySelector(step.target);
+    if (!el) { nextWtStep(); return; }
+
+    el.classList.add('walkthrough-highlight');
+    wtPrevTarget = el;
+
+    positionTooltip(el);
+    requestAnimationFrame(() => wtTooltip.classList.add('visible'));
+  }
+}
+
+function positionTooltip(el) {
+  const rect = el.getBoundingClientRect();
+  const tt = wtTooltip;
+  tt.style.transform = '';
+
+  // Try below the element
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const spaceAbove = rect.top;
+  const gap = 14;
+
+  if (spaceBelow > 160 || spaceBelow >= spaceAbove) {
+    tt.style.top = (rect.bottom + gap) + 'px';
+  } else {
+    // Position above — use getBoundingClientRect after render to know height
+    tt.style.top = '0px';
+    tt.style.left = Math.max(20, Math.min(rect.left, window.innerWidth - 400)) + 'px';
+    requestAnimationFrame(() => {
+      const ttH = tt.getBoundingClientRect().height;
+      tt.style.top = (rect.top - gap - ttH) + 'px';
+    });
+    return;
+  }
+
+  tt.style.left = Math.max(20, Math.min(rect.left, window.innerWidth - 400)) + 'px';
+}
+
+function nextWtStep() {
+  wtStep++;
+  if (wtStep >= walkthroughSteps.length) { endWalkthrough(); return; }
+  wtTooltip.classList.remove('visible');
+  setTimeout(() => showWtStep(), 150);
+}
+
+function endWalkthrough() {
+  localStorage.setItem('dmm_walkthrough_done', '1');
+  if (wtPrevTarget) {
+    wtPrevTarget.classList.remove('walkthrough-highlight');
+    wtPrevTarget = null;
+  }
+  if (wtTooltip) wtTooltip.classList.remove('visible');
+  if (wtBackdrop) wtBackdrop.classList.remove('visible');
+  setTimeout(() => {
+    if (wtBackdrop) { wtBackdrop.remove(); wtBackdrop = null; }
+    if (wtTooltip) { wtTooltip.remove(); wtTooltip = null; }
+  }, 300);
+  // Return to radio tab
+  switchTab('radio');
+}
+
+// Auto-start on first visit
+if (!localStorage.getItem('dmm_walkthrough_done')) {
+  // Small delay so page renders first
+  setTimeout(startWalkthrough, 600);
+}
 </script>
 </body>
 </html>
