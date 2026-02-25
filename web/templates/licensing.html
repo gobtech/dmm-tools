@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Licensing — DMM Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS
+   ============================================================ */
+:root {
+  --bg-base: #f2f0ec;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #a0a0a0;
+  --accent: #c43030;
+  --accent-light: #fef2f2;
+  --border: rgba(0,0,0,.08);
+  --border-strong: rgba(0,0,0,.12);
+  --radius: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 0 0 1px rgba(0,0,0,.03), 0 4px 12px rgba(0,0,0,.05), 0 16px 40px rgba(0,0,0,.04);
+  --transition: .2s cubic-bezier(.25,.46,.45,.94);
+  --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Cormorant Garamond', 'Georgia', serif;
+  --font-label: 'Raleway', -apple-system, BlinkMacSystemFont, sans-serif;
+  --logo-filter: none;
+}
+
+html.dark {
+  --bg-base: #0e0e10;
+  --bg-card: #18181b;
+  --bg-card-hover: #1f1f23;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --accent: #c43030;
+  --accent-light: rgba(196,48,48,.15);
+  --border: rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.12);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --logo-filter: brightness(0) invert(1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.7;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.container {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px 100px;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+.header .logo {
+  height: 32px;
+  opacity: .7;
+  margin-bottom: 16px;
+  filter: var(--logo-filter);
+}
+.header h1 {
+  font-family: var(--font-heading);
+  font-size: 42px;
+  font-weight: 300;
+  letter-spacing: .02em;
+  margin-bottom: 8px;
+}
+.header .subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   NAV BUTTON (matches calendar/index pill style)
+   ============================================================ */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 28px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-primary);
+  text-decoration: none;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  transition: all .25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.back-link::before {
+  content: '';
+  position: absolute;
+  top: 0; right: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(270deg, transparent, rgba(196,48,48,.08), transparent);
+  transition: right .45s ease;
+}
+.back-link:hover::before { right: 100%; }
+.back-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-2px);
+}
+.back-link .btn-icon {
+  font-size: 16px;
+  transition: transform .25s ease;
+}
+.back-link:hover .btn-icon { transform: translateX(-3px); }
+
+/* ============================================================
+   THEME TOGGLE
+   ============================================================ */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   CONTENT CARDS
+   ============================================================ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 36px 40px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.card h2 {
+  font-family: var(--font-heading);
+  font-size: 28px;
+  font-weight: 400;
+  margin-bottom: 16px;
+  letter-spacing: .01em;
+}
+
+.card h3 {
+  font-family: var(--font-label);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--accent);
+  margin-top: 28px;
+  margin-bottom: 12px;
+}
+
+.card p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin-bottom: 12px;
+  line-height: 1.8;
+}
+
+.card ul {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 12px;
+}
+
+.card li {
+  color: var(--text-secondary);
+  font-size: 15px;
+  padding: 6px 0 6px 20px;
+  position: relative;
+  line-height: 1.7;
+}
+.card li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ============================================================
+   AUTHOR HIGHLIGHT
+   ============================================================ */
+.author-block {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 28px 32px;
+  background: var(--accent-light);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  margin: 24px 0;
+}
+.author-monogram {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 500;
+}
+.author-info h4 {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 400;
+  margin-bottom: 4px;
+}
+.author-info .handle {
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: .02em;
+  margin-bottom: 8px;
+}
+.author-info p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 0;
+}
+
+/* ============================================================
+   LEGAL TEXT
+   ============================================================ */
+.legal {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  margin-top: 28px;
+  line-height: 1.8;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 600px) {
+  .container { padding: 28px 16px 60px; }
+  .card { padding: 24px 20px; }
+  .header h1 { font-size: 32px; }
+  .author-block { flex-direction: column; align-items: center; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+  <span id="theme-icon">&#9790;</span>
+</button>
+
+<div class="container">
+  <div class="header">
+    <img class="logo" src="https://images.squarespace-cdn.com/content/v1/590102829de4bb02e43309fd/1503502770341-VCOKSUOU944GCVSODOI7/DMM-final-logo-extended.png" alt="Dorado Music Marketing">
+    <h1>Licensing</h1>
+    <p class="subtitle">Ownership, authorization, and usage terms</p>
+    <a href="/" class="back-link">
+      <span class="btn-icon">&larr;</span>
+      <span>Back to Tools</span>
+    </a>
+  </div>
+
+  <!-- ABOUT THE DEVELOPER -->
+  <div class="card">
+    <h2>About the Developer</h2>
+
+    <div class="author-block">
+      <div class="author-monogram">LFP</div>
+      <div class="author-info">
+        <h4>Luis Felipe Pazos</h4>
+        <div class="handle">@gobtech</div>
+        <p>
+          The sole architect and developer behind DMM Tools. Luis Felipe designed and built this entire automation suite from the ground up — from the multi-platform DSP scraping engine and composite proof-image pipeline to the Soundcharts API integration, the 3-source press discovery system, and the full-stack web interface that ties it all together. What previously consumed dozens of hours of manual labor per week across the team now runs in seconds at the click of a button, thanks to his work.
+        </p>
+      </div>
+    </div>
+
+    <p>
+      Every line of code in this project — the backend orchestration, the API clients, the data processing pipelines, the report generators, the frontend UI — was conceived, written, and maintained by Luis Felipe. The system reflects a deep understanding of both the music marketing workflow it automates and the technical challenges involved in scraping, normalizing, and presenting data from six different streaming platforms, multiple search APIs, and a live release schedule with over 200 entries.
+    </p>
+
+    <p>
+      This is not a template or a fork. It is a purpose-built, production-grade toolchain engineered specifically for Dorado Music Marketing's operational needs, and it continues to evolve under Luis Felipe's direction.
+    </p>
+  </div>
+
+  <!-- OWNERSHIP & LICENSE -->
+  <div class="card">
+    <h2>Ownership &amp; License</h2>
+
+    <p>
+      DMM Tools is <strong>proprietary software</strong>. All rights, title, and interest — including copyrights, trade secrets, and proprietary methodologies — belong exclusively to Luis Felipe Pazos.
+    </p>
+
+    <h3>What this means</h3>
+    <ul>
+      <li>The Software may only be used by Dorado Music Marketing and its authorized personnel in the normal course of business operations</li>
+      <li>No part of the Software may be copied, distributed, sublicensed, or made available to any third party without prior written authorization</li>
+      <li>Modification, reverse-engineering, or creation of derivative works is prohibited without authorization</li>
+      <li>All proprietary notices and attribution must be preserved</li>
+    </ul>
+
+    <h3>Authorized maintainers</h3>
+    <p>
+      Luis Felipe Pazos may, at his sole discretion, designate additional individuals as authorized maintainers or developers. Such designation must be in writing and may be revoked at any time. Authorized maintainers receive development and maintenance rights only — <strong>ownership remains with Luis Felipe Pazos</strong>.
+    </p>
+
+    <h3>External use</h3>
+    <p>
+      Any use of DMM Tools outside of its intended deployment at Dorado Music Marketing — whether commercial, academic, personal, or otherwise — requires explicit written authorization from Luis Felipe Pazos or a currently designated authorized maintainer.
+    </p>
+    <p>
+      This includes but is not limited to: deploying the Software for other organizations, using its source code as a reference for competing products, or incorporating any of its components into other projects.
+    </p>
+  </div>
+
+  <!-- WHAT'S COVERED -->
+  <div class="card">
+    <h2>What's Covered</h2>
+
+    <p>This license applies to the entirety of the DMM Tools project, including:</p>
+
+    <h3>Core automation modules</h3>
+    <ul>
+      <li>Radio Report — Soundcharts API integration, airplay data processing, .docx generation</li>
+      <li>Press Pickup — Multi-source search engine (Google News, Brave, Serper), outlet database matching, LLM-assisted enrichment</li>
+      <li>DSP Pickup — Six-platform playlist checker (Spotify, Deezer, Apple Music, Amazon Music, Claro M&uacute;sica, YouTube Music), proof image compositing</li>
+      <li>Full Report Compiler — Orchestration engine combining all three tools into unified client reports</li>
+    </ul>
+
+    <h3>Web interface</h3>
+    <ul>
+      <li>Flask application server and API endpoints</li>
+      <li>Single-page application UI with all tool interfaces</li>
+      <li>Release Calendar dashboard with phase tracking</li>
+      <li>Brand design system and all associated styling</li>
+    </ul>
+
+    <h3>Supporting infrastructure</h3>
+    <ul>
+      <li>Shared libraries (database loaders, API clients, report builders)</li>
+      <li>Data processing pipelines and matching algorithms</li>
+      <li>Configuration, deployment scripts, and documentation</li>
+    </ul>
+
+    <p class="legal">
+      &copy; 2026 Luis Felipe Pazos. All rights reserved.<br>
+      For licensing inquiries, authorization requests, or maintainer designation, contact Luis Felipe Pazos directly.<br>
+      The full legal text is available in the <code>LICENSE</code> file at the root of this repository.
+    </p>
+  </div>
+</div>
+
+<script>
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.getElementById('theme-icon').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('dmm_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('dmm_theme') || 'light');
+</script>
+</body>
+</html>

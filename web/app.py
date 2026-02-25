@@ -776,6 +776,11 @@ def calendar():
     return resp
 
 
+@app.route('/licensing')
+def licensing():
+    return render_template('licensing.html')
+
+
 @app.route('/api/releases')
 def api_releases():
     """Return release schedule as JSON with computed phase per release."""
