@@ -198,6 +198,13 @@ def load_playlist_database(csv_path):
                     claro_id = match.group(1)
                     claro_country = match.group(2) or 'MX'  # Default to MX
 
+            # Extract YouTube Music playlist ID
+            ytmusic_id = None
+            if 'music.youtube.com' in link and 'list=' in link:
+                match = re.search(r'list=([A-Za-z0-9_-]+)', link)
+                if match:
+                    ytmusic_id = match.group(1)
+
             playlists.append({
                 'name': name,
                 'country': country,
@@ -212,6 +219,7 @@ def load_playlist_database(csv_path):
                 'amazon_music_domain': amazon_music_domain,
                 'claro_id': claro_id,
                 'claro_country': claro_country,
+                'ytmusic_id': ytmusic_id,
             })
     
     return playlists

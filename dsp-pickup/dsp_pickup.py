@@ -4,7 +4,8 @@ DSP Pickup Tool
 ===============
 Checks LATAM editorial playlists for artist releases from the release schedule.
 Supports Spotify (embed scraping), Deezer (API), Apple Music (page scraping),
-Amazon Music (embed scraping), and Claro Música (anonymous login + SSR scraping).
+Amazon Music (embed scraping), Claro Música (anonymous login + SSR scraping),
+and YouTube Music (innertube API).
 
 Usage:
   python dsp_pickup.py --week current              # Check this week's releases
@@ -279,6 +280,90 @@ def get_apple_music_playlist_tracks(playlist_id):
     return tracks
 
 
+def get_ytmusic_playlist_tracks(playlist_id):
+    """
+    Fetch tracks from a YouTube Music playlist via the innertube API.
+    Returns list of { artist, artists_list, track, album, position }.
+    """
+    import requests
+    import time
+
+    url = "https://music.youtube.com/youtubei/v1/browse?prettyPrint=false"
+    payload = {
+        "context": {
+            "client": {
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20240101.01.00",
+                "hl": "en",
+                "gl": "US",
+            }
+        },
+        "browseId": f"VL{playlist_id}",
+    }
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Content-Type': 'application/json',
+        'Referer': 'https://music.youtube.com/',
+        'Origin': 'https://music.youtube.com',
+    }
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"    Error fetching YouTube Music playlist {playlist_id}: {e}")
+        return []
+
+    tracks = []
+
+    try:
+        renderer = data['contents']['twoColumnBrowseResultsRenderer']
+        shelf = renderer['secondaryContents']['sectionListRenderer']['contents'][0]['musicPlaylistShelfRenderer']
+        items = shelf['contents']
+    except (KeyError, IndexError, TypeError):
+        # Try alternative structure
+        try:
+            renderer = data['contents']['singleColumnBrowseResultsRenderer']
+            tabs = renderer['tabs'][0]['tabRenderer']['content']
+            shelf = tabs['sectionListRenderer']['contents'][0]['musicPlaylistShelfRenderer']
+            items = shelf['contents']
+        except (KeyError, IndexError, TypeError):
+            print(f"    Could not parse YouTube Music playlist {playlist_id}")
+            return []
+
+    for i, item in enumerate(items):
+        try:
+            mrlir = item['musicResponsiveListItemRenderer']
+            flex_cols = mrlir.get('flexColumns', [])
+            col_texts = []
+            for fc in flex_cols:
+                col = fc['musicResponsiveListItemFlexColumnRenderer']
+                runs = col.get('text', {}).get('runs', [])
+                # Filter out separator characters
+                texts = [r['text'] for r in runs if r['text'] not in (' \u2022 ', ' & ', ', ')]
+                col_texts.append(texts)
+
+            title = col_texts[0][0] if col_texts and col_texts[0] else ''
+            # Artist is in the second column — may have multiple artists
+            artists_list = col_texts[1] if len(col_texts) > 1 else []
+            artist_display = ', '.join(artists_list)
+            album = col_texts[2][0] if len(col_texts) > 2 and col_texts[2] else ''
+
+            tracks.append({
+                'artist': artist_display,
+                'artists_list': artists_list,
+                'track': title,
+                'album': album,
+                'position': i + 1,
+            })
+        except (KeyError, IndexError, TypeError):
+            continue
+
+    time.sleep(0.5)
+    return tracks
+
+
 def get_amazon_music_playlist_tracks(playlist_id, domain='com.mx'):
     """
     Fetch tracks from an Amazon Music playlist via the public embed page.
@@ -498,7 +583,8 @@ def run_dsp_pickup(releases, playlists, output_path=None):
     apple_playlists = [p for p in playlists if p['platform'] == 'Apple Music' and p.get('apple_music_id')]
     amazon_playlists = [p for p in playlists if 'Amazon' in p.get('platform', '') and p.get('amazon_music_id')]
     claro_playlists = [p for p in playlists if 'Claro' in p.get('platform', '') and p.get('claro_id')]
-    other_playlists = [p for p in playlists if p not in spotify_playlists + deezer_playlists + apple_playlists + amazon_playlists + claro_playlists]
+    ytmusic_playlists = [p for p in playlists if 'YouTube' in p.get('platform', '') and p.get('ytmusic_id')]
+    other_playlists = [p for p in playlists if p not in spotify_playlists + deezer_playlists + apple_playlists + amazon_playlists + claro_playlists + ytmusic_playlists]
 
     print(f"\nPlaylists to check:")
     print(f"  Spotify:       {len(spotify_playlists)}")
@@ -506,6 +592,7 @@ def run_dsp_pickup(releases, playlists, output_path=None):
     print(f"  Apple Music:   {len(apple_playlists)}")
     print(f"  Amazon Music:  {len(amazon_playlists)}")
     print(f"  Claro Música:  {len(claro_playlists)}")
+    print(f"  YouTube Music: {len(ytmusic_playlists)}")
     if other_playlists:
         print(f"  Other:         {len(other_playlists)} (manual check needed)")
     print(f"\nReleases to check: {len(releases)}")
@@ -678,6 +765,40 @@ def run_dsp_pickup(releases, playlists, output_path=None):
                     'playlist_followers': pl['followers'],
                     'playlist_link': pl.get('link', ''),
                     'platform': 'Claro Música',
+                    **match,
+                })
+                print(f"    ✓ MATCH: {artist} — {title} (position #{match['position']})")
+
+    # Check YouTube Music playlists
+    for pl in ytmusic_playlists:
+        pl_id = pl['ytmusic_id']
+        print(f"\n  Checking: {pl['name']} ({pl['country']}) [YouTube Music]")
+
+        if pl_id not in playlist_cache:
+            tracks = get_ytmusic_playlist_tracks(pl_id)
+            playlist_cache[pl_id] = tracks
+            print(f"    → {len(tracks)} tracks loaded")
+        else:
+            tracks = playlist_cache[pl_id]
+            print(f"    → {len(tracks)} tracks (cached)")
+
+        for release in releases:
+            match = check_release_in_playlist(release, tracks)
+            if match:
+                artist = release['artist']
+                title = release['title']
+
+                if artist not in results:
+                    results[artist] = {}
+                if title not in results[artist]:
+                    results[artist][title] = []
+
+                results[artist][title].append({
+                    'playlist_name': pl['name'],
+                    'playlist_country': pl['country'],
+                    'playlist_followers': pl['followers'],
+                    'playlist_link': pl.get('link', ''),
+                    'platform': 'YouTube Music',
                     **match,
                 })
                 print(f"    ✓ MATCH: {artist} — {title} (position #{match['position']})")

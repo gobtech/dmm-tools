@@ -723,6 +723,8 @@ input[type="text"]:focus, input[type="date"]:focus {
 .platform-badge.amazon .dot { background: #00a8e1; }
 .platform-badge.claro { background: #fef9ee; color: #b45309; border: 1.5px solid #fde68a; }
 .platform-badge.claro .dot { background: #e50914; }
+.platform-badge.ytmusic { background: #fef2f2; color: #dc2626; border: 1.5px solid #fecaca; }
+.platform-badge.ytmusic .dot { background: #ff0000; }
 .platform-badge.other { background: #f5f5f5; color: var(--text-tertiary); border: 1.5px solid #e5e5e5; }
 .platform-badge.other .dot { background: var(--text-tertiary); }
 
@@ -1243,10 +1245,10 @@ input[type="text"]:focus, input[type="date"]:focus {
         <div class="tab-tips-body">
           <div>
             <ul class="tab-tips-list">
-              <li>Checks <strong>85+ LATAM editorial playlists</strong> across Spotify, Deezer, Apple Music, Amazon Music, and Claro M&uacute;sica.</li>
+              <li>Checks <strong>85+ LATAM editorial playlists</strong> across Spotify, Deezer, Apple Music, Amazon Music, Claro M&uacute;sica, and YouTube Music.</li>
               <li><strong>"Spotify only"</strong> is significantly faster &mdash; use it when you just need a quick check.</li>
               <li><strong>"This week's releases"</strong> and <strong>"All releases"</strong> pull from the live release schedule in Google Sheets.</li>
-              <li>Checks <strong>all 5 platforms</strong>: Spotify, Deezer, Apple Music, Amazon Music, and Claro M&uacute;sica.</li>
+              <li>Checks <strong>all 6 platforms</strong> automatically &mdash; no API keys required for any of them.</li>
               <li>Matching uses <strong>fuzzy search</strong>, so minor spelling differences between the release schedule and playlists are handled.</li>
             </ul>
           </div>
@@ -1779,6 +1781,7 @@ async function runDsp() {
           if (counts.apple) html += `<span class="platform-badge apple"><span class="dot"></span>${counts.apple} Apple Music</span>`;
           if (counts.amazon) html += `<span class="platform-badge amazon"><span class="dot"></span>${counts.amazon} Amazon</span>`;
           if (counts.claro) html += `<span class="platform-badge claro"><span class="dot"></span>${counts.claro} Claro</span>`;
+          if (counts.ytmusic) html += `<span class="platform-badge ytmusic"><span class="dot"></span>${counts.ytmusic} YouTube</span>`;
           if (counts.other) html += `<span class="platform-badge other"><span class="dot"></span>${counts.other} Other</span>`;
           html += `</div>`;
         }
@@ -1823,7 +1826,7 @@ function copyText(btn) {
 
 function parsePlatformCounts(reportText) {
   if (!reportText) return null;
-  const m = { spotify: 0, deezer: 0, apple: 0, amazon: 0, claro: 0 };
+  const m = { spotify: 0, deezer: 0, apple: 0, amazon: 0, claro: 0, ytmusic: 0 };
   for (const line of reportText.split('\n')) {
     if (!line.includes('Position #')) continue;
     if (line.includes('[Spotify]')) m.spotify++;
@@ -1831,8 +1834,9 @@ function parsePlatformCounts(reportText) {
     else if (line.includes('[Apple Music]')) m.apple++;
     else if (line.includes('[Amazon Music]')) m.amazon++;
     else if (line.includes('[Claro')) m.claro++;
+    else if (line.includes('[YouTube Music]')) m.ytmusic++;
   }
-  if (!m.spotify && !m.deezer && !m.apple && !m.amazon && !m.claro) return null;
+  if (!m.spotify && !m.deezer && !m.apple && !m.amazon && !m.claro && !m.ytmusic) return null;
   return m;
 }
 
@@ -1843,6 +1847,7 @@ function colorizeReport(html) {
     .replace(/\[Apple Music\]/g, '<span style="color:#fb7185">[Apple Music]</span>')
     .replace(/\[Amazon Music\]/g, '<span style="color:#22d3ee">[Amazon Music]</span>')
     .replace(/\[Claro Música\]/g, '<span style="color:#f59e0b">[Claro Música]</span>')
+    .replace(/\[YouTube Music\]/g, '<span style="color:#f87171">[YouTube Music]</span>')
     .replace(/Position #(\d+)/g, 'Position <span style="color:#f87171;font-weight:600">#$1</span>')
     .replace(/^(={2,})/gm, '<span style="color:#4b5563">$1</span>')
     .replace(/^(-{2,})/gm, '<span style="color:#4b5563">$1</span>')
