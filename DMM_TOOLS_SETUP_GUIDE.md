@@ -10,9 +10,9 @@ This toolkit replaces that manual work with three tools:
 
 - **Radio Report Generator** — Auto-fetches airplay data directly from Soundcharts (using your existing paid account session) and produces formatted Word documents with radio play data grouped by country and station. Defaults to LATAM-only data, with an option for all countries. What used to involve manual CSV downloads and copy-pasting into Google Docs now runs in seconds with zero transcription errors.
 
-- **Press Pickup Tool** — Searches for Spanish and Portuguese-language press coverage using a 3-source hybrid approach: Google News RSS (free, unlimited — primary press source across 5 LATAM regions), Brave Search (free, 2,000/month — supplementary press), and Serper.dev (3 credits/search — actual Google results including social media posts from Instagram, Facebook, and X). Results are matched against DMM's internal media database (1,500+ outlets with descriptions and reach metrics from Notion) and formatted into reports sorted by country. Social media posts are displayed with platform labels. When an outlet isn't found in the database, it uses a generic music media description.
+- **Press Pickup Tool** — Searches for Spanish and Portuguese-language press coverage using a 3-source hybrid approach: Google News RSS (free, unlimited — primary press source across 5 LATAM regions), Brave Search (free, 2,000/month — supplementary press), and Serper.dev (3 credits/search — actual Google results including social media posts from Instagram, Facebook, and X). Results are matched against DMM's internal media database (1,500+ outlets with descriptions and reach metrics from Notion) and formatted into reports sorted by country. Social media posts are displayed with platform labels. When an outlet isn't found in the database, it uses a generic music media description. Reports are downloadable as formatted .docx files.
 
-- **DSP Pickup Tool** — Checks 99 LATAM editorial playlists across Spotify, Deezer, Apple Music, Amazon Music, Claro Música, and YouTube Music against DMM's release schedule (pulled live from a shared Google Sheet) to find artist placements. All 6 platforms are fully automated with no API keys required: Spotify uses public embed page scraping (50 playlists), Deezer uses its public API (6 playlists), Apple Music uses public page scraping (16 playlists), Amazon Music uses public embed page scraping (6 playlists), Claro Música uses anonymous login with server-side rendered state parsing (4 playlists), and YouTube Music uses the innertube API for clean song titles (16 playlists). Each match includes the playlist link for quick verification.
+- **DSP Pickup Tool** — Checks 99 LATAM editorial playlists across Spotify, Deezer, Apple Music, Amazon Music, Claro Música, and YouTube Music against DMM's release schedule (pulled live from a shared Google Sheet) to find artist placements. All 6 platforms are fully automated with no API keys required: Spotify uses public embed page scraping (50 playlists), Deezer uses its public API (6 playlists), Apple Music uses public page scraping (16 playlists), Amazon Music uses public embed page scraping (6 playlists), Claro Música uses anonymous login with server-side rendered state parsing (4 playlists), and YouTube Music uses the innertube API for clean song titles (16 playlists). Each match includes the playlist link for quick verification. The tool generates composite proof images (showing playlist cover art, track position, and platform badge) and a formatted .docx report with platform headers, country labels, playlist metadata, and embedded proof images — ready to share with clients.
 
 All three tools are accessible via a **web UI** at `http://localhost:5000` — no terminal needed.
 
@@ -46,7 +46,7 @@ Python (for press + DSP pickup) — use a virtual environment:
 cd ~/projects/dmm-tools
 python3 -m venv .venv
 source .venv/bin/activate
-pip install requests googlenewsdecoder
+pip install requests googlenewsdecoder python-docx Pillow
 ```
 
 ## Step 3: Get API keys
@@ -126,8 +126,8 @@ python web/app.py
 Open http://localhost:5000 and test each tool:
 
 1. **Radio Report** — Select "Fetch from Soundcharts", enter an artist name, pick LATAM region and time range (7D/28D/1Y/Custom Range), click Fetch Songs, select songs, click Generate
-2. **Press Pickup** — Enter an artist name, pick a date range, click Search
-3. **DSP Pickup** — Enter an artist name, click Check Playlists
+2. **Press Pickup** — Enter an artist name, pick a date range, click Search → download .docx report
+3. **DSP Pickup** — Enter an artist name, click Check Playlists → view proof images → download .docx report
 
 If all three produce results, the setup is done.
 
@@ -226,13 +226,14 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 | Task | Status |
 |------|--------|
 | Radio play reports (Soundcharts auto-fetch) | Fully automated (LATAM default, all countries optional) |
-| Press pickup (Google News RSS + Brave + Serper) | Fully automated (3-source hybrid: free RSS + Brave + 3 Serper credits/search, includes social media posts) |
+| Press pickup (Google News RSS + Brave + Serper) | Fully automated (3-source hybrid: free RSS + Brave + 3 Serper credits/search, includes social media posts, .docx download) |
 | DSP pickup — Spotify playlists (50) | Fully automated (embed scraping, no API key) |
 | DSP pickup — Deezer playlists (6) | Fully automated (public API, no key) |
 | DSP pickup — Apple Music playlists (16) | Fully automated (page scraping, no API key) |
 | DSP pickup — Amazon Music playlists (6) | Fully automated (embed scraping, no API key) |
 | DSP pickup — Claro Música playlists (4) | Fully automated (anonymous login + SSR scraping, no API key) |
 | DSP pickup — YouTube Music playlists (16) | Fully automated (innertube API, no API key) |
+| DSP pickup — proof images + .docx report | Fully automated (composite proof images with playlist cover art, formatted Word document) |
 | Soundcharts token refresh | Fully automated (programmatic login, auto-refresh) |
 | New media outlet discovery | Flagged automatically, adding to Notion is manual |
 
@@ -245,7 +246,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 → Run `npm install docx` from the `dmm-tools` directory (installs locally, not globally)
 
 **`ModuleNotFoundError: No module named 'requests'`** (or `googlenewsdecoder`)
-→ Make sure the venv is activated: `source ~/projects/dmm-tools/.venv/bin/activate`, then run `pip install requests googlenewsdecoder`
+→ Make sure the venv is activated: `source ~/projects/dmm-tools/.venv/bin/activate`, then run `pip install requests googlenewsdecoder python-docx Pillow`
 
 **Press pickup returns few or no results**
 → Try broadening the date range with `--days 30` or `--days 90`. Check that your API keys are valid: Serper credits at [serper.dev/dashboard](https://serper.dev/dashboard), Brave quota at [api-dashboard.search.brave.com](https://api-dashboard.search.brave.com). Google News RSS is free and unlimited, so at minimum you should always get press articles

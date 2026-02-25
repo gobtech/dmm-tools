@@ -7,8 +7,8 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | Tool | What it does | Manual time saved |
 |------|-------------|-------------------|
 | **Radio Report** | Auto-fetches airplay data from Soundcharts and generates formatted Word reports (LATAM-focused) | ~1-2 hrs/artist |
-| **Press Pickup** | Searches Google News, Brave, and Serper for Spanish/Portuguese-language press + social media posts, matches against media database, formats report | ~2-3 hrs/artist |
-| **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music | ~3-4 hrs/week |
+| **Press Pickup** | Searches Google News, Brave, and Serper for Spanish/Portuguese-language press + social media posts, matches against media database, formats report with downloadable .docx | ~2-3 hrs/artist |
+| **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
 
 ## Web UI (Recommended)
 
@@ -22,14 +22,14 @@ python web/app.py
 
 The web UI provides:
 - **Radio Report**: Type an artist name → auto-fetches from Soundcharts → downloads .docx (LATAM or all countries, with custom date range support)
-- **Press Pickup**: Type an artist name + date range → searches Google News RSS + Brave + Serper → displays formatted report (press articles + social media posts)
-- **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms
+- **Press Pickup**: Type an artist name + date range → searches Google News RSS + Brave + Serper → displays formatted report (press articles + social media posts) → downloadable .docx
+- **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms → generates proof images and downloadable .docx report
 
 ## Quick Setup
 
 ```bash
 # 1. Install dependencies
-pip install requests flask googlenewsdecoder
+pip install requests flask googlenewsdecoder python-docx Pillow
 npm install docx
 
 # 2. Copy your data files
@@ -106,10 +106,10 @@ dmm-tools/
 │   ├── batch_generate.sh
 │   └── artists.json
 ├── press-pickup/
-│   └── press_pickup.py             ← Press pickup automation (Google News RSS + Brave + Serper)
+│   └── press_pickup.py             ← Press pickup automation (Google News RSS + Brave + Serper, .docx reports)
 ├── dsp-pickup/
-│   └── dsp_pickup.py               ← DSP playlist checker
-└── reports/                        ← Generated output
+│   └── dsp_pickup.py               ← DSP playlist checker (proof images + .docx reports)
+└── reports/                        ← Generated output (.docx, .txt, .json, proof images)
 ```
 
 ## API Keys Setup

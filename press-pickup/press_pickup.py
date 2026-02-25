@@ -611,11 +611,117 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(output_text)
         print(f"\nReport saved: {output_path}")
+
+        # Generate formatted .docx alongside the .txt
+        try:
+            docx_path = output_path.replace('.txt', '.docx') if output_path.endswith('.txt') else output_path + '.docx'
+            _generate_press_docx(artist, country_results, docx_path)
+            print(f"Word report saved: {docx_path}")
+        except Exception as e:
+            print(f"Warning: Could not generate .docx: {e}")
     else:
         print("\n" + "=" * 60)
         print(output_text)
-    
+
     return country_results
+
+
+def _generate_press_docx(artist, country_results, docx_path):
+    """Generate a formatted .docx Press Pickup report."""
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc = Document()
+
+    # Set default font and zero paragraph spacing
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Arial'
+    font.size = Pt(10)
+    style.paragraph_format.space_before = Pt(0)
+    style.paragraph_format.space_after = Pt(0)
+
+    # Title: "Press Pick Up" in bold red
+    title_para = doc.add_paragraph()
+    title_run = title_para.add_run('Press Pick Up')
+    title_run.bold = True
+    title_run.font.color.rgb = RGBColor(0xC4, 0x30, 0x30)
+    title_run.font.size = Pt(12)
+    title_para.paragraph_format.space_after = Pt(4)
+
+    for country in sorted(country_results.keys()):
+        entries = country_results[country]
+
+        # Country header: underlined, not bold — extra space before to separate sections
+        country_para = doc.add_paragraph()
+        country_run = country_para.add_run(country)
+        country_run.underline = True
+        country_run.font.size = Pt(10)
+        country_para.paragraph_format.space_before = Pt(12)
+        country_para.paragraph_format.space_after = Pt(2)
+
+        # Deduplicate by media name
+        seen_media = set()
+        for entry in entries:
+            if entry['media_name'] in seen_media:
+                continue
+            seen_media.add(entry['media_name'])
+
+            db_flag = "" if entry['in_database'] else " [NEW — not in DB]"
+
+            # Media entry: bold name + normal description
+            media_para = doc.add_paragraph()
+            name_run = media_para.add_run(f"{entry['media_name']}: ")
+            name_run.bold = True
+            name_run.font.size = Pt(10)
+
+            desc_text = f"{entry['description']}{db_flag}"
+            desc_run = media_para.add_run(desc_text)
+            desc_run.font.size = Pt(10)
+            media_para.paragraph_format.space_before = Pt(6)
+
+            # URL as a clickable hyperlink on its own paragraph
+            url_para = doc.add_paragraph()
+            _add_hyperlink(url_para, entry['url'], entry['url'])
+
+    doc.save(docx_path)
+
+
+def _add_hyperlink(paragraph, url, text):
+    """Add a clickable hyperlink to a paragraph in a .docx document."""
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    part = paragraph.part
+    r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
+
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+
+    new_run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+
+    # Blue color
+    color = OxmlElement('w:color')
+    color.set(qn('w:val'), '2E74B5')
+    rPr.append(color)
+
+    # Underline
+    u = OxmlElement('w:u')
+    u.set(qn('w:val'), 'single')
+    rPr.append(u)
+
+    # Font size
+    sz = OxmlElement('w:sz')
+    sz.set(qn('w:val'), '20')  # 10pt = 20 half-points
+    rPr.append(sz)
+
+    new_run.append(rPr)
+    new_run.text = text
+    hyperlink.append(new_run)
+    paragraph._p.append(hyperlink)
 
 
 def main():

@@ -40,9 +40,10 @@ if env_file.exists():
                 val = val.strip().strip('"').strip("'")
                 os.environ.setdefault(key, val)
 
-from flask import Flask, request, jsonify, send_file, render_template
+from flask import Flask, request, jsonify, send_file, render_template, make_response
 
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 # ---------------------------------------------------------------------------
 # Job store
@@ -90,7 +91,9 @@ def finish_job(job_id, result=None, output_path=None, error=None):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    resp = make_response(render_template('index.html'))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
 
 
 @app.route('/api/status/<job_id>')
@@ -104,6 +107,7 @@ def job_status(job_id):
         'result': job['result'],
         'error': job['error'],
         'has_file': job['output_path'] is not None,
+        'proof_images': job.get('proof_images', []),
     })
 
 
@@ -118,15 +122,44 @@ def download(job_id):
     return send_file(str(p), as_attachment=True, download_name=p.name)
 
 
+@app.route('/api/proof/<filename>')
+def serve_proof(filename):
+    """Serve a DSP proof image."""
+    proof_dir = REPORT_DIR / 'dsp_proofs'
+    p = proof_dir / filename
+    if not p.exists() or '..' in filename:
+        return jsonify({'error': 'Image not found'}), 404
+    return send_file(str(p), mimetype='image/png')
+
+
+@app.route('/api/proofs/zip')
+def download_proofs_zip():
+    """Download all proof images as a zip file."""
+    import zipfile
+    proof_dir = REPORT_DIR / 'dsp_proofs'
+    if not proof_dir.exists():
+        return jsonify({'error': 'No proof images available'}), 404
+    images = sorted(proof_dir.glob('proof_*.png'))
+    if not images:
+        return jsonify({'error': 'No proof images available'}), 404
+    zip_path = REPORT_DIR / 'dsp_proofs.zip'
+    with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+        for img in images:
+            zf.write(str(img), img.name)
+    return send_file(str(zip_path), as_attachment=True, download_name='dsp_proofs.zip')
+
+
 @app.route('/api/download/<job_id>/<filetype>')
 def download_typed(job_id, filetype):
-    """Download a specific output file type (txt or json) for DSP jobs."""
+    """Download a specific output file type (txt, json, or docx) for jobs."""
     job = jobs.get(job_id)
     if not job or not job['output_path']:
         return jsonify({'error': 'No file available'}), 404
     base = Path(job['output_path'])
     if filetype == 'json':
         p = base.with_suffix('.json')
+    elif filetype == 'docx':
+        p = base.with_suffix('.docx')
     else:
         p = base
     if not p.exists():
@@ -676,6 +709,11 @@ def dsp_run():
 
             output_path = REPORT_DIR / f'{safe_name}_dsp.txt'
 
+            # Clear previous proof images
+            proof_dir = REPORT_DIR / 'dsp_proofs'
+            if proof_dir.exists():
+                shutil.rmtree(proof_dir, ignore_errors=True)
+
             # Capture stdout
             buf = io.StringIO()
             old_stdout = sys.stdout
@@ -709,6 +747,14 @@ def dsp_run():
                 log_line(job_id, f'Found {total_matches} playlist placements!')
             else:
                 log_line(job_id, 'No matches found in checked playlists.')
+
+            # Collect proof image paths — just list all PNGs in the proof dir
+            proof_images = []
+            proof_dir = REPORT_DIR / 'dsp_proofs'
+            if proof_dir.exists():
+                proof_images = sorted([f.name for f in proof_dir.glob('proof_*.png')])
+
+            jobs[job_id]['proof_images'] = proof_images
 
             finish_job(job_id, result=result_text, output_path=output_path if output_path.exists() else None)
 

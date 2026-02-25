@@ -729,6 +729,48 @@ input[type="text"]:focus, input[type="date"]:focus {
 .platform-badge.other .dot { background: var(--text-tertiary); }
 
 /* ============================================================
+   PROOF IMAGE GALLERY
+   ============================================================ */
+.proof-gallery {
+  margin-top: 20px;
+  padding: 16px;
+  background: #111;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.proof-gallery-header {
+  margin-bottom: 12px;
+  color: #e5e5e5;
+  font-size: 14px;
+}
+
+.proof-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.proof-card {
+  display: block;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  transition: transform var(--transition), box-shadow var(--transition);
+  border: 1px solid rgba(255,255,255,.06);
+}
+
+.proof-card:hover {
+  transform: scale(1.01);
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+}
+
+.proof-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ============================================================
    STATUS PILL
    ============================================================ */
 .status-row {
@@ -1709,11 +1751,12 @@ async function runPress() {
       } else {
         let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Press search complete!</strong></div>`;
         if (result.result) {
-          html += `<div class="result-report">${escapeHtml(result.result)}</div>`;
+          html += `<div class="result-report">${formatPressReport(escapeHtml(result.result))}</div>`;
         }
         html += `<div class="result-actions">`;
         if (result.has_file) {
-          html += `<a class="btn btn-small" href="/api/download/${data.job_id}" download>Download Report</a>`;
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/docx" download>Download .docx</a>`;
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}" download>Download .txt</a>`;
         }
         if (result.result) {
           html += `<button class="btn btn-small btn-secondary" onclick="copyText(this)" data-text="${escapeAttr(result.result)}">Copy to Clipboard</button>`;
@@ -1789,10 +1832,31 @@ async function runDsp() {
         if (result.result) {
           html += `<div class="result-report">${colorizeReport(escapeHtml(result.result))}</div>`;
         }
+
+        // Show proof images if available
+        const proofImages = result.proof_images || [];
+        if (proofImages.length > 0) {
+          html += `<div class="proof-gallery">`;
+          html += `<div class="proof-gallery-header">`;
+          html += `<strong>Proof Images</strong> <span style="color:var(--text-tertiary)">(${proofImages.length})</span>`;
+          html += `</div>`;
+          html += `<div class="proof-grid">`;
+          for (const img of proofImages) {
+            html += `<a href="/api/proof/${encodeURIComponent(img)}" target="_blank" class="proof-card">`;
+            html += `<img src="/api/proof/${encodeURIComponent(img)}" alt="Proof" loading="lazy">`;
+            html += `</a>`;
+          }
+          html += `</div></div>`;
+        }
+
         html += `<div class="result-actions">`;
         if (result.has_file) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/docx" download>Download DSP .docx</a>`;
           html += `<a class="btn btn-small" href="/api/download/${data.job_id}/txt" download>Download .txt</a>`;
           html += `<a class="btn btn-small" href="/api/download/${data.job_id}/json" download>Download .json</a>`;
+        }
+        if (proofImages.length > 0) {
+          html += `<a class="btn btn-small" href="/api/proofs/zip" download>Download Proofs (.zip)</a>`;
         }
         if (result.result) {
           html += `<button class="btn btn-small btn-secondary" onclick="copyText(this)" data-text="${escapeAttr(result.result)}">Copy to Clipboard</button>`;
@@ -1852,6 +1916,39 @@ function colorizeReport(html) {
     .replace(/^(={2,})/gm, '<span style="color:#4b5563">$1</span>')
     .replace(/^(-{2,})/gm, '<span style="color:#4b5563">$1</span>')
     .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#93c5fd;text-decoration:underline">$1</a>');
+}
+
+function formatPressReport(html) {
+  // Process line by line
+  const lines = html.split('\n');
+  let out = '';
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    // Title line: "Press Pickup — Artist"
+    if (trimmed.startsWith('Press Pickup')) {
+      out += `<span style="color:#c43030;font-weight:700">${line}</span>\n`;
+    }
+    // URL line
+    else if (trimmed.match(/^https?:\/\//)) {
+      out += `<a href="${trimmed}" target="_blank" style="color:#93c5fd;text-decoration:underline">${line}</a>\n`;
+    }
+    // Country header: all-caps line (e.g. "ARGENTINA", "BRAZIL", "LATAM / REGIONAL")
+    else if (trimmed && /^[A-ZÁÉÍÓÚÑÜ\s\/\-]+$/.test(trimmed) && trimmed.length > 1) {
+      out += `<span style="text-decoration:underline">${line}</span>\n`;
+    }
+    // Media entry: "Media Name: description..."
+    else if (trimmed.includes(': ')) {
+      const colonIdx = line.indexOf(': ');
+      const name = line.substring(0, colonIdx);
+      const desc = line.substring(colonIdx);
+      out += `<strong>${name}</strong>${desc}\n`;
+    }
+    else {
+      out += line + '\n';
+    }
+  }
+  return out;
 }
 
 // Default week date to this Friday
