@@ -1,4 +1,4 @@
-﻿Playlist Name,Country,Followers,Last Updated,Link,Mood,Platform
+Playlist Name,Country,Followers,Last Updated,Link,Mood,Platform
 Novedades Viernes Andres,Andes,"32,000",Each week,https://open.spotify.com/playlist/37i9dQZF1DX04JcEjRGskm?si=d6aef8cadaa84892,Releases,Spotify
 Novedades Viernes Colombia,Colombia,"129,000",Each week,https://open.spotify.com/playlist/37i9dQZF1DX0GwFgIBcx9g?si=8ee2afdb356a4d13,Releases,Spotify
 Novedades Viernes Mexico,Mexico,"800,000",Each week,https://open.spotify.com/playlist/37i9dQZF1DWWZJHBoz7SEG?si=560b89a061184b37,Releases,Spotify
@@ -72,18 +72,18 @@ Dale Play!,LATAM,,Each week,https://music.apple.com/us/playlist/dale-play/pl.4b3
 Nuevo Nuevo,LATAM,,Each week,https://music.apple.com/us/playlist/nuevo-nuevo/pl.a4d0e897a1f64d1c9a7f2b75eac67c2d,Releases,Apple Music
 The New Latin America,LATAM,,Each week,https://music.apple.com/us/playlist/the-new-latin-america/pl.2ee92ff6c0ea47e495055bfab42ae1f7,Releases,Apple Music
 Lo mejor del día,LATAM,,Each week,https://music.apple.com/us/playlist/lo-mejor-del-dia/pl.2b0e6e332fdf4b7a91164da3162127b5,Releases,Apple Music
-"Pop: novedades",LATAM,,Each week,https://music.apple.com/us/playlist/pop-novedades/pl.16ef2c958d6e4b20ac75d783cb787053,Releases,Apple Music
-"Lo nuevo: dance",LATAM,,Each week,https://music.apple.com/us/playlist/lo-nuevo-dance/pl.9bd9accafe864654aac9f2dcceca5a69,Releases,Apple Music
-"Lo nuevo: música electrónica",LATAM,,Each week,https://music.apple.com/us/playlist/lo-nuevo-musica-electronica/pl.e395e6c47bc04b968e997ea55296d1be,Releases,Apple Music
-"Lo nuevo: indie",LATAM,,Each week,https://music.apple.com/us/playlist/lo-nuevo-indie/pl.0046b98ff15b4b929b42d96ef4ec0efe,Releases,Apple Music
-"Lo nuevo: rock",LATAM,,Each week,https://music.apple.com/us/playlist/lo-nuevo-rock/pl.aea893d092ed40a393d217ced33bde62,Releases,Apple Music
+Pop: novedades,LATAM,,Each week,https://music.apple.com/us/playlist/pop-novedades/pl.16ef2c958d6e4b20ac75d783cb787053,Releases,Apple Music
+Lo nuevo: dance,LATAM,,Each week,https://music.apple.com/us/playlist/lo-nuevo-dance/pl.9bd9accafe864654aac9f2dcceca5a69,Releases,Apple Music
+Lo nuevo: música electrónica,LATAM,,Each week,https://music.apple.com/us/playlist/lo-nuevo-musica-electronica/pl.e395e6c47bc04b968e997ea55296d1be,Releases,Apple Music
+Lo nuevo: indie,LATAM,,Each week,https://music.apple.com/us/playlist/lo-nuevo-indie/pl.0046b98ff15b4b929b42d96ef4ec0efe,Releases,Apple Music
+Lo nuevo: rock,LATAM,,Each week,https://music.apple.com/us/playlist/lo-nuevo-rock/pl.aea893d092ed40a393d217ced33bde62,Releases,Apple Music
 Novidades do dia,Brazil,,Each week,https://music.apple.com/br/playlist/novidades-do-dia/pl.2b0e6e332fdf4b7a91164da3162127b5,Releases,Apple Music
 Pop Hits Brasil,Brazil,,Each week,https://music.apple.com/br/playlist/pop-hits-brasil/pl.b95308a1e2d446b681360718b8ac4fa2,"Pop, Releases",Apple Music
 O novo indie brasileiro,Brazil,,Each week,https://music.apple.com/br/playlist/o-novo-indie-brasileiro/pl.34f95fdfe20c4943b7fba2d6c23957d7,"Indie, Releases",Apple Music
 Puro Pop,LATAM,,Each week,https://music.apple.com/us/playlist/puro-pop/pl.2754a2d6e0084e2b8106fcd35fef6492,"Pop, Releases",Apple Music
 Estrellas del Cover,Mexico,,Every other week,https://music.apple.com/mx/playlist/estrellas-del-cover/pl.23a355a30afb48bb9b9f62c593832d03,Covers,Apple Music
 Sonidos Siniestros,Mexico,,Every other week,https://music.apple.com/mx/playlist/sonidos-siniestros/pl.f72bb902f8684581bb26760069b50e43,"Alternative, Gloomy",Apple Music
-"Lo nuevo: alternativa",LATAM,,Each week,https://music.apple.com/mx/playlist/lo-nuevo-alternativa/pl.132b9a231cbf464086b4f838b2726f94,"Alternative, Releases",Apple Music
+Lo nuevo: alternativa,LATAM,,Each week,https://music.apple.com/mx/playlist/lo-nuevo-alternativa/pl.132b9a231cbf464086b4f838b2726f94,"Alternative, Releases",Apple Music
 Latin Now,LATAM,,Each week,https://music.youtube.com/playlist?list=RDCLAK5uy_lOAAW-PX5XUed76iQefCxkOXd6m6ZvyiM,"Mainstream, Trending",YouTube Music
 Pura Lumbre,Mexico,,Each week,https://music.youtube.com/playlist?list=RDCLAK5uy_mBG8rnC5wMKo61Jn5c18C6_NoYsuQ2HRI,"Musica Mexicana, Trending",YouTube Music
 Latin Pop Before It Breaks,LATAM,,Each week,https://music.youtube.com/playlist?list=RDCLAK5uy_lXoTYt3x31LVKo68NbfKdOK1EM98qBDbI,"Pop, Releases",YouTube Music
@@ -99,5 +99,3 @@ Hot Reggaeton,LATAM,,Each week,https://music.youtube.com/playlist?list=RDCLAK5uy
 Nuevo Tropical,LATAM,,Each week,https://music.youtube.com/playlist?list=RDCLAK5uy_m8mWSFy7ODRrQU4o6FEBL51LLXV3j6AdA,"Tropical, Releases",YouTube Music
 Pop Mexico,Mexico,,Every other week,https://music.youtube.com/playlist?list=RDCLAK5uy_nju9y-Oj-liCyxlM1svBmfgItJElbrDzg,Pop,YouTube Music
 Fiesta Latina,LATAM,,Every other week,https://music.youtube.com/playlist?list=RDCLAK5uy_npkgrjOge0uceDgFNjxp5ymEDMdUUHQ_4,"Party, Mainstream",YouTube Music
-,,,3 months,,,
-,,,3 months,,,

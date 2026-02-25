@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playlist Database — DMM Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS
+   ============================================================ */
+:root {
+  --bg-base: #f2f0ec;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-input: #f8f7f5;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #a0a0a0;
+  --accent: #c43030;
+  --border: rgba(0,0,0,.08);
+  --border-strong: rgba(0,0,0,.12);
+  --radius: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+  --radius-xs: 8px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 0 0 1px rgba(0,0,0,.03), 0 4px 12px rgba(0,0,0,.05), 0 16px 40px rgba(0,0,0,.04);
+  --transition: .2s cubic-bezier(.25,.46,.45,.94);
+  --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Cormorant Garamond', 'Georgia', serif;
+  --font-label: 'Raleway', -apple-system, BlinkMacSystemFont, sans-serif;
+  --logo-filter: none;
+
+  --spotify: #1db954;
+  --apple: #fc3c44;
+  --deezer: #a238ff;
+  --amazon: #00a8e1;
+  --claro: #da291c;
+  --youtube: #ff0000;
+}
+
+html.dark {
+  --bg-base: #0e0e10;
+  --bg-card: #18181b;
+  --bg-card-hover: #1f1f23;
+  --bg-input: #111114;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --accent: #c43030;
+  --border: rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.12);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --logo-filter: brightness(0) invert(1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 36px 24px 80px;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  text-align: center;
+  margin-bottom: 36px;
+}
+.header .logo {
+  height: 32px;
+  opacity: .7;
+  margin-bottom: 16px;
+  filter: var(--logo-filter);
+}
+.header h1 {
+  font-family: var(--font-heading);
+  font-size: 36px;
+  font-weight: 300;
+  letter-spacing: .02em;
+  margin-bottom: 8px;
+}
+.header .subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   NAV BUTTON
+   ============================================================ */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 28px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-primary);
+  text-decoration: none;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  transition: all .25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.back-link::before {
+  content: '';
+  position: absolute;
+  top: 0; right: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(270deg, transparent, rgba(196,48,48,.08), transparent);
+  transition: right .45s ease;
+}
+.back-link:hover::before { right: 100%; }
+.back-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-2px);
+}
+.back-link .btn-icon {
+  font-size: 16px;
+  transition: transform .25s ease;
+}
+.back-link:hover .btn-icon { transform: translateX(-3px); }
+
+/* ============================================================
+   THEME TOGGLE
+   ============================================================ */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   TOOLBAR
+   ============================================================ */
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.filter-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 10px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  transition: border-color var(--transition);
+}
+.filter-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.filter-select {
+  padding: 10px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  cursor: pointer;
+}
+.stats {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* ============================================================
+   PLATFORM TABS
+   ============================================================ */
+.platform-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.platform-tab {
+  padding: 7px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .18s ease;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.platform-tab:hover {
+  border-color: var(--text-tertiary);
+  color: var(--text-primary);
+}
+.platform-tab.active {
+  background: var(--text-primary);
+  color: var(--bg-base);
+  border-color: var(--text-primary);
+}
+.platform-tab .count {
+  font-weight: 400;
+  opacity: .6;
+  margin-left: 4px;
+}
+
+/* ============================================================
+   PLAYLIST TABLE
+   ============================================================ */
+.playlist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.playlist-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-tertiary);
+  border-bottom: 2px solid var(--border-strong);
+  cursor: pointer;
+  user-select: none;
+  transition: color .18s ease;
+  white-space: nowrap;
+}
+.playlist-table th:hover {
+  color: var(--text-primary);
+}
+.playlist-table th .sort-arrow {
+  font-size: 10px;
+  margin-left: 4px;
+  opacity: .4;
+}
+.playlist-table th.sorted .sort-arrow {
+  opacity: 1;
+  color: var(--accent);
+}
+.playlist-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.playlist-table tr:hover td {
+  background: var(--bg-card-hover);
+}
+.playlist-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.playlist-name a {
+  color: inherit;
+  text-decoration: none;
+  transition: color .18s ease;
+}
+.playlist-name a:hover {
+  color: var(--accent);
+}
+.platform-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  color: #fff;
+}
+.platform-badge.spotify { background: var(--spotify); }
+.platform-badge.apple-music { background: var(--apple); }
+.platform-badge.deezer { background: var(--deezer); }
+.platform-badge.amazon-music { background: var(--amazon); }
+.platform-badge.claro-musica { background: var(--claro); }
+.platform-badge.youtube-music { background: var(--youtube); }
+
+.mood-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.mood-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--border);
+  color: var(--text-secondary);
+}
+
+/* ============================================================
+   ADD FORM
+   ============================================================ */
+.add-form-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all .2s ease;
+  box-shadow: 0 2px 8px rgba(196,48,48,.25);
+}
+.add-form-toggle:hover {
+  background: #a82828;
+  box-shadow: 0 4px 16px rgba(196,48,48,.35);
+  transform: translateY(-1px);
+}
+.add-form {
+  display: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+.add-form.open { display: block; }
+.add-form label {
+  display: block;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  margin-top: 14px;
+}
+.add-form label:first-child { margin-top: 0; }
+.add-form input, .add-form select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+.add-form input:focus, .add-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.add-form .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.add-form .form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.btn-add {
+  padding: 10px 24px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.btn-add:hover { background: #a82828; }
+.btn-add:disabled { opacity: .5; cursor: not-allowed; }
+.btn-cancel {
+  padding: 10px 24px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.btn-cancel:hover { border-color: var(--text-tertiary); color: var(--text-primary); }
+.platform-preview {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.form-message {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  display: none;
+}
+.form-message.success {
+  display: block;
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+.form-message.error {
+  display: block;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+html.dark .form-message.success { background: rgba(34,197,94,.1); color: #4ade80; border-color: rgba(34,197,94,.25); }
+html.dark .form-message.error { background: rgba(239,68,68,.1); color: #f87171; border-color: rgba(239,68,68,.25); }
+
+.delete-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all .18s ease;
+  white-space: nowrap;
+}
+.delete-btn:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: rgba(239,68,68,.06);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  padding: 12px 24px;
+  background: var(--text-primary);
+  color: var(--bg-base);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-md);
+  transition: transform .3s ease;
+  z-index: 200;
+  pointer-events: none;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.footer {
+  text-align: center;
+  padding: 32px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.licensing-link {
+  display: inline-block;
+  padding: 8px 20px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  transition: all .25s ease;
+}
+.licensing-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(196,48,48,.1);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 700px) {
+  .container { padding: 24px 16px 60px; }
+  .header h1 { font-size: 28px; }
+  .playlist-table { font-size: 13px; }
+  .playlist-table th, .playlist-table td { padding: 8px 8px; }
+  .mood-tags { display: none; }
+}
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+  <span id="theme-icon">&#9790;</span>
+</button>
+
+<div class="container">
+  <div class="header">
+    <img class="logo" src="https://images.squarespace-cdn.com/content/v1/590102829de4bb02e43309fd/1503502770341-VCOKSUOU944GCVSODOI7/DMM-final-logo-extended.png" alt="Dorado Music Marketing">
+    <h1>Playlist Database</h1>
+    <p class="subtitle">Editorial playlists tracked by DSP Pickup</p>
+    <a href="/" class="back-link">
+      <span class="btn-icon">&larr;</span>
+      <span>Back to Tools</span>
+    </a>
+  </div>
+
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
+    <div class="platform-tabs" id="platform-tabs" style="margin-bottom:0;"></div>
+    <button class="add-form-toggle" onclick="toggleAddForm()">+ Add Playlist</button>
+  </div>
+
+  <div class="add-form" id="add-form">
+    <label for="add-link">Playlist URL</label>
+    <input type="url" id="add-link" placeholder="https://open.spotify.com/playlist/..." oninput="detectPlatform()">
+    <div class="platform-preview" id="platform-preview"></div>
+
+    <label for="add-name">Playlist Name</label>
+    <input type="text" id="add-name" placeholder="e.g. Novedades Viernes Mexico">
+
+    <div class="form-row">
+      <div>
+        <label for="add-country">Country / Region</label>
+        <select id="add-country">
+          <option value="LATAM">LATAM</option>
+          <option value="Mexico">Mexico</option>
+          <option value="Brazil">Brazil</option>
+          <option value="Colombia">Colombia</option>
+          <option value="Argentina">Argentina</option>
+          <option value="Chile">Chile</option>
+          <option value="Peru">Peru</option>
+          <option value="Ecuador">Ecuador</option>
+          <option value="Uruguay">Uruguay</option>
+          <option value="Venezuela">Venezuela</option>
+          <option value="Costa Rica">Costa Rica</option>
+          <option value="South Cone">South Cone</option>
+          <option value="Andes">Andes</option>
+        </select>
+      </div>
+      <div>
+        <label for="add-followers">Followers <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:.6;">(optional)</span></label>
+        <input type="text" id="add-followers" placeholder="e.g. 800,000">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div>
+        <label for="add-mood">Mood / Tags <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:.6;">(optional, comma-separated)</span></label>
+        <input type="text" id="add-mood" placeholder="e.g. Releases, Indie, Chill">
+      </div>
+      <div>
+        <label for="add-updated">Update Frequency</label>
+        <select id="add-updated">
+          <option value="Each week">Each week</option>
+          <option value="Each month">Each month</option>
+          <option value="Irregular">Irregular</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-add" id="btn-add" onclick="addPlaylist()">Add to Database</button>
+      <button class="btn-cancel" onclick="toggleAddForm()">Cancel</button>
+    </div>
+    <div class="form-message" id="form-message"></div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" class="filter-input" id="filter" placeholder="Filter by playlist name, country, or mood...">
+    <span class="stats" id="stats"></span>
+  </div>
+
+  <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-sm); overflow:hidden;">
+    <div style="overflow-x:auto;">
+      <table class="playlist-table" id="playlist-table">
+        <thead>
+          <tr>
+            <th data-col="name" class="sorted">Playlist <span class="sort-arrow">&#9650;</span></th>
+            <th data-col="platform">Platform <span class="sort-arrow">&#9650;</span></th>
+            <th data-col="country">Country <span class="sort-arrow">&#9650;</span></th>
+            <th data-col="followers">Followers <span class="sort-arrow">&#9650;</span></th>
+            <th data-col="updated">Updated <span class="sort-arrow">&#9650;</span></th>
+            <th data-col="mood">Mood / Tags <span class="sort-arrow">&#9650;</span></th>
+            <th style="width:60px;"></th>
+          </tr>
+        </thead>
+        <tbody id="playlist-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    Dorado Music Marketing &copy; 2026 &mdash; Internal use only.
+    <div style="margin-top:12px;">
+      <a href="/licensing" class="licensing-link">Licensing &amp; Attribution</a>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// Toast
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// Theme
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.getElementById('theme-icon').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('dmm_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('dmm_theme') || 'light');
+
+// Data
+let allPlaylists = [];
+let currentPlatform = 'all';
+let sortCol = 'name';
+let sortAsc = true;
+
+async function loadPlaylists() {
+  const resp = await fetch('/api/playlists');
+  allPlaylists = await resp.json();
+  buildPlatformTabs();
+  render();
+}
+
+function buildPlatformTabs() {
+  const counts = { all: allPlaylists.length };
+  for (const p of allPlaylists) {
+    const platform = p.platform || 'Other';
+    counts[platform] = (counts[platform] || 0) + 1;
+  }
+
+  const order = ['all', 'Spotify', 'Apple Music', 'YouTube Music', 'Deezer', 'Amazon Music', 'Claro Música'];
+  const container = document.getElementById('platform-tabs');
+  container.innerHTML = '';
+
+  for (const key of order) {
+    if (counts[key] === undefined) continue;
+    const label = key === 'all' ? 'All' : key;
+    const btn = document.createElement('button');
+    btn.className = 'platform-tab' + (key === currentPlatform ? ' active' : '');
+    btn.innerHTML = `${label}<span class="count">(${counts[key]})</span>`;
+    btn.onclick = () => {
+      currentPlatform = key;
+      document.querySelectorAll('.platform-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      render();
+    };
+    container.appendChild(btn);
+  }
+}
+
+function parseFollowers(s) {
+  if (!s) return 0;
+  return parseInt(s.replace(/[^0-9]/g, ''), 10) || 0;
+}
+
+function platformClass(p) {
+  return (p || '').toLowerCase().replace(/\s+/g, '-').replace(/ú/g, 'u');
+}
+
+function render() {
+  const filter = document.getElementById('filter').value.toLowerCase();
+  let list = allPlaylists.filter(p => {
+    if (currentPlatform !== 'all' && p.platform !== currentPlatform) return false;
+    if (filter) {
+      const haystack = `${p.name} ${p.country} ${p.mood} ${p.platform}`.toLowerCase();
+      return haystack.includes(filter);
+    }
+    return true;
+  });
+
+  // Sort
+  list.sort((a, b) => {
+    let va, vb;
+    if (sortCol === 'followers') {
+      va = parseFollowers(a.followers);
+      vb = parseFollowers(b.followers);
+    } else {
+      va = (a[sortCol] || '').toLowerCase();
+      vb = (b[sortCol] || '').toLowerCase();
+    }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  // Stats
+  document.getElementById('stats').textContent = `${list.length} playlist${list.length !== 1 ? 's' : ''}`;
+
+  // Render rows
+  const tbody = document.getElementById('playlist-body');
+  tbody.innerHTML = '';
+
+  for (const p of list) {
+    const tr = document.createElement('tr');
+
+    // Name
+    const nameTd = document.createElement('td');
+    nameTd.className = 'playlist-name';
+    if (p.link) {
+      nameTd.innerHTML = `<a href="${p.link}" target="_blank" rel="noopener">${esc(p.name)}</a>`;
+    } else {
+      nameTd.textContent = p.name;
+    }
+    tr.appendChild(nameTd);
+
+    // Platform badge
+    const platTd = document.createElement('td');
+    platTd.innerHTML = `<span class="platform-badge ${platformClass(p.platform)}">${esc(p.platform)}</span>`;
+    tr.appendChild(platTd);
+
+    // Country
+    const countryTd = document.createElement('td');
+    countryTd.style.color = 'var(--text-secondary)';
+    countryTd.textContent = p.country || '—';
+    tr.appendChild(countryTd);
+
+    // Followers
+    const follTd = document.createElement('td');
+    follTd.style.color = 'var(--text-secondary)';
+    follTd.textContent = p.followers || '—';
+    tr.appendChild(follTd);
+
+    // Updated
+    const updTd = document.createElement('td');
+    updTd.style.color = 'var(--text-tertiary)';
+    updTd.style.fontSize = '13px';
+    updTd.textContent = p.updated || '—';
+    tr.appendChild(updTd);
+
+    // Mood tags
+    const moodTd = document.createElement('td');
+    if (p.mood) {
+      const tags = p.mood.split(',').map(t => t.trim()).filter(Boolean);
+      moodTd.innerHTML = `<div class="mood-tags">${tags.map(t => `<span class="mood-tag">${esc(t)}</span>`).join('')}</div>`;
+    }
+    tr.appendChild(moodTd);
+
+    // Delete button
+    const actTd = document.createElement('td');
+    actTd.style.textAlign = 'center';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'delete-btn';
+    delBtn.textContent = 'Remove';
+    delBtn.onclick = () => deletePlaylist(p.link, p.name);
+    actTd.appendChild(delBtn);
+    tr.appendChild(actTd);
+
+    tbody.appendChild(tr);
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// Filter
+document.getElementById('filter').addEventListener('input', render);
+
+// Sortable columns
+document.querySelectorAll('.playlist-table th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (sortCol === col) {
+      sortAsc = !sortAsc;
+    } else {
+      sortCol = col;
+      sortAsc = true;
+    }
+    document.querySelectorAll('.playlist-table th').forEach(h => h.classList.remove('sorted'));
+    th.classList.add('sorted');
+    th.querySelector('.sort-arrow').innerHTML = sortAsc ? '&#9650;' : '&#9660;';
+    render();
+  });
+});
+
+loadPlaylists();
+
+// =====================================================================
+// Add / Delete playlists
+// =====================================================================
+const PLATFORM_DETECT = [
+  { pattern: 'spotify.com', name: 'Spotify', color: '#1db954' },
+  { pattern: 'music.apple.com', name: 'Apple Music', color: '#fc3c44' },
+  { pattern: 'deezer.com', name: 'Deezer', color: '#a238ff' },
+  { pattern: 'music.amazon', name: 'Amazon Music', color: '#00a8e1' },
+  { pattern: 'claromusica.com', name: 'Claro Música', color: '#da291c' },
+  { pattern: 'music.youtube.com', name: 'YouTube Music', color: '#ff0000' },
+];
+
+function toggleAddForm() {
+  const form = document.getElementById('add-form');
+  form.classList.toggle('open');
+  if (form.classList.contains('open')) {
+    document.getElementById('add-link').focus();
+  }
+  // Clear message on toggle
+  const msg = document.getElementById('form-message');
+  msg.className = 'form-message';
+  msg.style.display = 'none';
+}
+
+function detectPlatform() {
+  const link = document.getElementById('add-link').value.toLowerCase();
+  const preview = document.getElementById('platform-preview');
+  for (const p of PLATFORM_DETECT) {
+    if (link.includes(p.pattern)) {
+      preview.innerHTML = `<span style="color:${p.color};">&#10003; ${p.name} detected</span>`;
+      return;
+    }
+  }
+  if (link.length > 10) {
+    preview.innerHTML = '<span style="color:var(--text-tertiary);">Platform not recognized</span>';
+  } else {
+    preview.innerHTML = '';
+  }
+}
+
+async function addPlaylist() {
+  const link = document.getElementById('add-link').value.trim();
+  const name = document.getElementById('add-name').value.trim();
+  const country = document.getElementById('add-country').value;
+  const followers = document.getElementById('add-followers').value.trim();
+  const mood = document.getElementById('add-mood').value.trim();
+  const updated = document.getElementById('add-updated').value;
+
+  const msg = document.getElementById('form-message');
+
+  if (!link) { showFormMsg('error', 'Please enter a playlist URL.'); return; }
+  if (!name) { showFormMsg('error', 'Please enter a playlist name.'); return; }
+
+  const btn = document.getElementById('btn-add');
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+
+  try {
+    const resp = await fetch('/api/playlists/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ link, name, country, followers, mood, updated }),
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      showFormMsg('error', data.error);
+    } else {
+      showFormMsg('success', `Added "${name}" (${data.playlist.platform}) to the database!`);
+      // Clear form
+      document.getElementById('add-link').value = '';
+      document.getElementById('add-name').value = '';
+      document.getElementById('add-followers').value = '';
+      document.getElementById('add-mood').value = '';
+      document.getElementById('platform-preview').innerHTML = '';
+      // Reload data
+      await loadPlaylists();
+      showToast(`${name} added to database`);
+    }
+  } catch (e) {
+    showFormMsg('error', 'Failed to connect to server.');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Add to Database';
+}
+
+function showFormMsg(type, text) {
+  const msg = document.getElementById('form-message');
+  msg.className = 'form-message ' + type;
+  msg.textContent = text;
+  msg.style.display = 'block';
+}
+
+async function deletePlaylist(link, name) {
+  if (!confirm(`Remove "${name}" from the playlist database?`)) return;
+
+  try {
+    const resp = await fetch('/api/playlists/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ link }),
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      showToast('Error: ' + data.error);
+    } else {
+      await loadPlaylists();
+      showToast(`${name} removed`);
+    }
+  } catch (e) {
+    showToast('Failed to connect to server.');
+  }
+}
+</script>
+</body>
+</html>

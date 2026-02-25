@@ -32,6 +32,7 @@ The web UI provides:
 - **Weekly Digest** *(WIP)*: Enter an artist name → runs Radio/DSP/Press checks → generates a copy-paste-ready email summary (HTML + plain text) with customizable greeting, sign-off, and next steps
 - **Outlet Discovery** *(WIP)*: Select a genre and region → searches for new LATAM outlets not in the database → deduplicates against 1,500+ known outlets → optional AI descriptions → downloadable CSV for Notion import
 - **Release Calendar** (`/calendar`): Visual timeline of all releases grouped by week, color-coded by phase (Pre-Pitch → Release Week → Reporting), with quick-action buttons to run DSP/Press/Report for any artist
+- **Playlist Database** (`/playlists`): Browse, search, and filter all 99+ tracked editorial playlists with platform badges, mood tags, and sortable columns. Add new playlists (auto-detects platform from URL) or remove existing ones — changes sync directly with the DSP Pickup database
 
 ## Quick Setup
 
@@ -108,7 +109,10 @@ dmm-tools/
 ├── web/
 │   ├── app.py                      ← Flask web server
 │   └── templates/
-│       └── index.html              ← Web UI (single-page app)
+│       ├── index.html              ← Web UI (single-page app)
+│       ├── calendar.html           ← Release Calendar timeline
+│       ├── playlists.html          ← Playlist Database viewer + management
+│       └── licensing.html          ← Licensing & attribution page
 ├── airplay-report/
 │   ├── generate_report.js          ← Radio play report generator (.docx)
 │   ├── batch_generate.sh

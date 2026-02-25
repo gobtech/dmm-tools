@@ -773,6 +773,186 @@ def dsp_run():
 # Release Calendar
 # ---------------------------------------------------------------------------
 
+@app.route('/playlists')
+def playlists_page():
+    return render_template('playlists.html')
+
+
+@app.route('/api/playlists')
+def api_playlists():
+    """Return playlist database as JSON."""
+    from shared.database import load_playlist_database
+
+    pl_path = os.environ.get(
+        'PLAYLIST_DB_PATH',
+        str(ROOT_DIR / 'data' / 'playlist_database.csv')
+    )
+    playlists = load_playlist_database(pl_path)
+
+    # Also read raw CSV for "Last Updated" column (not in parsed output)
+    import csv as csv_mod
+    updated_map = {}
+    try:
+        with open(pl_path, encoding='utf-8-sig') as f:
+            reader = csv_mod.DictReader(f)
+            for row in reader:
+                name = row.get('Playlist Name', '').strip()
+                if name:
+                    updated_map[name] = row.get('Last Updated', '').strip()
+    except Exception:
+        pass
+
+    result = []
+    for p in playlists:
+        result.append({
+            'name': p.get('name', ''),
+            'platform': p.get('platform', ''),
+            'country': p.get('country', ''),
+            'followers': p.get('followers', ''),
+            'updated': updated_map.get(p.get('name', ''), ''),
+            'mood': p.get('mood', ''),
+            'link': p.get('link', ''),
+        })
+    return jsonify(result)
+
+
+@app.route('/api/playlists/add', methods=['POST'])
+def api_playlists_add():
+    """Add a new playlist to the CSV database."""
+    import csv as csv_mod
+
+    data = request.get_json(silent=True) or {}
+    link = data.get('link', '').strip()
+    name = data.get('name', '').strip()
+    country = data.get('country', '').strip()
+    followers = data.get('followers', '').strip()
+    mood = data.get('mood', '').strip()
+    updated = data.get('updated', '').strip()
+
+    if not link:
+        return jsonify({'error': 'Playlist link is required.'}), 400
+    if not name:
+        return jsonify({'error': 'Playlist name is required.'}), 400
+
+    # Auto-detect platform from URL
+    link_lower = link.lower()
+    if 'spotify.com' in link_lower:
+        platform = 'Spotify'
+    elif 'music.apple.com' in link_lower:
+        platform = 'Apple Music'
+    elif 'deezer.com' in link_lower:
+        platform = 'Deezer'
+    elif 'music.amazon' in link_lower:
+        platform = 'Amazon Music'
+    elif 'claromusica.com' in link_lower:
+        platform = 'Claro Música'
+    elif 'music.youtube.com' in link_lower:
+        platform = 'YouTube Music'
+    else:
+        return jsonify({'error': 'Could not detect platform from URL. Supported: Spotify, Apple Music, Deezer, Amazon Music, Claro Música, YouTube Music.'}), 400
+
+    pl_path = os.environ.get(
+        'PLAYLIST_DB_PATH',
+        str(ROOT_DIR / 'data' / 'playlist_database.csv')
+    )
+
+    # Check for duplicates (by link)
+    try:
+        with open(pl_path, encoding='utf-8-sig') as f:
+            reader = csv_mod.DictReader(f)
+            for row in reader:
+                if row.get('Link', '').strip() == link:
+                    return jsonify({'error': 'This playlist is already in the database.'}), 409
+    except Exception:
+        pass
+
+    # Append to CSV
+    row = {
+        'Playlist Name': name,
+        'Country': country,
+        'Followers': followers,
+        'Last Updated': updated or 'Each week',
+        'Link': link,
+        'Mood': mood,
+        'Platform': platform,
+    }
+    fieldnames = ['Playlist Name', 'Country', 'Followers', 'Last Updated', 'Link', 'Mood', 'Platform']
+
+    try:
+        # Ensure file ends with a newline before appending
+        with open(pl_path, 'rb') as f:
+            f.seek(0, 2)  # end of file
+            if f.tell() > 0:
+                f.seek(-1, 2)
+                if f.read(1) not in (b'\n', b'\r'):
+                    with open(pl_path, 'a', encoding='utf-8') as fa:
+                        fa.write('\n')
+        with open(pl_path, 'a', newline='', encoding='utf-8') as f:
+            writer = csv_mod.DictWriter(f, fieldnames=fieldnames)
+            writer.writerow(row)
+    except Exception as e:
+        return jsonify({'error': f'Failed to write to database: {e}'}), 500
+
+    return jsonify({
+        'success': True,
+        'playlist': {
+            'name': name,
+            'platform': platform,
+            'country': country,
+            'followers': followers,
+            'updated': updated or 'Each week',
+            'mood': mood,
+            'link': link,
+        },
+    })
+
+
+@app.route('/api/playlists/delete', methods=['POST'])
+def api_playlists_delete():
+    """Remove a playlist from the CSV database by link."""
+    import csv as csv_mod
+
+    data = request.get_json(silent=True) or {}
+    link = data.get('link', '').strip()
+    if not link:
+        return jsonify({'error': 'Playlist link is required.'}), 400
+
+    pl_path = os.environ.get(
+        'PLAYLIST_DB_PATH',
+        str(ROOT_DIR / 'data' / 'playlist_database.csv')
+    )
+
+    # Read all rows, filter out the one to delete
+    rows = []
+    fieldnames = None
+    found = False
+    try:
+        with open(pl_path, encoding='utf-8-sig') as f:
+            reader = csv_mod.DictReader(f)
+            fieldnames = reader.fieldnames
+            for row in reader:
+                if row.get('Link', '').strip() == link:
+                    found = True
+                    continue
+                rows.append(row)
+    except Exception as e:
+        return jsonify({'error': f'Failed to read database: {e}'}), 500
+
+    if not found:
+        return jsonify({'error': 'Playlist not found in database.'}), 404
+
+    # Rewrite CSV without the deleted row
+    try:
+        with open(pl_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv_mod.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+    except Exception as e:
+        return jsonify({'error': f'Failed to write database: {e}'}), 500
+
+    return jsonify({'success': True})
+
+
 @app.route('/calendar')
 def calendar():
     resp = make_response(render_template('calendar.html'))
