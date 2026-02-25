@@ -72,10 +72,11 @@ A fourth tool — **"Report Compiler"** — that:
 
 ---
 
-## Opportunity 2: Proposal Generator
+## Opportunity 2: Proposal Generator ✅ DONE
 
 ### Priority: HIGH
 ### Time saved: ~1-2 hrs per proposal
+### Status: Implemented — `proposal-generator/generate_proposal.py` + "Proposal" tab in web UI
 
 ### The Problem
 

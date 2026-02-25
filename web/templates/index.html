@@ -141,7 +141,7 @@ body {
 .container {
   position: relative;
   z-index: 1;
-  max-width: 760px;
+  max-width: 860px;
   margin: 0 auto;
   padding: 52px 24px 80px;
 }
@@ -1282,6 +1282,7 @@ html.dark .bg-glow-orb { opacity: .25; }
     <button class="tab-btn" onclick="switchTab('press')">Press Pickup</button>
     <button class="tab-btn" onclick="switchTab('dsp')">DSP Pickup</button>
     <button class="tab-btn" onclick="switchTab('report')">Full Report</button>
+    <button class="tab-btn" onclick="switchTab('proposal')">Proposal <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
     <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
     <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
   </div>
@@ -1556,7 +1557,171 @@ html.dark .bg-glow-orb { opacity: .25; }
   </div>
 
   <!-- ================================================================== -->
-  <!-- TAB 5: Weekly Digest -->
+  <!-- TAB 5: Proposal Generator -->
+  <!-- ================================================================== -->
+  <div id="tab-proposal" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            Generates a complete client proposal document with campaign overview, DSP strategy,
+            press and radio targets filtered by genre, and a budget breakdown.
+            All data is pulled from the internal databases — just fill in the artist details.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section: Artist & Campaign ── -->
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:16px 18px 12px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);margin-bottom:10px;">Artist & Campaign</div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <input type="text" id="proposal-artist" class="form-control" placeholder="Artist name">
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-genre" style="font-size:11px;">Genre</label>
+          <select id="proposal-genre" class="form-control" onchange="loadProposalData()" style="font-size:12px;">
+            <option value="general">General</option>
+            <option value="electronic">Electronic / Dance</option>
+            <option value="indie">Indie / Alternative</option>
+            <option value="rock">Rock</option>
+            <option value="pop">Pop</option>
+            <option value="urban">Urban / Reggaeton</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-duration" style="font-size:11px;">Duration</label>
+          <select id="proposal-duration" class="form-control" onchange="updateBudgetPreview()" style="font-size:12px;">
+            <option value="1">1 month</option>
+            <option value="2">2 months</option>
+            <option value="3" selected>3 months</option>
+            <option value="4">4 months</option>
+            <option value="6">6 months</option>
+            <option value="12">12 months</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label style="font-size:11px;">Collaborators</label>
+          <input type="text" id="proposal-collaborators" class="form-control" placeholder="ft. Artist, remix by..." style="font-size:12px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section: Timeline ── -->
+    <details style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:0 18px;margin-bottom:14px;">
+      <summary style="cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);padding:14px 0;list-style:none;display:flex;align-items:center;justify-content:space-between;">
+        Release Timeline <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text-tertiary);">optional &#9660;</span>
+      </summary>
+      <div style="padding-bottom:14px;">
+        <div id="proposal-timeline" style="display:flex;flex-direction:column;gap:6px;"></div>
+        <button type="button" onclick="addTimelineRow()" style="margin-top:8px;font-size:11px;padding:5px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text-secondary);">+ Add Release</button>
+      </div>
+    </details>
+
+    <!-- ── Section: Markets & Radio ── -->
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:16px 18px 14px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);margin-bottom:10px;">Markets & Radio</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 12px;margin-bottom:12px;">
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;font-weight:600;color:var(--text-primary);">
+          <input type="checkbox" id="proposal-all-countries" checked onchange="toggleAllCountries(this.checked)"> All LATAM
+        </label>
+        <span style="color:var(--border);margin:0 2px;">|</span>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="MÉXICO" checked onchange="renderRadioStations();updateBudgetPreview()"> MX</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="BRAZIL" checked onchange="renderRadioStations();updateBudgetPreview()"> BR</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="ARGENTINA" checked onchange="renderRadioStations();updateBudgetPreview()"> AR</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="CHILE" checked onchange="renderRadioStations();updateBudgetPreview()"> CL</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="COLOMBIA" checked onchange="renderRadioStations();updateBudgetPreview()"> CO</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="ECUADOR" checked onchange="renderRadioStations();updateBudgetPreview()"> EC</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="PERU" checked onchange="renderRadioStations();updateBudgetPreview()"> PE</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="URUGUAY" checked onchange="renderRadioStations();updateBudgetPreview()"> UY</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="VENEZUELA" checked onchange="renderRadioStations();updateBudgetPreview()"> VE</label>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;">Radio Stations <span id="radio-count-label" style="font-weight:400;"></span></div>
+      <div id="proposal-radio-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--bg-card);display:flex;flex-direction:column;gap:2px;font-size:12px;">
+        <span style="color:var(--text-tertiary);font-size:12px;">Loading stations...</span>
+      </div>
+    </div>
+
+    <!-- ── Section: Services & Budget ── -->
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:16px 18px 14px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);margin-bottom:10px;">Services</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;margin-bottom:12px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-influencer" style="font-size:11px;">Influencer Tier</label>
+          <select id="proposal-influencer" class="form-control" onchange="updateBudgetPreview()" style="font-size:12px;">
+            <option value="">None</option>
+            <option value="micro">Micro (10K-50K)</option>
+            <option value="mid" selected>Mid-tier (50K-500K)</option>
+            <option value="macro">Macro (500K+)</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-digital" style="font-size:11px;">Digital Marketing</label>
+          <select id="proposal-digital" class="form-control" onchange="updateBudgetPreview()" style="font-size:12px;">
+            <option value="">None</option>
+            <option value="starter">Starter ($500/mo)</option>
+            <option value="standard" selected>Standard ($1,500/mo)</option>
+            <option value="premium">Premium ($3,000/mo)</option>
+          </select>
+        </div>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;">DJ & Club Servicing</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 12px;">
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Mexico" onchange="updateBudgetPreview()"> Mexico</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Brazil" onchange="updateBudgetPreview()"> Brazil</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Argentina" onchange="updateBudgetPreview()"> Argentina</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Colombia" onchange="updateBudgetPreview()"> Colombia</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Chile" onchange="updateBudgetPreview()"> Chile</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Peru" onchange="updateBudgetPreview()"> Peru</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Multi-LATAM" onchange="updateBudgetPreview()"> Multi-LATAM</label>
+      </div>
+    </div>
+
+    <!-- ── Budget Preview ── -->
+    <div id="proposal-budget-preview" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:14px;display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);">Budget Estimate</div>
+        <div>
+          <span style="font-weight:700;font-size:18px;color:var(--accent);" id="proposal-budget-total">$0 USD</span>
+          <span style="font-size:11px;color:var(--text-tertiary);margin-left:6px;" id="proposal-budget-monthly"></span>
+        </div>
+      </div>
+      <div id="proposal-budget-items" style="display:flex;flex-direction:column;gap:3px;font-size:12px;"></div>
+    </div>
+
+    <!-- ── Custom text overrides ── -->
+    <details style="margin-bottom:14px;">
+      <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-tertiary);padding:4px 0;letter-spacing:.5px;">
+        &#9654; Custom Text Overrides
+      </summary>
+      <div style="margin-top:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:14px 18px;">
+        <div class="form-group" style="margin-bottom:10px;">
+          <label for="proposal-goal" style="font-size:11px;">Goal & Strategy</label>
+          <textarea id="proposal-goal" class="form-control" rows="2" placeholder="Leave empty for auto-generated text..." style="font-size:12px;"></textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-digital-text" style="font-size:11px;">Digital Marketing</label>
+          <textarea id="proposal-digital-text" class="form-control" rows="2" placeholder="Leave empty for auto-generated text..." style="font-size:12px;"></textarea>
+        </div>
+      </div>
+    </details>
+
+    <button class="btn" id="proposal-btn" onclick="runProposal()">Generate Proposal</button>
+
+    <div class="progress-area" id="proposal-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="proposal-log"></div>
+    </div>
+
+    <div class="result-area" id="proposal-result"></div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- TAB 6: Weekly Digest -->
   <!-- ================================================================== -->
   <div id="tab-digest" class="tab-panel">
     <div class="tab-tips">
@@ -1741,13 +1906,18 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('tab-' + name);
   panel.classList.add('active');
-  const tabs = ['radio', 'press', 'dsp', 'report', 'digest', 'discovery'];
+  const tabs = ['radio', 'press', 'dsp', 'report', 'proposal', 'digest', 'discovery'];
   const idx = tabs.indexOf(name);
   document.querySelectorAll('.tab-btn')[idx].classList.add('active');
   // Re-trigger entrance animation
   panel.style.animation = 'none';
   panel.offsetHeight; // reflow
   panel.style.animation = '';
+  // Load proposal data on first visit
+  if (name === 'proposal' && !proposalDataLoaded) {
+    proposalDataLoaded = true;
+    loadProposalData();
+  }
 }
 
 // =====================================================================
@@ -2365,6 +2535,254 @@ async function runReport() {
 }
 
 // =====================================================================
+// Proposal Generator
+// =====================================================================
+
+let proposalData = null;
+
+async function loadProposalData() {
+  try {
+    const resp = await fetch('/api/proposal/data');
+    proposalData = await resp.json();
+    renderRadioStations();
+    updateBudgetPreview();
+  } catch (e) {
+    console.error('Failed to load proposal data:', e);
+  }
+}
+
+function renderRadioStations() {
+  if (!proposalData) return;
+  const genre = document.getElementById('proposal-genre').value;
+  const keywords = {
+    electronic: ['electronic', 'dance', 'edm'],
+    indie: ['indie', 'alternative'],
+    rock: ['rock', 'punk'],
+    pop: ['pop', 'chr'],
+    urban: ['urban', 'reggaeton', 'hip-hop'],
+    general: [],
+  }[genre] || [];
+
+  const container = document.getElementById('proposal-radio-list');
+  const selectedCountries = [...document.querySelectorAll('.proposal-country:checked')].map(c => c.value);
+
+  // Group by country
+  const byCountry = {};
+  proposalData.stations.forEach(s => {
+    if (selectedCountries.length > 0) {
+      const match = selectedCountries.some(c =>
+        s.country.toUpperCase().includes(c.toUpperCase()) || c.toUpperCase().includes(s.country.toUpperCase())
+      );
+      if (!match) return;
+    }
+    if (!byCountry[s.country]) byCountry[s.country] = [];
+    byCountry[s.country].push(s);
+  });
+
+  let html = '';
+  const countryOrder = ['Mexico','Brazil','Argentina','Chile','Colombia','Ecuador','Peru','Uruguay','Venezuela','LATAM'];
+
+  const sorted = Object.keys(byCountry).sort((a, b) => {
+    const ai = countryOrder.indexOf(a), bi = countryOrder.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  let total = 0;
+  sorted.forEach(country => {
+    html += `<div style="font-weight:600;font-size:11px;color:var(--text-secondary);margin-top:6px;text-transform:uppercase;letter-spacing:.5px;">${country}</div>`;
+    byCountry[country].forEach(s => {
+      const genreLower = s.genre.toLowerCase();
+      const isRelevant = keywords.length === 0 || keywords.some(kw => genreLower.includes(kw));
+      const checked = isRelevant ? 'checked' : '';
+      if (isRelevant) total++;
+      html += `<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0;cursor:pointer;">
+        <input type="checkbox" class="proposal-radio" value="${s.station}" ${checked} onchange="updateBudgetPreview()">
+        <span style="flex:1;">${s.station}</span>
+        <span style="color:var(--text-tertiary);font-size:11px;">${s.genre}</span>
+        <span style="color:var(--accent);font-size:11px;font-weight:600;">$${s.price}</span>
+      </label>`;
+    });
+  });
+
+  container.innerHTML = html || '<span style="color:var(--text-tertiary);font-size:12px;">No stations match the selected countries/genre.</span>';
+  document.getElementById('radio-count-label').textContent = `(${total} selected)`;
+}
+
+function addTimelineRow() {
+  const container = document.getElementById('proposal-timeline');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 120px 100px 28px;gap:6px;align-items:center;';
+  row.innerHTML = `
+    <input type="text" class="form-control tl-title" placeholder="Track / EP title" style="font-size:12px;padding:6px 10px;">
+    <input type="date" class="form-control tl-date" style="font-size:12px;padding:6px 10px;">
+    <select class="form-control tl-format" style="font-size:12px;padding:6px 10px;">
+      <option>Single</option><option>EP</option><option>Album</option><option>Remix</option>
+    </select>
+    <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:16px;" title="Remove">&times;</button>
+  `;
+  container.appendChild(row);
+}
+
+function toggleAllCountries(checked) {
+  document.querySelectorAll('.proposal-country').forEach(cb => cb.checked = checked);
+  renderRadioStations();
+  updateBudgetPreview();
+}
+
+function updateBudgetPreview() {
+  if (!proposalData) return;
+  const pricing = proposalData.pricing;
+  const duration = parseInt(document.getElementById('proposal-duration').value) || 3;
+
+  const items = [];
+  let total = 0;
+
+  // Base fee
+  const baseMo = pricing.base_fee?.monthly || 2000;
+  const baseTotal = baseMo * duration;
+  items.push({ label: 'DMM Management', detail: `${duration}mo × $${baseMo.toLocaleString()}`, amount: baseTotal });
+  total += baseTotal;
+
+  // Radio
+  const selectedRadio = [...document.querySelectorAll('.proposal-radio:checked')];
+  if (selectedRadio.length > 0) {
+    let radioTotal = 0;
+    selectedRadio.forEach(cb => {
+      const station = proposalData.stations.find(s => s.station === cb.value);
+      if (station) radioTotal += parseInt(station.price.replace(/,/g, '')) || 0;
+    });
+    if (radioTotal > 0) {
+      items.push({ label: `Radio (${selectedRadio.length} stations)`, detail: '3-month rotation', amount: radioTotal });
+      total += radioTotal;
+    }
+  }
+
+  // Influencer
+  const infTier = document.getElementById('proposal-influencer').value;
+  if (infTier && pricing.influencers?.tiers?.[infTier]) {
+    const inf = pricing.influencers.tiers[infTier];
+    const infTotal = (inf.estimated_total || 0) * duration;
+    items.push({ label: `Influencers (${inf.label})`, detail: inf.recommended_count, amount: infTotal });
+    total += infTotal;
+  }
+
+  // DJ
+  const djMarkets = [...document.querySelectorAll('.proposal-dj:checked')].map(c => c.value);
+  if (djMarkets.length > 0) {
+    let djTotal = 0;
+    djMarkets.forEach(m => { djTotal += pricing.dj_club?.markets?.[m]?.price || 0; });
+    items.push({ label: `DJ/Club (${djMarkets.length} markets)`, detail: djMarkets.join(', '), amount: djTotal });
+    total += djTotal;
+  }
+
+  // Digital
+  const digPkg = document.getElementById('proposal-digital').value;
+  if (digPkg && pricing.digital_marketing?.packages?.[digPkg]) {
+    const dig = pricing.digital_marketing.packages[digPkg];
+    const digTotal = (dig.monthly || 0) * duration;
+    items.push({ label: `Digital (${dig.label})`, detail: dig.includes, amount: digTotal });
+    total += digTotal;
+  }
+
+  const preview = document.getElementById('proposal-budget-preview');
+  const itemsEl = document.getElementById('proposal-budget-items');
+  const totalEl = document.getElementById('proposal-budget-total');
+  const monthlyEl = document.getElementById('proposal-budget-monthly');
+
+  itemsEl.innerHTML = items.map(i =>
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <span>${i.label} <span style="color:var(--text-tertiary);font-size:11px;">${i.detail}</span></span>
+      <span style="font-weight:600;">$${i.amount.toLocaleString()}</span>
+    </div>`
+  ).join('');
+
+  totalEl.textContent = `$${total.toLocaleString()} USD`;
+  monthlyEl.textContent = `($${Math.round(total / duration).toLocaleString()}/mo over ${duration} months)`;
+  preview.style.display = 'block';
+}
+
+async function runProposal() {
+  const artist = document.getElementById('proposal-artist').value.trim();
+  if (!artist) return showToast('Please enter an artist name.');
+
+  const genre = document.getElementById('proposal-genre').value;
+  const duration = parseInt(document.getElementById('proposal-duration').value) || 3;
+  const collaborators = document.getElementById('proposal-collaborators').value.trim();
+  const goalStrategy = document.getElementById('proposal-goal').value.trim();
+  const digitalMarketing = document.getElementById('proposal-digital-text').value.trim();
+
+  // Timeline
+  const timeline = [];
+  document.querySelectorAll('#proposal-timeline > div').forEach(row => {
+    const title = row.querySelector('.tl-title').value.trim();
+    const date = row.querySelector('.tl-date').value;
+    const format = row.querySelector('.tl-format').value;
+    if (title) timeline.push({ title, date, format });
+  });
+
+  // Countries
+  const countries = [...document.querySelectorAll('.proposal-country:checked')].map(c => c.value);
+
+  // Radio stations
+  const radioStations = [...document.querySelectorAll('.proposal-radio:checked')].map(c => c.value);
+
+  // Budget options
+  const influencerTier = document.getElementById('proposal-influencer').value || null;
+  const digitalPackage = document.getElementById('proposal-digital').value || null;
+  const djMarkets = [...document.querySelectorAll('.proposal-dj:checked')].map(c => c.value);
+
+  const btn = document.getElementById('proposal-btn');
+  const logEl = document.getElementById('proposal-log');
+  const progressEl = document.getElementById('proposal-progress');
+  const resultEl = document.getElementById('proposal-result');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const resp = await fetch('/api/proposal/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artist, genre, campaign_duration: duration, collaborators,
+        goal_strategy: goalStrategy, digital_marketing: digitalMarketing,
+        timeline, countries,
+        radio_stations: radioStations.length > 0 ? radioStations : null,
+        influencer_tier: influencerTier,
+        dj_markets: djMarkets.length > 0 ? djMarkets : null,
+        digital_package: digitalPackage,
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        resultEl.innerHTML = `
+          <div class="result-success">${escapeHtml(result.result || 'Proposal generated.')}</div>
+          ${result.has_file ? `<a href="/api/download/${data.job_id}" class="btn download-btn">Download .docx</a>` : ''}`;
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    showToast('Network error: ' + e.message);
+  }
+}
+
+// Load proposal data when tab is first activated
+let proposalDataLoaded = false;
+
+
+// =====================================================================
 // Weekly Digest
 // =====================================================================
 async function runDigest() {
@@ -2774,6 +3192,7 @@ function formatPressReport(html) {
         press: 'press-artist',
         dsp: 'dsp-artist',
         report: 'report-artist',
+        proposal: 'proposal-artist',
         digest: 'digest-artist',
       };
       const inputId = inputMap[tab];

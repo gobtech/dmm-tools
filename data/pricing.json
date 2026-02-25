@@ -1,0 +1,76 @@
+{
+  "currency": "USD",
+  "base_fee": {
+    "monthly": 2000,
+    "description": "DMM monthly management & coordination fee"
+  },
+  "radio": {
+    "description": "Radio servicing — station fees for 3-month rotation",
+    "note": "Prices sourced from station rate cards. Subject to negotiation."
+  },
+  "influencers": {
+    "description": "Creator/influencer campaigns via TikTok, Instagram Reels, YouTube Shorts",
+    "tiers": {
+      "micro": {
+        "label": "Micro (10K-50K followers)",
+        "price_per_creator": 200,
+        "recommended_count": "5-10 creators",
+        "estimated_total": 1500
+      },
+      "mid": {
+        "label": "Mid-tier (50K-500K followers)",
+        "price_per_creator": 600,
+        "recommended_count": "3-5 creators",
+        "estimated_total": 2500
+      },
+      "macro": {
+        "label": "Macro (500K+ followers)",
+        "price_per_creator": 2000,
+        "recommended_count": "1-3 creators",
+        "estimated_total": 4000
+      }
+    }
+  },
+  "dj_club": {
+    "description": "DJ and club servicing — distribution to DJs and venue playlists",
+    "markets": {
+      "Mexico": {"price": 1500, "cities": "Mexico City, Guadalajara, Monterrey"},
+      "Brazil": {"price": 1800, "cities": "São Paulo, Rio de Janeiro"},
+      "Argentina": {"price": 1200, "cities": "Buenos Aires"},
+      "Colombia": {"price": 1000, "cities": "Bogotá, Medellín"},
+      "Chile": {"price": 800, "cities": "Santiago"},
+      "Peru": {"price": 600, "cities": "Lima"},
+      "Multi-LATAM": {"price": 3500, "cities": "Top 3 markets"}
+    }
+  },
+  "digital_marketing": {
+    "description": "Geo-targeted digital advertising campaigns",
+    "packages": {
+      "starter": {
+        "label": "Starter",
+        "monthly": 500,
+        "includes": "Social media ads (Meta) in 2-3 key markets"
+      },
+      "standard": {
+        "label": "Standard",
+        "monthly": 1500,
+        "includes": "Meta + YouTube + TikTok ads across LATAM, A/B creative testing"
+      },
+      "premium": {
+        "label": "Premium",
+        "monthly": 3000,
+        "includes": "Full-funnel: awareness + retargeting across all platforms, custom audiences"
+      }
+    }
+  },
+  "press": {
+    "description": "Press outreach and media relations",
+    "included": true,
+    "note": "Included in base DMM fee — no additional charge for press servicing"
+  },
+  "dsp_pitching": {
+    "description": "DSP editorial playlist pitching",
+    "included": true,
+    "note": "Included in base DMM fee — covers all 6 platforms (Spotify, Apple, Deezer, Amazon, Claro, YouTube)"
+  }
+}

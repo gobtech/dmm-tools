@@ -1246,6 +1246,133 @@ def digest_generate():
 
 
 # ---------------------------------------------------------------------------
+# Proposal Generator
+# ---------------------------------------------------------------------------
+
+@app.route('/api/proposal/data')
+def proposal_data():
+    """Return radio stations, pricing, and DSP strategies for the proposal form."""
+    import csv as csv_mod
+
+    # Radio targets
+    radio_path = ROOT_DIR / 'data' / 'radio_targets.csv'
+    stations = []
+    if radio_path.exists():
+        with open(radio_path, encoding='utf-8-sig') as f:
+            for row in csv_mod.DictReader(f):
+                stations.append({
+                    'station': row.get('Station', ''),
+                    'country': row.get('Country', ''),
+                    'genre': row.get('Genre', ''),
+                    'format': row.get('Format', ''),
+                    'price': row.get('Price USD', ''),
+                    'notes': row.get('Notes', ''),
+                })
+
+    # Pricing
+    pricing_path = ROOT_DIR / 'data' / 'pricing.json'
+    pricing = {}
+    if pricing_path.exists():
+        with open(pricing_path, encoding='utf-8') as f:
+            pricing = json.load(f)
+
+    # DSP strategies
+    dsp_path = ROOT_DIR / 'data' / 'dsp_strategy.json'
+    dsp = {}
+    if dsp_path.exists():
+        with open(dsp_path, encoding='utf-8') as f:
+            dsp = json.load(f)
+
+    return jsonify({
+        'stations': stations,
+        'pricing': pricing,
+        'dsp': dsp,
+    })
+
+
+@app.route('/api/proposal/generate', methods=['POST'])
+def proposal_generate():
+    data = request.get_json(silent=True) or {}
+    artist = data.get('artist', '').strip()
+
+    if not artist:
+        return jsonify({'error': 'Please enter an artist name.'}), 400
+
+    genre = data.get('genre', 'general')
+    campaign_duration = data.get('campaign_duration', 3)
+    try:
+        campaign_duration = int(campaign_duration)
+    except (TypeError, ValueError):
+        campaign_duration = 3
+
+    collaborators = data.get('collaborators', '')
+    goal_strategy = data.get('goal_strategy', '')
+    digital_marketing = data.get('digital_marketing', '')
+    countries = data.get('countries', None)
+    radio_stations = data.get('radio_stations', None)
+    influencer_tier = data.get('influencer_tier', 'mid')
+    dj_markets = data.get('dj_markets', None)
+    digital_package = data.get('digital_package', 'standard')
+
+    # Parse timeline
+    timeline = []
+    raw_timeline = data.get('timeline', [])
+    if isinstance(raw_timeline, list):
+        for entry in raw_timeline:
+            if isinstance(entry, dict) and entry.get('title'):
+                timeline.append({
+                    'title': entry.get('title', ''),
+                    'date': entry.get('date', ''),
+                    'format': entry.get('format', ''),
+                })
+
+    import re as re_mod
+    safe_artist = re_mod.sub(r'[^\w\-]', '_', artist.lower())
+    output_path = REPORT_DIR / f'{safe_artist}_proposal.docx'
+
+    job_id = new_job()
+
+    def run():
+        try:
+            import importlib.util
+            spec_path = ROOT_DIR / 'proposal-generator' / 'generate_proposal.py'
+            spec = importlib.util.spec_from_file_location('generate_proposal', str(spec_path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            result = mod.generate_proposal(
+                artist=artist,
+                genre=genre,
+                timeline=timeline,
+                collaborators=collaborators,
+                campaign_duration=campaign_duration,
+                goal_strategy=goal_strategy,
+                digital_marketing=digital_marketing,
+                countries=countries,
+                radio_stations=radio_stations,
+                influencer_tier=influencer_tier,
+                dj_markets=dj_markets,
+                digital_package=digital_package,
+                output_path=str(output_path),
+                log_fn=lambda msg: log_line(job_id, msg),
+            )
+
+            summary = (
+                f"Proposal generated — "
+                f"{result['press_count']} press targets, "
+                f"{result['radio_count']} radio stations, "
+                f"{result['dsp_platforms']} DSP platforms"
+            )
+            finish_job(job_id, result=summary, output_path=output_path)
+
+        except Exception as e:
+            finish_job(job_id, error=str(e))
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 

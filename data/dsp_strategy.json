@@ -1,0 +1,90 @@
+{
+  "platforms": {
+    "Spotify": {
+      "description": "Primary streaming platform in LATAM with the most developed editorial playlist ecosystem.",
+      "strategy": "Spotify for Artists pitch 2 weeks before release, targeting editorial playlists by genre and territory. Supplement with algorithmic playlist seeding via Release Radar and Discover Weekly.",
+      "pitch_timing": "14 days pre-release via Spotify for Artists",
+      "genre_playlists": {
+        "electronic": ["Tulum Vibes", "Electroflow", "Novedades Viernes"],
+        "indie": ["indiespensables", "Novedades Indie", "Café con Leche", "Dark & Gothic"],
+        "rock": ["Rock 2025", "Novedades Viernes", "indiespensables"],
+        "pop": ["Pop Up", "Éxitos México", "Novedades Viernes LATAM", "Novedades Viernes Colombia", "Novedades Viernes Mexico"],
+        "urban": ["Éxitos México", "Novedades Viernes LATAM", "Novedades Viernes Colombia"],
+        "general": ["Novedades Viernes LATAM", "Novedades Viernes Mexico", "Novedades Viernes Colombia", "Novidades da Semana", "Novedades Viernes Andres", "Novedades Viernes Cono Sur"]
+      }
+    },
+    "Apple Music": {
+      "description": "Strong editorial curation in LATAM, particularly Mexico and Brazil. Important for playlist adds alongside Spotify.",
+      "strategy": "Contact Apple Music editorial team with release details, emphasizing exclusivity angles and visual assets. Apple values high-quality artwork and music videos.",
+      "pitch_timing": "10-14 days pre-release",
+      "genre_playlists": {
+        "electronic": ["¡Dale Play!", "Puro Beats"],
+        "indie": ["Alternativo", "Indie Spotlight"],
+        "rock": ["Rock en Español", "Rock Moderno"],
+        "pop": ["¡Dale Play!", "Pop Latino"],
+        "urban": ["Dale Reggaeton", "Urbano"],
+        "general": ["¡Dale Play!", "Novedades Musicales"]
+      }
+    },
+    "Deezer": {
+      "description": "Significant market share in Brazil and Mexico. Editorial team responsive to LATAM pitches.",
+      "strategy": "Submit through Deezer for Creators platform. Emphasize artist story and streaming history on the platform.",
+      "pitch_timing": "7-14 days pre-release",
+      "genre_playlists": {
+        "electronic": ["Electronic Hits", "Dance Floor"],
+        "indie": ["Indie LATAM", "Alternativo"],
+        "rock": ["Rock Latino", "Hits de Rock"],
+        "pop": ["Pop Latino", "Hits del Momento"],
+        "urban": ["Reggaeton Hits", "Urbano"],
+        "general": ["Lanzamientos", "Hits del Momento"]
+      }
+    },
+    "Amazon Music": {
+      "description": "Growing market in LATAM, especially Mexico. Editorial team building out LATAM-specific playlists.",
+      "strategy": "Submit via Amazon Music for Artists. Highlight Alexa voice-request potential and smart speaker plays.",
+      "pitch_timing": "7-14 days pre-release",
+      "genre_playlists": {
+        "electronic": ["Electrónica", "Dance Now"],
+        "indie": ["Indie Latino", "Alternativa"],
+        "rock": ["Rock Latino", "Rock en Español"],
+        "pop": ["Pop Latino", "Éxitos del Momento"],
+        "urban": ["Reggaeton", "Urbano Latino"],
+        "general": ["Novedades", "Éxitos del Momento"]
+      }
+    },
+    "Claro Música": {
+      "description": "Telcel-bundled platform with strong reach across Mexico, Colombia, and Central America. Key for regional penetration.",
+      "strategy": "Direct editorial contact for playlist placement. Claro values artist exclusivity and regional relevance.",
+      "pitch_timing": "7-10 days pre-release",
+      "genre_playlists": {
+        "electronic": ["Electrónica"],
+        "indie": ["Indie", "Alternativo"],
+        "rock": ["Rock en tu Idioma"],
+        "pop": ["Pop Latino", "Lo Más Nuevo"],
+        "urban": ["Reggaeton", "Urbano"],
+        "general": ["Lo Más Nuevo", "Estrenos"]
+      }
+    },
+    "YouTube Music": {
+      "description": "Largest music consumption platform in LATAM by total users. Editorial playlists increasingly curated.",
+      "strategy": "Optimize YouTube for Music with proper metadata, custom thumbnails, and premiere strategy. Contact editorial for playlist inclusion.",
+      "pitch_timing": "7-14 days pre-release",
+      "genre_playlists": {
+        "electronic": ["Nectar", "Hot Reggaeton"],
+        "indie": ["El Aparato: Latin Rock", "Nectar", "Smooth Brazilian Pop"],
+        "rock": ["El Aparato: Latin Rock"],
+        "pop": ["Pop Mexico", "Fiesta Latina", "Smooth Brazilian Pop"],
+        "urban": ["Hot Reggaeton", "Fiesta Latina"],
+        "general": ["RELEASED", "Fiesta Latina", "Pop Mexico", "Nuevo Tropical"]
+      }
+    }
+  },
+  "genre_mapping": {
+    "electronic": ["electronic", "dance", "edm", "techno", "house", "electronica"],
+    "indie": ["indie", "alternative", "indie rock", "indie pop", "lo-fi"],
+    "rock": ["rock", "punk", "metal", "hard rock", "post-punk", "garage"],
+    "pop": ["pop", "synth-pop", "dream pop", "electropop", "pop rock"],
+    "urban": ["reggaeton", "urbano", "trap", "hip-hop", "rap", "r&b"],
+    "general": []
+  }
+}
