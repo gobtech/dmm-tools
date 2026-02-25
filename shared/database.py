@@ -180,6 +180,24 @@ def load_playlist_database(csv_path):
                 if match:
                     apple_music_id = match.group(1)
 
+            # Extract Amazon Music playlist ASIN and domain
+            amazon_music_id = None
+            amazon_music_domain = None
+            if 'music.amazon' in link and '/playlists/' in link:
+                match = re.search(r'music\.amazon\.([\w.]+)/playlists/([A-Z0-9]+)', link)
+                if match:
+                    amazon_music_domain = match.group(1)  # e.g. "com.mx", "com.br", "com"
+                    amazon_music_id = match.group(2)       # e.g. "B07GRF2FYL"
+
+            # Extract Claro Música playlist ID and country
+            claro_id = None
+            claro_country = None
+            if 'claromusica.com' in link and '/systemPlaylist/' in link:
+                match = re.search(r'/systemPlaylist/(\d+)(?:/([A-Z]{2}))?', link)
+                if match:
+                    claro_id = match.group(1)
+                    claro_country = match.group(2) or 'MX'  # Default to MX
+
             playlists.append({
                 'name': name,
                 'country': country,
@@ -190,6 +208,10 @@ def load_playlist_database(csv_path):
                 'spotify_id': spotify_id,
                 'deezer_id': deezer_id,
                 'apple_music_id': apple_music_id,
+                'amazon_music_id': amazon_music_id,
+                'amazon_music_domain': amazon_music_domain,
+                'claro_id': claro_id,
+                'claro_country': claro_country,
             })
     
     return playlists

@@ -3,8 +3,8 @@
 DSP Pickup Tool
 ===============
 Checks LATAM editorial playlists for artist releases from the release schedule.
-Supports Spotify (embed scraping), Deezer (API), and Apple Music (page scraping).
-Amazon/Claro require manual checks.
+Supports Spotify (embed scraping), Deezer (API), Apple Music (page scraping),
+Amazon Music (embed scraping), and Claro Música (anonymous login + SSR scraping).
 
 Usage:
   python dsp_pickup.py --week current              # Check this week's releases
@@ -279,6 +279,132 @@ def get_apple_music_playlist_tracks(playlist_id):
     return tracks
 
 
+def get_amazon_music_playlist_tracks(playlist_id, domain='com.mx'):
+    """
+    Fetch tracks from an Amazon Music playlist via the public embed page.
+    Returns list of { artist, artists_list, track, album, position }.
+    """
+    import requests
+    import time
+
+    url = f"https://music.amazon.{domain}/embed/{playlist_id}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"    Error fetching Amazon Music playlist {playlist_id}: {e}")
+        return []
+
+    tracks = []
+
+    # Each track is in an <li> with aria-posinset, artist in .trackListArtist, title in .trackListTitle
+    # aria-label format: "cancion, {title}" or "song, {title}" / "artista, {artist}" or "artist, {artist}"
+    track_matches = re.findall(
+        r'aria-posinset="(\d+)".*?'
+        r'class="trackListTitle truncate">\s*<a[^>]*aria-label="[^,]*,\s*(.*?)"[^>]*>.*?'
+        r'class="trackListArtist truncate">\s*<a[^>]*aria-label="[^,]*,\s*(.*?)"[^>]*>',
+        resp.text, re.DOTALL
+    )
+
+    for position, title, artist in track_matches:
+        # Unescape HTML entities
+        import html as html_module
+        title = html_module.unescape(title).strip()
+        artist = html_module.unescape(artist).strip()
+        artists_list = [a.strip() for a in re.split(r'[,&]', artist) if a.strip()]
+        tracks.append({
+            'artist': artist,
+            'artists_list': artists_list,
+            'track': title,
+            'album': '',
+            'position': int(position),
+        })
+
+    time.sleep(0.5)
+    return tracks
+
+
+def get_claro_playlist_tracks(playlist_id, country='MX'):
+    """
+    Fetch tracks from a Claro Música playlist via anonymous login + SSR state.
+    Returns list of { artist, artists_list, track, album, position }.
+    """
+    import requests
+    import time
+
+    playlist_path = f"/systemPlaylist/{playlist_id}"
+    if country != 'MX':
+        playlist_path += f"/{country}"
+
+    login_url = f"https://www.claromusica.com/anonymousLogin/{country}?redirectTo={playlist_path}"
+    page_url = f"https://www.claromusica.com{playlist_path}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    }
+
+    try:
+        session = requests.Session()
+        session.headers.update(headers)
+        # Step 1: anonymous login to get session cookies (don't follow redirect)
+        session.get(login_url, allow_redirects=False, timeout=15)
+        # Step 2: fetch the playlist page with cookies set
+        resp = session.get(page_url, timeout=15)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"    Error fetching Claro Música playlist {playlist_id}: {e}")
+        return []
+
+    # Extract window.__PRELOADED_STATE__ JSON
+    marker = 'window.__PRELOADED_STATE__ = '
+    idx = resp.text.find(marker)
+    if idx == -1:
+        print(f"    Could not find preloaded state for Claro playlist {playlist_id}")
+        return []
+
+    # Extract JSON: starts after marker, ends at </script>
+    json_start = idx + len(marker)
+    json_end = resp.text.find('</script>', json_start)
+    if json_end == -1:
+        print(f"    Could not find end of preloaded state for Claro playlist {playlist_id}")
+        return []
+
+    raw_json = resp.text[json_start:json_end].rstrip().rstrip(';')
+
+    try:
+        state = json.loads(raw_json)
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"    Error parsing Claro Música state: {e}")
+        return []
+
+    playlist_detail = state.get('playlistDetail', {})
+    track_list = playlist_detail.get('tracks', [])
+
+    tracks = []
+    for i, item in enumerate(track_list):
+        # Artist can be a list or nested objects
+        artist_names = item.get('artist', [])
+        if isinstance(artist_names, list):
+            artists_list = [a if isinstance(a, str) else a.get('name', '') for a in artist_names]
+        else:
+            artists_list = [str(artist_names)]
+        artist_display = ', '.join(artists_list)
+
+        tracks.append({
+            'artist': artist_display,
+            'artists_list': artists_list,
+            'track': item.get('name', ''),
+            'album': item.get('albumName', ''),
+            'position': i + 1,
+        })
+
+    time.sleep(1)
+    return tracks
+
+
 def normalize_name(name):
     """Normalize artist/track name for fuzzy matching."""
     name = name.lower().strip()
@@ -370,15 +496,18 @@ def run_dsp_pickup(releases, playlists, output_path=None):
     spotify_playlists = [p for p in playlists if p['platform'] == 'Spotify' and p['spotify_id']]
     deezer_playlists = [p for p in playlists if p['platform'] == 'Deezer' and p['deezer_id']]
     apple_playlists = [p for p in playlists if p['platform'] == 'Apple Music' and p.get('apple_music_id')]
-    amazon_playlists = [p for p in playlists if 'Amazon' in p.get('platform', '')]
-    other_playlists = [p for p in playlists if p not in spotify_playlists + deezer_playlists + apple_playlists + amazon_playlists]
+    amazon_playlists = [p for p in playlists if 'Amazon' in p.get('platform', '') and p.get('amazon_music_id')]
+    claro_playlists = [p for p in playlists if 'Claro' in p.get('platform', '') and p.get('claro_id')]
+    other_playlists = [p for p in playlists if p not in spotify_playlists + deezer_playlists + apple_playlists + amazon_playlists + claro_playlists]
 
     print(f"\nPlaylists to check:")
-    print(f"  Spotify:     {len(spotify_playlists)}")
-    print(f"  Deezer:      {len(deezer_playlists)}")
-    print(f"  Apple Music: {len(apple_playlists)}")
-    print(f"  Amazon:      {len(amazon_playlists)} (manual check needed)")
-    print(f"  Other:       {len(other_playlists)} (manual check needed)")
+    print(f"  Spotify:       {len(spotify_playlists)}")
+    print(f"  Deezer:        {len(deezer_playlists)}")
+    print(f"  Apple Music:   {len(apple_playlists)}")
+    print(f"  Amazon Music:  {len(amazon_playlists)}")
+    print(f"  Claro Música:  {len(claro_playlists)}")
+    if other_playlists:
+        print(f"  Other:         {len(other_playlists)} (manual check needed)")
     print(f"\nReleases to check: {len(releases)}")
     
     # Cache playlist tracks to avoid re-fetching
@@ -483,6 +612,76 @@ def run_dsp_pickup(releases, playlists, output_path=None):
                 })
                 print(f"    ✓ MATCH: {artist} — {title} (position #{match['position']})")
 
+    # Check Amazon Music playlists
+    for pl in amazon_playlists:
+        pl_id = pl['amazon_music_id']
+        domain = pl.get('amazon_music_domain', 'com.mx')
+        print(f"\n  Checking: {pl['name']} ({pl['country']}) [Amazon Music]")
+
+        if pl_id not in playlist_cache:
+            tracks = get_amazon_music_playlist_tracks(pl_id, domain)
+            playlist_cache[pl_id] = tracks
+            print(f"    → {len(tracks)} tracks loaded")
+        else:
+            tracks = playlist_cache[pl_id]
+            print(f"    → {len(tracks)} tracks (cached)")
+
+        for release in releases:
+            match = check_release_in_playlist(release, tracks)
+            if match:
+                artist = release['artist']
+                title = release['title']
+
+                if artist not in results:
+                    results[artist] = {}
+                if title not in results[artist]:
+                    results[artist][title] = []
+
+                results[artist][title].append({
+                    'playlist_name': pl['name'],
+                    'playlist_country': pl['country'],
+                    'playlist_followers': pl['followers'],
+                    'playlist_link': pl.get('link', ''),
+                    'platform': 'Amazon Music',
+                    **match,
+                })
+                print(f"    ✓ MATCH: {artist} — {title} (position #{match['position']})")
+
+    # Check Claro Música playlists
+    for pl in claro_playlists:
+        pl_id = pl['claro_id']
+        country = pl.get('claro_country', 'MX')
+        print(f"\n  Checking: {pl['name']} ({pl['country']}) [Claro Música]")
+
+        if pl_id not in playlist_cache:
+            tracks = get_claro_playlist_tracks(pl_id, country)
+            playlist_cache[pl_id] = tracks
+            print(f"    → {len(tracks)} tracks loaded")
+        else:
+            tracks = playlist_cache[pl_id]
+            print(f"    → {len(tracks)} tracks (cached)")
+
+        for release in releases:
+            match = check_release_in_playlist(release, tracks)
+            if match:
+                artist = release['artist']
+                title = release['title']
+
+                if artist not in results:
+                    results[artist] = {}
+                if title not in results[artist]:
+                    results[artist][title] = []
+
+                results[artist][title].append({
+                    'playlist_name': pl['name'],
+                    'playlist_country': pl['country'],
+                    'playlist_followers': pl['followers'],
+                    'playlist_link': pl.get('link', ''),
+                    'platform': 'Claro Música',
+                    **match,
+                })
+                print(f"    ✓ MATCH: {artist} — {title} (position #{match['position']})")
+
     # Format output
     output_lines = ["DSP Pickup Report", "=" * 50, ""]
 
@@ -523,13 +722,14 @@ def run_dsp_pickup(releases, playlists, output_path=None):
                         f"{m['playlist_country']}{followers} — Position #{m['position']}{link}"
                     )
     
-    # Note manual checks needed
-    if amazon_playlists or other_playlists:
+    # Note manual checks needed (only for platforms we can't scrape)
+    if other_playlists:
         output_lines.append("\n" + "=" * 50)
         output_lines.append("MANUAL CHECK NEEDED:")
-        for pl in amazon_playlists + other_playlists:
+        for pl in other_playlists:
             output_lines.append(f"  • {pl['name']} [{pl['platform']}] — {pl['country']}")
-            output_lines.append(f"    {pl['link']}")
+            if pl.get('link'):
+                output_lines.append(f"    {pl['link']}")
     
     output_text = '\n'.join(output_lines)
     
