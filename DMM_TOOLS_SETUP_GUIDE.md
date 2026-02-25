@@ -12,7 +12,7 @@ This toolkit replaces that manual work with three tools:
 
 - **Press Pickup Tool** — Searches for Spanish and Portuguese-language press coverage using a 3-source hybrid approach: Google News RSS (free, unlimited — primary press source across 5 LATAM regions), Brave Search (free, 2,000/month — supplementary press), and Serper.dev (3 credits/search — actual Google results including social media posts from Instagram, Facebook, and X). Results are matched against DMM's internal media database (1,500+ outlets with descriptions and reach metrics from Notion) and formatted into reports sorted by country. Social media posts are displayed with platform labels. When an outlet isn't found in the database, it uses a generic music media description.
 
-- **DSP Pickup Tool** — Checks 87 LATAM editorial playlists across Spotify, Deezer, Apple Music, Amazon Music, and Claro Música against DMM's release schedule (pulled live from a shared Google Sheet) to find artist placements. All 5 platforms are fully automated with no API keys required: Spotify uses public embed page scraping (50 playlists), Deezer uses its public API (6 playlists), Apple Music uses public page scraping (16 playlists), Amazon Music uses public embed page scraping (6 playlists), and Claro Música uses anonymous login with server-side rendered state parsing (4 playlists). Each match includes the playlist link for quick verification.
+- **DSP Pickup Tool** — Checks 88 LATAM editorial playlists across Spotify, Deezer, Apple Music, Amazon Music, Claro Música, and YouTube Music against DMM's release schedule (pulled live from a shared Google Sheet) to find artist placements. All 6 platforms are fully automated with no API keys required: Spotify uses public embed page scraping (50 playlists), Deezer uses its public API (6 playlists), Apple Music uses public page scraping (16 playlists), Amazon Music uses public embed page scraping (6 playlists), Claro Música uses anonymous login with server-side rendered state parsing (4 playlists), and YouTube Music uses the innertube API for clean song titles (1 playlist). Each match includes the playlist link for quick verification.
 
 All three tools are accessible via a **web UI** at `http://localhost:5000` — no terminal needed.
 
@@ -73,7 +73,7 @@ The Radio Report auto-fetches airplay data using your existing Soundcharts paid 
 
 Just add your Soundcharts login credentials to `.env` (see Step 4).
 
-> **Note:** The DSP Pickup tool does **not** require any API keys. All 5 platforms use public scraping: Spotify (embed pages), Deezer (public API), Apple Music (page scraping), Amazon Music (embed pages), and Claro Música (anonymous login + SSR state) — no credentials needed for any of them.
+> **Note:** The DSP Pickup tool does **not** require any API keys. All 6 platforms use public scraping: Spotify (embed pages), Deezer (public API), Apple Music (page scraping), Amazon Music (embed pages), Claro Música (anonymous login + SSR state), and YouTube Music (innertube API) — no credentials needed for any of them.
 
 ## Step 4: Configure environment
 
@@ -232,6 +232,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 | DSP pickup — Apple Music playlists (16) | Fully automated (page scraping, no API key) |
 | DSP pickup — Amazon Music playlists (6) | Fully automated (embed scraping, no API key) |
 | DSP pickup — Claro Música playlists (4) | Fully automated (anonymous login + SSR scraping, no API key) |
+| DSP pickup — YouTube Music playlists (1) | Fully automated (innertube API, no API key) |
 | Soundcharts token refresh | Fully automated (programmatic login, auto-refresh) |
 | New media outlet discovery | Flagged automatically, adding to Notion is manual |
 
