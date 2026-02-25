@@ -11,6 +11,7 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
 | **Full Report** | Compiles Radio + DSP + Press into a single client-facing .docx with release timeline, proof images, and optional efforts summary | ~2-3 hrs/artist |
 | **Weekly Digest** | Generates lightweight email-ready summaries (HTML + plain text) with copy-to-clipboard for pasting into Gmail/Outlook | ~30-60 min/artist/week |
+| **Outlet Discovery** *(WIP)* | Searches for new LATAM press outlets/blogs/podcasts not in the database, with genre filtering and CSV export for Notion import | ~1-2 hrs/month |
 | **Release Calendar** | Visual timeline of all releases with phase tracking, action buttons to run tools per artist | Team coordination |
 
 ## Web UI (Recommended)
@@ -28,7 +29,8 @@ The web UI provides:
 - **Press Pickup**: Type an artist name + date range → searches Google News RSS + Brave + Serper → displays formatted report (press articles + social media posts) → downloadable .docx
 - **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms → generates proof images and downloadable .docx report
 - **Full Report**: Enter an artist name → runs all three tools automatically → compiles a single client-facing .docx with release timeline, radio plays, playlist highlights (with proof images), and press coverage
-- **Weekly Digest**: Enter an artist name → runs Radio/DSP/Press checks → generates a copy-paste-ready email summary (HTML + plain text) with customizable greeting, sign-off, and next steps
+- **Weekly Digest** *(WIP)*: Enter an artist name → runs Radio/DSP/Press checks → generates a copy-paste-ready email summary (HTML + plain text) with customizable greeting, sign-off, and next steps
+- **Outlet Discovery** *(WIP)*: Select a genre and region → searches for new LATAM outlets not in the database → deduplicates against 1,500+ known outlets → optional AI descriptions → downloadable CSV for Notion import
 - **Release Calendar** (`/calendar`): Visual timeline of all releases grouped by week, color-coded by phase (Pre-Pitch → Release Week → Reporting), with quick-action buttons to run DSP/Press/Report for any artist
 
 ## Quick Setup
@@ -119,6 +121,8 @@ dmm-tools/
 │   └── compile_report.py           ← Full report compiler (orchestrates all 3 tools → single .docx)
 ├── digest-generator/
 │   └── generate_digest.py          ← Weekly digest generator (email-ready HTML + plain text)
+├── discovery/
+│   └── discover_outlets.py         ← Outlet discovery assistant (genre search + DB dedup + CSV export)
 └── reports/                        ← Generated output (.docx, .txt, .json, proof images)
 ```
 

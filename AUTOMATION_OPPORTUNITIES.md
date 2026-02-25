@@ -284,10 +284,11 @@ A **Release Calendar** page in the web UI that:
 
 ---
 
-## Opportunity 6: Contact & Outlet Discovery Assistant
+## Opportunity 6: Contact & Outlet Discovery Assistant ✅ DONE
 
 ### Priority: MEDIUM
 ### Time saved: ~1-2 hrs per month of manual scouting
+### Status: Implemented — `discovery/discover_outlets.py` + "Discovery" tab in web UI (WIP)
 
 ### The Problem
 

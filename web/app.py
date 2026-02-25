@@ -110,6 +110,8 @@ def job_status(job_id):
         'proof_images': job.get('proof_images', []),
         'digest_html': job.get('digest_html', ''),
         'digest_text': job.get('digest_text', ''),
+        'discovery_html': job.get('discovery_html', ''),
+        'discovery_outlets': job.get('discovery_outlets', []),
     })
 
 
@@ -915,6 +917,81 @@ def report_compile():
 
     threading.Thread(target=run, daemon=True).start()
     return jsonify({'job_id': job_id})
+
+
+# ---------------------------------------------------------------------------
+# Outlet Discovery
+# ---------------------------------------------------------------------------
+
+@app.route('/api/discovery/search', methods=['POST'])
+def discovery_search():
+    data = request.get_json(silent=True) or {}
+    genre = data.get('genre', 'general music')
+    countries = data.get('countries', ['All LATAM'])
+    custom_query = data.get('custom_query', '')
+    use_llm = data.get('use_llm', True)
+
+    if not countries:
+        countries = ['All LATAM']
+
+    job_id = new_job()
+
+    def run():
+        try:
+            import importlib.util
+            spec_path = ROOT_DIR / 'discovery' / 'discover_outlets.py'
+            spec = importlib.util.spec_from_file_location('discover_outlets', str(spec_path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            result = mod.discover_outlets(
+                genre=genre,
+                countries=countries,
+                custom_query=custom_query,
+                use_llm=use_llm,
+                log_fn=lambda msg: log_line(job_id, msg),
+            )
+
+            summary = f"Searched {result['total_searched']} results → {result['already_in_db']} already in DB → {result['new_count']} new outlets"
+            jobs[job_id]['discovery_html'] = result.get('html', '')
+            jobs[job_id]['discovery_outlets'] = result.get('outlets', [])
+            jobs[job_id]['discovery_csv'] = result.get('csv_rows', [])
+
+            finish_job(job_id, result=summary)
+
+        except Exception as e:
+            finish_job(job_id, error=str(e))
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+@app.route('/api/discovery/csv/<job_id>')
+def discovery_csv(job_id):
+    """Download discovered outlets as CSV (Notion-importable format)."""
+    import csv as csv_mod
+    import io as io_mod
+
+    job = jobs.get(job_id)
+    if not job or not job.get('discovery_csv'):
+        return jsonify({'error': 'No discovery data available'}), 404
+
+    rows = job['discovery_csv']
+    if not rows:
+        return jsonify({'error': 'No new outlets found'}), 404
+
+    output = io_mod.StringIO()
+    fieldnames = ['NAME OF MEDIA', 'Territory', 'DESCRIPTION & SM', 'WEBSITE', 'REACH']
+    writer = csv_mod.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=new_outlets.csv'},
+    )
 
 
 # ---------------------------------------------------------------------------

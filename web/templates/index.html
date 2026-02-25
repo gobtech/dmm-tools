@@ -1276,7 +1276,8 @@ html.dark .bg-glow-orb { opacity: .25; }
     <button class="tab-btn" onclick="switchTab('press')">Press Pickup</button>
     <button class="tab-btn" onclick="switchTab('dsp')">DSP Pickup</button>
     <button class="tab-btn" onclick="switchTab('report')">Full Report</button>
-    <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest</button>
+    <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
+    <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
   </div>
 
   <!-- ================================================================== -->
@@ -1626,6 +1627,79 @@ html.dark .bg-glow-orb { opacity: .25; }
     <div class="result-area" id="digest-result"></div>
   </div>
 
+  <!-- ================================================================== -->
+  <!-- TAB 6: Outlet Discovery -->
+  <!-- ================================================================== -->
+  <div id="tab-discovery" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Proactively <strong>discovers new press outlets</strong> not yet in the database &mdash; blogs, magazines, podcasts, content creators.</li>
+              <li>Searches Google News, Brave, and Serper with <strong>genre + region-focused</strong> queries.</li>
+              <li>Automatically <strong>deduplicates</strong> against the existing 1,500+ outlet database.</li>
+              <li>Optionally uses <strong>Claude AI</strong> to generate one-line descriptions for each new outlet.</li>
+              <li>Download results as <strong>CSV</strong> for direct import into Notion.</li>
+              <li>Use <strong>custom query</strong> mode for specific searches (e.g. "cumbia digital argentina blog").</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <label>Genre / Scene</label>
+    <select id="discovery-genre" style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; cursor:pointer;">
+      <option value="general music">General Music</option>
+      <option value="electronic">Electronic / Dance</option>
+      <option value="indie/alternative">Indie / Alternative</option>
+      <option value="pop">Pop</option>
+      <option value="rock">Rock</option>
+      <option value="hip-hop/rap">Hip-Hop / Rap</option>
+      <option value="reggaeton/urban">Reggaeton / Urban</option>
+      <option value="custom">Custom Query</option>
+    </select>
+
+    <div id="discovery-custom-wrap" style="display:none; margin-top:12px;">
+      <label for="discovery-custom">Custom Search Query</label>
+      <input type="text" id="discovery-custom" placeholder='e.g. "cumbia digital" blog OR revista OR podcast'>
+    </div>
+
+    <label style="margin-top:16px;">Region</label>
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="All LATAM" checked> All LATAM</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Mexico"> Mexico</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Brazil"> Brazil</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Argentina"> Argentina</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Chile"> Chile</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Colombia"> Colombia</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Peru"> Peru</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Ecuador"> Ecuador</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Uruguay"> Uruguay</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Venezuela"> Venezuela</label>
+      <label class="checkbox-row"><input type="checkbox" name="discovery-country" value="Costa Rica"> Costa Rica</label>
+    </div>
+
+    <div style="margin-top:16px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="discovery-llm" checked>
+        <label for="discovery-llm">Use AI for descriptions <span style="color:var(--text-tertiary); font-weight:400;">(requires ANTHROPIC_API_KEY)</span></label>
+      </div>
+    </div>
+
+    <button class="btn" id="discovery-btn" onclick="runDiscovery()">Discover New Outlets</button>
+
+    <div class="progress-area" id="discovery-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <pre class="log-output" id="discovery-log"></pre>
+    </div>
+
+    <div class="result-area" id="discovery-result"></div>
+  </div>
+
   <div class="footer-note">
     Dorado Music Marketing &copy; 2026 &mdash; Internal use only. Confidential.
     <button class="help-btn" onclick="startWalkthrough()" title="Replay walkthrough tour">?</button>
@@ -1661,7 +1735,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('tab-' + name);
   panel.classList.add('active');
-  const tabs = ['radio', 'press', 'dsp', 'report', 'digest'];
+  const tabs = ['radio', 'press', 'dsp', 'report', 'digest', 'discovery'];
   const idx = tabs.indexOf(name);
   document.querySelectorAll('.tab-btn')[idx].classList.add('active');
   // Re-trigger entrance animation
@@ -2440,6 +2514,147 @@ function copyDigestText() {
   const el = document.getElementById('digest-result');
   const text = el._digestText || '';
   navigator.clipboard.writeText(text).then(() => showToast('Plain text copied to clipboard!'));
+}
+
+// =====================================================================
+// Outlet Discovery
+// =====================================================================
+document.getElementById('discovery-genre').addEventListener('change', function() {
+  document.getElementById('discovery-custom-wrap').style.display = this.value === 'custom' ? '' : 'none';
+});
+
+// "All LATAM" checkbox logic — uncheck specifics when All is checked, and vice versa
+document.querySelectorAll('input[name="discovery-country"]').forEach(cb => {
+  cb.addEventListener('change', function() {
+    if (this.value === 'All LATAM' && this.checked) {
+      document.querySelectorAll('input[name="discovery-country"]').forEach(other => {
+        if (other.value !== 'All LATAM') other.checked = false;
+      });
+    } else if (this.value !== 'All LATAM' && this.checked) {
+      const allBox = document.querySelector('input[name="discovery-country"][value="All LATAM"]');
+      if (allBox) allBox.checked = false;
+    }
+  });
+});
+
+async function runDiscovery() {
+  const genre = document.getElementById('discovery-genre').value;
+  const customQuery = document.getElementById('discovery-custom').value.trim();
+
+  if (genre === 'custom' && !customQuery) {
+    return showToast('Please enter a custom search query.');
+  }
+
+  const countryBoxes = document.querySelectorAll('input[name="discovery-country"]:checked');
+  const countries = Array.from(countryBoxes).map(cb => cb.value);
+  if (countries.length === 0) {
+    return showToast('Please select at least one region.');
+  }
+
+  const useLlm = document.getElementById('discovery-llm').checked;
+
+  const btn = document.getElementById('discovery-btn');
+  const logEl = document.getElementById('discovery-log');
+  const progressEl = document.getElementById('discovery-progress');
+  const resultEl = document.getElementById('discovery-result');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const resp = await fetch('/api/discovery/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        genre,
+        countries,
+        custom_query: genre === 'custom' ? customQuery : '',
+        use_llm: useLlm,
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        renderDiscovery(result, data.job_id, resultEl);
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+function renderDiscovery(result, jobId, resultEl) {
+  const outlets = result.discovery_outlets || [];
+  const discoveryHtml = result.discovery_html || '';
+
+  let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Discovery complete!</strong></div>`;
+
+  if (result.result) {
+    html += `<div style="margin:12px 0 16px; font-size:14px; color:var(--text-secondary); line-height:1.8;">${escapeHtml(result.result)}</div>`;
+  }
+
+  if (outlets.length > 0) {
+    // Outlet cards
+    html += `<div style="margin:16px 0;">`;
+    for (const o of outlets) {
+      const countries = (o.countries || []).join(', ');
+      html += `<div style="padding:14px 18px; border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:10px; background:var(--bg-card);">`;
+      html += `<div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:4px;">`;
+      html += `<strong style="font-size:15px;">${escapeHtml(o.name)}</strong>`;
+      html += `<span style="font-size:12px; color:var(--text-tertiary);">${escapeHtml(o.domain)}</span>`;
+      html += `</div>`;
+      if (o.description) {
+        html += `<p style="margin:6px 0 4px; font-size:13px; color:var(--text-secondary); line-height:1.5;">${escapeHtml(o.description)}</p>`;
+      }
+      html += `<div style="font-size:12px; color:var(--text-tertiary); margin-top:6px;">`;
+      html += `Region: ${escapeHtml(countries)} &middot; Mentions: ${o.mentions || 1}`;
+      if (o.sample_url) {
+        html += ` &middot; <a href="${escapeAttr(o.sample_url)}" target="_blank" style="color:var(--accent);">Sample article</a>`;
+      }
+      html += `</div></div>`;
+    }
+    html += `</div>`;
+
+    // Action buttons
+    html += `<div class="result-actions">`;
+    html += `<a class="btn btn-small" href="/api/discovery/csv/${jobId}" download>Download CSV (Notion Import)</a>`;
+    html += `<button class="btn btn-small" onclick="copyDiscoveryHtml('${jobId}')">Copy HTML Summary</button>`;
+    html += `</div>`;
+  } else {
+    html += `<p style="color:var(--text-tertiary); font-style:italic; margin:16px 0;">No new outlets discovered. The existing database may already have good coverage for this genre/region.</p>`;
+  }
+
+  resultEl.innerHTML = html;
+  resultEl._discoveryHtml = discoveryHtml;
+}
+
+function copyDiscoveryHtml(jobId) {
+  const el = document.getElementById('discovery-result');
+  const html = el._discoveryHtml || '';
+  if (navigator.clipboard && navigator.clipboard.write) {
+    const blob = new Blob([html], { type: 'text/html' });
+    const textBlob = new Blob([html.replace(/<[^>]*>/g, '')], { type: 'text/plain' });
+    navigator.clipboard.write([
+      new ClipboardItem({ 'text/html': blob, 'text/plain': textBlob })
+    ]).then(() => showToast('HTML summary copied!')).catch(() => {
+      navigator.clipboard.writeText(html).then(() => showToast('Copied as text!'));
+    });
+  } else {
+    showToast('Copy not supported in this browser.');
+  }
 }
 
 // =====================================================================
