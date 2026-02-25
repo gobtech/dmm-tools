@@ -8,7 +8,7 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 |------|-------------|-------------------|
 | **Radio Report** | Auto-fetches airplay data from Soundcharts and generates formatted Word reports (LATAM-focused) | ~1-2 hrs/artist |
 | **Press Pickup** | Searches Google News, Brave, and Serper for Spanish/Portuguese-language press + social media posts, matches against media database, formats report | ~2-3 hrs/artist |
-| **DSP Pickup** | Checks 100 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music | ~3-4 hrs/week |
+| **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music | ~3-4 hrs/week |
 
 ## Web UI (Recommended)
 
