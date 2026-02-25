@@ -924,6 +924,26 @@ input[type="text"]:focus, input[type="date"]:focus {
   padding-top: 24px;
   border-top: 1px solid var(--border);
 }
+.licensing-link {
+  display: inline-block;
+  padding: 8px 20px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  transition: all .25s ease;
+}
+.licensing-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(196,48,48,.1);
+  transform: translateY(-1px);
+}
 
 /* ============================================================
    SONG PICKER
@@ -1256,6 +1276,7 @@ html.dark .bg-glow-orb { opacity: .25; }
     <button class="tab-btn" onclick="switchTab('press')">Press Pickup</button>
     <button class="tab-btn" onclick="switchTab('dsp')">DSP Pickup</button>
     <button class="tab-btn" onclick="switchTab('report')">Full Report</button>
+    <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest</button>
   </div>
 
   <!-- ================================================================== -->
@@ -1527,9 +1548,90 @@ html.dark .bg-glow-orb { opacity: .25; }
     <div class="result-area" id="report-result"></div>
   </div>
 
+  <!-- ================================================================== -->
+  <!-- TAB 5: Weekly Digest -->
+  <!-- ================================================================== -->
+  <div id="tab-digest" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Generates a <strong>lightweight email summary</strong> — perfect for weekly client updates.</li>
+              <li>Runs the same Radio, DSP, and Press checks as the Full Report but outputs <strong>copy-paste-ready email</strong> instead of .docx.</li>
+              <li>Includes <strong>HTML and plain text</strong> versions — copy whichever works for your email client.</li>
+              <li>Add <strong>next steps</strong> to include action items at the bottom of the digest.</li>
+              <li>Customize the <strong>greeting and sign-off</strong> names for a personal touch.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <label for="digest-artist">Artist Name</label>
+    <input type="text" id="digest-artist" placeholder="e.g. PNAU">
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:4px;">
+      <div>
+        <label for="digest-contact">Recipient Name <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+        <input type="text" id="digest-contact" placeholder="e.g. Sarah">
+      </div>
+      <div>
+        <label for="digest-sender">Sign-off Name <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+        <input type="text" id="digest-sender" placeholder="e.g. Luis Felipe">
+      </div>
+    </div>
+
+    <label>Search Period</label>
+    <div class="radio-group">
+      <label><input type="radio" name="digest-range" value="7d" checked><span>7 Days</span></label>
+      <label><input type="radio" name="digest-range" value="28d"><span>28 Days</span></label>
+    </div>
+
+    <label>Region (Radio)</label>
+    <div class="radio-group">
+      <label><input type="radio" name="digest-region" value="latam" checked><span>LATAM</span></label>
+      <label><input type="radio" name="digest-region" value="all"><span>All Countries</span></label>
+    </div>
+
+    <label>Sections to Include</label>
+    <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="digest-inc-radio" checked>
+        <label for="digest-inc-radio">Radio Plays</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="digest-inc-dsp" checked>
+        <label for="digest-inc-dsp">Playlist Placements</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="digest-inc-press" checked>
+        <label for="digest-inc-press">Press Coverage</label>
+      </div>
+    </div>
+
+    <label for="digest-steps" style="margin-top:20px;">Next Steps <span style="color:var(--text-tertiary); font-weight:400;">(optional — one per line)</span></label>
+    <textarea id="digest-steps" rows="3" placeholder="- Follow up with Spotify editorial&#10;- Send updated assets to press contacts&#10;- Schedule radio re-pitch" style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical;"></textarea>
+
+    <button class="btn" id="digest-btn" onclick="runDigest()">Generate Digest</button>
+
+    <div class="progress-area" id="digest-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <pre class="log-output" id="digest-log"></pre>
+    </div>
+
+    <div class="result-area" id="digest-result"></div>
+  </div>
+
   <div class="footer-note">
-    Dorado Music Marketing &copy; 2026 &mdash; Internal use only. Confidential. &middot; <a href="/licensing" style="color:var(--text-tertiary);text-decoration:none;transition:color .18s ease" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-tertiary)'">Licensing</a>
+    Dorado Music Marketing &copy; 2026 &mdash; Internal use only. Confidential.
     <button class="help-btn" onclick="startWalkthrough()" title="Replay walkthrough tour">?</button>
+    <div style="margin-top:14px;">
+      <a href="/licensing" class="licensing-link">Licensing &amp; Attribution</a>
+    </div>
   </div>
 </div>
 
@@ -1559,7 +1661,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('tab-' + name);
   panel.classList.add('active');
-  const tabs = ['radio', 'press', 'dsp', 'report'];
+  const tabs = ['radio', 'press', 'dsp', 'report', 'digest'];
   const idx = tabs.indexOf(name);
   document.querySelectorAll('.tab-btn')[idx].classList.add('active');
   // Re-trigger entrance animation
@@ -2183,6 +2285,164 @@ async function runReport() {
 }
 
 // =====================================================================
+// Weekly Digest
+// =====================================================================
+async function runDigest() {
+  const artist = document.getElementById('digest-artist').value.trim();
+  if (!artist) return showToast('Please enter an artist name.');
+
+  const timeRange = document.querySelector('input[name="digest-range"]:checked').value;
+  const region = document.querySelector('input[name="digest-region"]:checked').value;
+  const includeRadio = document.getElementById('digest-inc-radio').checked;
+  const includeDsp = document.getElementById('digest-inc-dsp').checked;
+  const includePress = document.getElementById('digest-inc-press').checked;
+  const nextSteps = document.getElementById('digest-steps').value;
+  const contactName = document.getElementById('digest-contact').value.trim();
+  const senderName = document.getElementById('digest-sender').value.trim();
+
+  if (!includeRadio && !includeDsp && !includePress) {
+    return showToast('Please select at least one section to include.');
+  }
+
+  const daysMap = { '7d': 7, '28d': 28 };
+
+  const btn = document.getElementById('digest-btn');
+  const logEl = document.getElementById('digest-log');
+  const progressEl = document.getElementById('digest-progress');
+  const resultEl = document.getElementById('digest-result');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const resp = await fetch('/api/digest/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artist,
+        days: daysMap[timeRange] || 7,
+        radio_region: region,
+        radio_time_range: timeRange,
+        next_steps: nextSteps,
+        sender_name: senderName,
+        contact_name: contactName,
+        include_radio: includeRadio,
+        include_dsp: includeDsp,
+        include_press: includePress,
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        renderDigest(result, resultEl);
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+function renderDigest(result, resultEl) {
+  const digestHtml = result.digest_html || '';
+  const digestText = result.digest_text || '';
+
+  let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Weekly digest ready!</strong></div>`;
+
+  if (result.result) {
+    html += `<div style="margin:12px 0 16px; font-size:14px; color:var(--text-secondary); line-height:1.8;">${escapeHtml(result.result)}</div>`;
+  }
+
+  // Toggle between HTML preview and plain text
+  html += `<div style="margin:16px 0 8px; display:flex; gap:8px;">`;
+  html += `<button class="btn btn-small" onclick="showDigestView('html')" id="digest-view-html-btn" style="opacity:1;">Email Preview</button>`;
+  html += `<button class="btn btn-small" onclick="showDigestView('text')" id="digest-view-text-btn" style="opacity:.5;">Plain Text</button>`;
+  html += `</div>`;
+
+  // HTML preview
+  html += `<div id="digest-view-html" style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:24px; margin:8px 0 16px;">`;
+  html += digestHtml;
+  html += `</div>`;
+
+  // Plain text (hidden by default)
+  html += `<div id="digest-view-text" style="display:none; margin:8px 0 16px;">`;
+  html += `<pre style="background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px; font-size:13px; line-height:1.6; white-space:pre-wrap; color:var(--text-primary); overflow-x:auto;">${escapeHtml(digestText)}</pre>`;
+  html += `</div>`;
+
+  // Copy buttons
+  html += `<div class="result-actions">`;
+  html += `<button class="btn btn-small" onclick="copyDigestHtml()" id="copy-html-btn">Copy HTML</button>`;
+  html += `<button class="btn btn-small" onclick="copyDigestText()" id="copy-text-btn">Copy Plain Text</button>`;
+  html += `</div>`;
+
+  resultEl.innerHTML = html;
+
+  // Store for copy functions
+  resultEl._digestHtml = digestHtml;
+  resultEl._digestText = digestText;
+}
+
+function showDigestView(view) {
+  const htmlView = document.getElementById('digest-view-html');
+  const textView = document.getElementById('digest-view-text');
+  const htmlBtn = document.getElementById('digest-view-html-btn');
+  const textBtn = document.getElementById('digest-view-text-btn');
+
+  if (view === 'html') {
+    htmlView.style.display = '';
+    textView.style.display = 'none';
+    htmlBtn.style.opacity = '1';
+    textBtn.style.opacity = '.5';
+  } else {
+    htmlView.style.display = 'none';
+    textView.style.display = '';
+    htmlBtn.style.opacity = '.5';
+    textBtn.style.opacity = '1';
+  }
+}
+
+function copyDigestHtml() {
+  const el = document.getElementById('digest-result');
+  const html = el._digestHtml || '';
+  if (navigator.clipboard && navigator.clipboard.write) {
+    const blob = new Blob([html], { type: 'text/html' });
+    const textBlob = new Blob([el._digestText || ''], { type: 'text/plain' });
+    navigator.clipboard.write([
+      new ClipboardItem({ 'text/html': blob, 'text/plain': textBlob })
+    ]).then(() => showToast('HTML copied to clipboard!')).catch(() => {
+      // Fallback
+      navigator.clipboard.writeText(html).then(() => showToast('HTML copied as text!'));
+    });
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = html;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('HTML copied!');
+  }
+}
+
+function copyDigestText() {
+  const el = document.getElementById('digest-result');
+  const text = el._digestText || '';
+  navigator.clipboard.writeText(text).then(() => showToast('Plain text copied to clipboard!'));
+}
+
+// =====================================================================
 // Helpers
 // =====================================================================
 function escapeHtml(s) {
@@ -2293,6 +2553,7 @@ function formatPressReport(html) {
         press: 'press-artist',
         dsp: 'dsp-artist',
         report: 'report-artist',
+        digest: 'digest-artist',
       };
       const inputId = inputMap[tab];
       if (inputId) {

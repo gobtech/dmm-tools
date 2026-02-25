@@ -108,6 +108,8 @@ def job_status(job_id):
         'error': job['error'],
         'has_file': job['output_path'] is not None,
         'proof_images': job.get('proof_images', []),
+        'digest_html': job.get('digest_html', ''),
+        'digest_text': job.get('digest_text', ''),
     })
 
 
@@ -907,6 +909,77 @@ def report_compile():
                 jobs[job_id]['proof_images'] = sorted([f.name for f in proof_dir.glob('proof_*.png')])
 
             finish_job(job_id, result=summary, output_path=output_path)
+
+        except Exception as e:
+            finish_job(job_id, error=str(e))
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+# ---------------------------------------------------------------------------
+# Weekly Digest
+# ---------------------------------------------------------------------------
+
+@app.route('/api/digest/generate', methods=['POST'])
+def digest_generate():
+    data = request.get_json(silent=True) or {}
+    artist = data.get('artist', '').strip()
+    days = data.get('days', 7)
+    radio_region = data.get('radio_region', 'latam')
+    radio_time_range = data.get('radio_time_range', '7d')
+    next_steps = data.get('next_steps', '')
+    sender_name = data.get('sender_name', '')
+    contact_name = data.get('contact_name', '')
+    include_radio = data.get('include_radio', True)
+    include_dsp = data.get('include_dsp', True)
+    include_press = data.get('include_press', True)
+
+    if not artist:
+        return jsonify({'error': 'Please enter an artist name.'}), 400
+
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 7
+
+    job_id = new_job()
+
+    def run():
+        try:
+            import importlib.util
+            spec_path = ROOT_DIR / 'digest-generator' / 'generate_digest.py'
+            spec = importlib.util.spec_from_file_location('generate_digest', str(spec_path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            result = mod.generate_digest(
+                artist=artist,
+                days=days,
+                radio_region=radio_region,
+                radio_time_range=radio_time_range,
+                next_steps=next_steps,
+                sender_name=sender_name,
+                contact_name=contact_name,
+                include_radio=include_radio,
+                include_dsp=include_dsp,
+                include_press=include_press,
+                log_fn=lambda msg: log_line(job_id, msg),
+            )
+
+            summary = []
+            if result['radio_count']:
+                summary.append(f"Radio: {result['radio_count']}")
+            if result['dsp_count']:
+                summary.append(f"DSP: {result['dsp_count']}")
+            if result['press_count']:
+                summary.append(f"Press: {result['press_count']}")
+
+            jobs[job_id]['digest_html'] = result['html']
+            jobs[job_id]['digest_text'] = result['text']
+
+            summary_str = ' | '.join(summary) if summary else 'No activity found for this period'
+            finish_job(job_id, result=summary_str)
 
         except Exception as e:
             finish_job(job_id, error=str(e))

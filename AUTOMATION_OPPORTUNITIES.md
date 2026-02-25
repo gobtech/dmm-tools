@@ -130,10 +130,11 @@ And generates a complete proposal .docx with all sections pre-filled, including 
 
 ---
 
-## Opportunity 3: Weekly Digest / Update Email Generator
+## Opportunity 3: Weekly Digest / Update Email Generator ✅ DONE
 
 ### Priority: HIGH
 ### Time saved: ~30-60 min per artist per week
+### Status: Implemented — `digest-generator/generate_digest.py` + "Weekly Digest" tab in web UI
 
 ### The Problem
 

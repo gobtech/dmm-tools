@@ -10,6 +10,7 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | **Press Pickup** | Searches Google News, Brave, and Serper for Spanish/Portuguese-language press + social media posts, matches against media database, formats report with downloadable .docx | ~2-3 hrs/artist |
 | **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
 | **Full Report** | Compiles Radio + DSP + Press into a single client-facing .docx with release timeline, proof images, and optional efforts summary | ~2-3 hrs/artist |
+| **Weekly Digest** | Generates lightweight email-ready summaries (HTML + plain text) with copy-to-clipboard for pasting into Gmail/Outlook | ~30-60 min/artist/week |
 | **Release Calendar** | Visual timeline of all releases with phase tracking, action buttons to run tools per artist | Team coordination |
 
 ## Web UI (Recommended)
@@ -27,6 +28,7 @@ The web UI provides:
 - **Press Pickup**: Type an artist name + date range → searches Google News RSS + Brave + Serper → displays formatted report (press articles + social media posts) → downloadable .docx
 - **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms → generates proof images and downloadable .docx report
 - **Full Report**: Enter an artist name → runs all three tools automatically → compiles a single client-facing .docx with release timeline, radio plays, playlist highlights (with proof images), and press coverage
+- **Weekly Digest**: Enter an artist name → runs Radio/DSP/Press checks → generates a copy-paste-ready email summary (HTML + plain text) with customizable greeting, sign-off, and next steps
 - **Release Calendar** (`/calendar`): Visual timeline of all releases grouped by week, color-coded by phase (Pre-Pitch → Release Week → Reporting), with quick-action buttons to run DSP/Press/Report for any artist
 
 ## Quick Setup
@@ -115,6 +117,8 @@ dmm-tools/
 │   └── dsp_pickup.py               ← DSP playlist checker (proof images + .docx reports)
 ├── report-compiler/
 │   └── compile_report.py           ← Full report compiler (orchestrates all 3 tools → single .docx)
+├── digest-generator/
+│   └── generate_digest.py          ← Weekly digest generator (email-ready HTML + plain text)
 └── reports/                        ← Generated output (.docx, .txt, .json, proof images)
 ```
 
