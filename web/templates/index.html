@@ -313,6 +313,74 @@ html.dark .tab-btn:hover {
 }
 
 /* ============================================================
+   LANDING GRID
+   ============================================================ */
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  animation: panelIn .5s cubic-bezier(.25,.46,.45,.94);
+}
+
+.tool-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 6px;
+  padding: 20px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: all .25s cubic-bezier(.25,.46,.45,.94);
+  overflow: hidden;
+}
+.tool-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 20px rgba(196,48,48,.08);
+  transform: translateY(-2px);
+}
+.tool-card:active {
+  transform: translateY(0);
+}
+.tool-card-icon {
+  font-size: 26px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.tool-card-title {
+  font-family: var(--font-title);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -.2px;
+}
+.tool-card-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.tool-card-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: rgba(196,48,48,.08);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+html.dark .tool-card-badge {
+  background: rgba(196,48,48,.2);
+}
+
+/* ============================================================
    FORM ELEMENTS
    ============================================================ */
 label {
@@ -1265,7 +1333,7 @@ html.dark .bg-glow-orb { opacity: .25; }
     <img class="logo" src="https://images.squarespace-cdn.com/content/v1/590102829de4bb02e43309fd/1503502770341-VCOKSUOU944GCVSODOI7/DMM-final-logo-extended.png" alt="Dorado Music Marketing">
     <h1>DMM Tools</h1>
     <p class="subtitle">Your campaign toolkit, automated</p>
-    <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+    <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;" id="header-nav-btns">
       <a href="/calendar" class="calendar-btn">
         <span>Release Calendar</span>
         <span class="btn-icon">&rarr;</span>
@@ -1277,20 +1345,72 @@ html.dark .bg-glow-orb { opacity: .25; }
     </div>
   </div>
 
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('radio')">Radio Report</button>
-    <button class="tab-btn" onclick="switchTab('press')">Press Pickup</button>
-    <button class="tab-btn" onclick="switchTab('dsp')">DSP Pickup</button>
-    <button class="tab-btn" onclick="switchTab('report')">Full Report</button>
-    <button class="tab-btn" onclick="switchTab('proposal')">Proposal <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
-    <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
-    <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
+  <!-- ================================================================== -->
+  <!-- LANDING: Tool Cards Menu -->
+  <!-- ================================================================== -->
+  <div id="landing" class="landing-grid">
+    <button class="tool-card" onclick="goToTool('radio')">
+      <span class="tool-card-icon">&#128251;</span>
+      <span class="tool-card-title">Radio Report</span>
+      <span class="tool-card-desc">Fetch airplay data from Soundcharts and generate formatted Word reports</span>
+    </button>
+    <button class="tool-card" onclick="goToTool('press')">
+      <span class="tool-card-icon">&#128240;</span>
+      <span class="tool-card-title">Press Pickup</span>
+      <span class="tool-card-desc">Search for press coverage and social media posts, matched against our media database</span>
+    </button>
+    <button class="tool-card" onclick="goToTool('dsp')">
+      <span class="tool-card-icon">&#127911;</span>
+      <span class="tool-card-title">DSP Pickup</span>
+      <span class="tool-card-desc">Check 99+ editorial playlists across Spotify, Apple, Deezer, Amazon, Claro, and YouTube</span>
+    </button>
+    <button class="tool-card" onclick="goToTool('report')">
+      <span class="tool-card-icon">&#128203;</span>
+      <span class="tool-card-title">Full Report</span>
+      <span class="tool-card-desc">Compile radio, DSP, and press into a single client-facing document</span>
+    </button>
+    <button class="tool-card" onclick="goToTool('proposal')">
+      <span class="tool-card-icon">&#128196;</span>
+      <span class="tool-card-title">Proposal Generator</span>
+      <span class="tool-card-desc">Build client proposals with genre-filtered targets and budget breakdown</span>
+      <span class="tool-card-badge">WIP</span>
+    </button>
+    <button class="tool-card" onclick="goToTool('digest')">
+      <span class="tool-card-icon">&#9993;</span>
+      <span class="tool-card-title">Weekly Digest</span>
+      <span class="tool-card-desc">Generate email-ready weekly summaries with radio, playlists, and press highlights</span>
+      <span class="tool-card-badge">WIP</span>
+    </button>
+    <button class="tool-card" onclick="goToTool('discovery')">
+      <span class="tool-card-icon">&#128270;</span>
+      <span class="tool-card-title">Discovery</span>
+      <span class="tool-card-desc">Find new LATAM press outlets and blogs not yet in the database</span>
+      <span class="tool-card-badge">WIP</span>
+    </button>
   </div>
+
+  <!-- ================================================================== -->
+  <!-- TOOL VIEW: Tabs + Panels (hidden until a tool is selected) -->
+  <!-- ================================================================== -->
+  <div id="tool-view" style="display:none;">
+    <div style="margin-bottom:16px;">
+      <button onclick="goToLanding()" style="background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:13px;padding:4px 0;display:flex;align-items:center;gap:4px;transition:color .2s;" onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color='var(--text-tertiary)'">&larr; All Tools</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('radio')">Radio Report</button>
+      <button class="tab-btn" onclick="switchTab('press')">Press Pickup</button>
+      <button class="tab-btn" onclick="switchTab('dsp')">DSP Pickup</button>
+      <button class="tab-btn" onclick="switchTab('report')">Full Report</button>
+      <button class="tab-btn" onclick="switchTab('proposal')">Proposal <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
+      <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
+      <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
+    </div>
 
   <!-- ================================================================== -->
   <!-- TAB 1: Radio Report -->
   <!-- ================================================================== -->
-  <div id="tab-radio" class="tab-panel active">
+  <div id="tab-radio" class="tab-panel">
     <div class="tab-tips">
       <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
         <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
@@ -1871,6 +1991,8 @@ html.dark .bg-glow-orb { opacity: .25; }
     <div class="result-area" id="discovery-result"></div>
   </div>
 
+  </div><!-- /tool-view -->
+
   <div class="footer-note">
     Dorado Music Marketing &copy; 2026 &mdash; Internal use only. Confidential.
     <button class="help-btn" onclick="startWalkthrough()" title="Replay walkthrough tour">?</button>
@@ -1897,6 +2019,30 @@ function toggleTheme() {
   applyTheme(next);
 }
 applyTheme(localStorage.getItem('dmm_theme') || 'light');
+
+// =====================================================================
+// Landing / Tool Navigation
+// =====================================================================
+function goToTool(name) {
+  document.getElementById('landing').style.display = 'none';
+  document.getElementById('tool-view').style.display = 'block';
+  // Animate in
+  const tv = document.getElementById('tool-view');
+  tv.style.animation = 'none';
+  tv.offsetHeight;
+  tv.style.animation = 'panelIn .4s cubic-bezier(.25,.46,.45,.94)';
+  switchTab(name);
+}
+
+function goToLanding() {
+  document.getElementById('tool-view').style.display = 'none';
+  document.getElementById('landing').style.display = 'grid';
+  // Animate in
+  const lg = document.getElementById('landing');
+  lg.style.animation = 'none';
+  lg.offsetHeight;
+  lg.style.animation = 'panelIn .4s cubic-bezier(.25,.46,.45,.94)';
+}
 
 // =====================================================================
 // Tabs
@@ -3185,7 +3331,7 @@ function formatPressReport(html) {
   const tab = params.get('tab');
   const artist = params.get('artist');
   if (tab) {
-    switchTab(tab);
+    goToTool(tab);
     if (artist) {
       const inputMap = {
         radio: 'radio-artist',
@@ -3227,6 +3373,8 @@ let wtPrevTarget = null;
 
 function startWalkthrough() {
   wtStep = 0;
+  // Ensure tool view is visible for the walkthrough
+  goToTool('radio');
   // Create backdrop
   if (!wtBackdrop) {
     wtBackdrop = document.createElement('div');
@@ -3339,8 +3487,8 @@ function endWalkthrough() {
     if (wtBackdrop) { wtBackdrop.remove(); wtBackdrop = null; }
     if (wtTooltip) { wtTooltip.remove(); wtTooltip = null; }
   }, 300);
-  // Return to radio tab
-  switchTab('radio');
+  // Return to landing
+  goToLanding();
 }
 
 // Auto-start on first visit
