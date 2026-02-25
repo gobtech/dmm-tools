@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Release Calendar — DMM Tools</title>
+<style>
+/* ============================================================
+   TOKENS (matching index.html)
+   ============================================================ */
+:root {
+  --bg-base: #0e0e10;
+  --bg-card: #18181b;
+  --bg-card-hover: #1f1f23;
+  --bg-input: #111114;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --border-default: #27272a;
+  --border-strong: #3f3f46;
+  --accent: #c43030;
+  --logo-filter: brightness(0) invert(1);
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.25);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.3);
+  --transition: .18s ease;
+  --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-heading: 'Cormorant Garamond', 'Georgia', serif;
+  --font-label: 'Raleway', var(--font-body);
+
+  --phase-pre-pitch: #3b82f6;
+  --phase-radio-press: #8b5cf6;
+  --phase-release-week: #22c55e;
+  --phase-post-release: #f59e0b;
+  --phase-reporting: #6b7280;
+  --phase-unknown: #52525b;
+}
+
+html.light {
+  --bg-base: #f5f5f5;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-input: #ffffff;
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-tertiary: #a1a1aa;
+  --border-default: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.08);
+  --logo-filter: none;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 36px 24px 80px;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  text-align: center;
+  margin-bottom: 36px;
+}
+.header .logo {
+  height: 32px;
+  opacity: .7;
+  margin-bottom: 16px;
+  filter: var(--logo-filter);
+}
+.header h1 {
+  font-family: var(--font-heading);
+  font-size: 36px;
+  font-weight: 300;
+  letter-spacing: .02em;
+  margin-bottom: 8px;
+}
+.header .subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 28px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-primary);
+  text-decoration: none;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  transition: all .25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.back-link::before {
+  content: '';
+  position: absolute;
+  top: 0; right: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(270deg, transparent, rgba(196,48,48,.08), transparent);
+  transition: right .45s ease;
+}
+.back-link:hover::before {
+  right: 100%;
+}
+.back-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-2px);
+}
+.back-link .btn-icon {
+  font-size: 16px;
+  transition: transform .25s ease;
+}
+.back-link:hover .btn-icon {
+  transform: translateX(-3px);
+}
+
+/* ============================================================
+   TOOLBAR
+   ============================================================ */
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.filter-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 10px 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font-body);
+  transition: border-color var(--transition);
+}
+.filter-input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+.filter-input::placeholder { color: var(--text-tertiary); }
+
+.stats {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   PHASE LEGEND
+   ============================================================ */
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   WEEK SECTIONS
+   ============================================================ */
+.week-section {
+  margin-bottom: 8px;
+}
+
+.week-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition), border-color var(--transition);
+}
+.week-header:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+}
+
+.week-header .chevron {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  transition: transform .2s ease;
+  flex-shrink: 0;
+}
+.week-section.open .week-header .chevron { transform: rotate(90deg); }
+
+.week-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.week-dates {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+.week-count {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.week-header .current-marker {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.week-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .25s ease;
+}
+.week-section.open .week-body { grid-template-rows: 1fr; }
+.week-body > div { overflow: hidden; }
+
+.week-cards {
+  padding: 8px 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ============================================================
+   RELEASE CARDS
+   ============================================================ */
+.release-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  transition: background var(--transition), border-color var(--transition);
+}
+.release-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+}
+
+.release-info {
+  flex: 1;
+  min-width: 0;
+}
+.release-artist {
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.release-title {
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.release-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+.badge-format {
+  background: var(--border-default);
+  color: var(--text-secondary);
+}
+.badge-label {
+  background: transparent;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 11px;
+}
+.badge-date {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge-phase {
+  color: #fff;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: .06em;
+  padding: 2px 8px;
+}
+.badge-phase.pre-pitch { background: var(--phase-pre-pitch); }
+.badge-phase.radio-press { background: var(--phase-radio-press); }
+.badge-phase.release-week { background: var(--phase-release-week); }
+.badge-phase.post-release { background: var(--phase-post-release); }
+.badge-phase.reporting { background: var(--phase-reporting); }
+.badge-phase.unknown { background: var(--phase-unknown); }
+
+.release-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.action-btn {
+  padding: 5px 10px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.action-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ============================================================
+   LOADING / EMPTY
+   ============================================================ */
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+.loading .spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.footer {
+  text-align: center;
+  padding: 32px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 640px) {
+  .container { padding: 24px 16px 60px; }
+  .header h1 { font-size: 28px; }
+  .release-card { flex-direction: column; align-items: stretch; }
+  .release-actions { justify-content: flex-start; }
+  .legend { gap: 10px; }
+}
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+  <span id="theme-icon">&#9788;</span>
+</button>
+
+<div class="container">
+  <div class="header">
+    <img class="logo" src="https://images.squarespace-cdn.com/content/v1/590102829de4bb02e43309fd/1503502770341-VCOKSUOU944GCVSODOI7/DMM-final-logo-extended.png" alt="Dorado Music Marketing">
+    <h1>Release Calendar</h1>
+    <p class="subtitle">Campaign timeline and phase tracker</p>
+    <a href="/" class="back-link">
+      <span class="btn-icon">&larr;</span>
+      <span>Back to Tools</span>
+    </a>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" class="filter-input" id="artist-filter" placeholder="Filter by artist name...">
+    <span class="stats" id="stats"></span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="legend-dot" style="background:var(--phase-pre-pitch)"></span> Pre-Pitch</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--phase-radio-press)"></span> Radio / Press</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--phase-release-week)"></span> Release Week</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--phase-post-release)"></span> Post-Release</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--phase-reporting)"></span> Reporting</div>
+  </div>
+
+  <div id="calendar-content">
+    <div class="loading">
+      <div class="spinner"></div><br>
+      Loading release schedule...
+    </div>
+  </div>
+
+  <div class="footer">
+    Dorado Music Marketing &copy; 2026 &mdash; Internal use only.
+  </div>
+</div>
+
+<script>
+const PHASE_LABELS = {
+  'pre-pitch': 'Pre-Pitch',
+  'radio-press': 'Radio / Press',
+  'release-week': 'Release Week',
+  'post-release': 'Post-Release',
+  'reporting': 'Reporting',
+  'unknown': 'Unknown',
+};
+
+let allReleases = [];
+let weekGroups = [];
+
+async function loadReleases() {
+  try {
+    const resp = await fetch('/api/releases');
+    allReleases = await resp.json();
+    buildWeekGroups();
+    render();
+    autoScrollToCurrent();
+  } catch (e) {
+    document.getElementById('calendar-content').innerHTML =
+      '<div class="empty-state">Failed to load release schedule. Is the server running?</div>';
+  }
+}
+
+function buildWeekGroups() {
+  // Group by week_block
+  const map = {};
+  for (const r of allReleases) {
+    const wb = r.week_block;
+    if (!map[wb]) map[wb] = [];
+    map[wb].push(r);
+  }
+
+  weekGroups = Object.keys(map)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map(wb => {
+      const releases = map[wb];
+      // Sort by parsed_date within week
+      releases.sort((a, b) => (a.parsed_date || '').localeCompare(b.parsed_date || ''));
+
+      // Compute date range for header
+      const dates = releases.map(r => r.parsed_date).filter(Boolean).sort();
+      const startDate = dates[0] || '';
+      const endDate = dates[dates.length - 1] || '';
+
+      // Is this the "current" week?
+      const today = new Date().toISOString().split('T')[0];
+      const isCurrent = startDate && endDate && today >= startDate && today <= endDate;
+      // Also mark current if today is within 3 days of the range
+      const nearCurrent = !isCurrent && startDate && endDate && (
+        Math.abs(daysBetween(today, startDate)) <= 3 ||
+        Math.abs(daysBetween(today, endDate)) <= 3
+      );
+
+      // All reporting?
+      const allPast = releases.every(r => r.phase === 'reporting');
+
+      return { wb, releases, startDate, endDate, isCurrent: isCurrent || nearCurrent, allPast };
+    });
+}
+
+function daysBetween(a, b) {
+  return Math.round((new Date(a) - new Date(b)) / 86400000);
+}
+
+function formatDateRange(startISO, endISO) {
+  if (!startISO) return '';
+  const fmt = d => {
+    const dt = new Date(d + 'T12:00:00');
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  if (startISO === endISO) return fmt(startISO);
+  return `${fmt(startISO)} – ${fmt(endISO)}`;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function render() {
+  const filter = document.getElementById('artist-filter').value.toLowerCase().trim();
+  const container = document.getElementById('calendar-content');
+
+  let html = '';
+  let totalShown = 0;
+  let weekIdx = 0;
+
+  for (const wg of weekGroups) {
+    let releases = wg.releases;
+    if (filter) {
+      releases = releases.filter(r => r.artist.toLowerCase().includes(filter));
+    }
+    if (releases.length === 0) continue;
+
+    totalShown += releases.length;
+    const isOpen = wg.isCurrent || !!filter;
+
+    html += `<div class="week-section${isOpen ? ' open' : ''}" id="week-${wg.wb}">`;
+    html += `<div class="week-header" onclick="toggleWeek(${wg.wb})">`;
+    html += `<span class="chevron">&#9654;</span>`;
+    html += `<span class="week-title">Week ${wg.wb + 1}</span>`;
+    html += `<span class="week-dates">${formatDateRange(wg.startDate, wg.endDate)}</span>`;
+    if (wg.isCurrent) html += `<span class="current-marker">Current</span>`;
+    html += `<span class="week-count">${releases.length} release${releases.length !== 1 ? 's' : ''}</span>`;
+    html += `</div>`;
+
+    html += `<div class="week-body"><div><div class="week-cards">`;
+    for (const r of releases) {
+      const artistEnc = encodeURIComponent(r.artist);
+      html += `<div class="release-card" data-artist="${escapeHtml(r.artist.toLowerCase())}">`;
+      html += `<div class="release-info">`;
+      html += `<div class="release-artist">${escapeHtml(r.artist)}</div>`;
+      html += `<div class="release-title">${escapeHtml(r.title)}</div>`;
+      html += `<div class="release-meta">`;
+      if (r.date) html += `<span class="badge-date">${escapeHtml(r.date)}</span>`;
+      if (r.format) html += `<span class="badge badge-format">${escapeHtml(r.format)}</span>`;
+      if (r.label) html += `<span class="badge badge-label">${escapeHtml(r.label)}</span>`;
+      html += `<span class="badge badge-phase ${r.phase}">${PHASE_LABELS[r.phase] || r.phase}</span>`;
+      html += `</div></div>`;
+      html += `<div class="release-actions">`;
+      html += `<a class="action-btn" href="/?tab=dsp&artist=${artistEnc}">DSP</a>`;
+      html += `<a class="action-btn" href="/?tab=press&artist=${artistEnc}">Press</a>`;
+      html += `<a class="action-btn" href="/?tab=report&artist=${artistEnc}">Report</a>`;
+      html += `</div>`;
+      html += `</div>`;
+    }
+    html += `</div></div></div>`;
+    html += `</div>`;
+    weekIdx++;
+  }
+
+  if (!html) {
+    html = '<div class="empty-state">No releases match your filter.</div>';
+  }
+
+  container.innerHTML = html;
+  document.getElementById('stats').textContent = `${totalShown} releases`;
+}
+
+function toggleWeek(wb) {
+  const el = document.getElementById('week-' + wb);
+  if (el) el.classList.toggle('open');
+}
+
+function autoScrollToCurrent() {
+  const current = weekGroups.find(w => w.isCurrent);
+  if (current) {
+    const el = document.getElementById('week-' + current.wb);
+    if (el) {
+      setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    }
+  }
+}
+
+// Filter
+document.getElementById('artist-filter').addEventListener('input', render);
+
+// Theme toggle
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('light', theme === 'light');
+  document.getElementById('theme-icon').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+}
+
+function toggleTheme() {
+  const isLight = document.documentElement.classList.contains('light');
+  const next = isLight ? 'dark' : 'light';
+  localStorage.setItem('dmm_theme', next);
+  applyTheme(next);
+}
+
+// Restore saved theme (shared key with main page)
+applyTheme(localStorage.getItem('dmm_theme') || 'light');
+
+// Load on page ready
+loadReleases();
+</script>
+</body>
+</html>

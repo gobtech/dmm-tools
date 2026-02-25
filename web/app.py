@@ -766,6 +766,151 @@ def dsp_run():
 
 
 # ---------------------------------------------------------------------------
+# Release Calendar
+# ---------------------------------------------------------------------------
+
+@app.route('/calendar')
+def calendar():
+    resp = make_response(render_template('calendar.html'))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
+
+
+@app.route('/api/releases')
+def api_releases():
+    """Return release schedule as JSON with computed phase per release."""
+    from datetime import datetime, timedelta
+    from shared.database import load_release_schedule
+
+    schedule_url = os.environ.get(
+        'RELEASE_SCHEDULE_URL',
+        'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
+    )
+    releases = load_release_schedule(schedule_url)
+    today = datetime.now()
+    year = today.year
+
+    result = []
+    for r in releases:
+        # Parse date
+        parsed = None
+        date_str = r.get('date', '').strip()
+        if date_str:
+            for fmt in ('%b %d', '%B %d'):
+                try:
+                    parsed = datetime.strptime(f'{date_str} {year}', f'{fmt} %Y')
+                    break
+                except ValueError:
+                    continue
+
+        # Compute phase
+        phase = 'unknown'
+        if parsed:
+            delta = (parsed - today).days
+            if delta > 14:
+                phase = 'pre-pitch'
+            elif delta > 7:
+                phase = 'radio-press'
+            elif delta >= -7:
+                phase = 'release-week'
+            elif delta >= -14:
+                phase = 'post-release'
+            else:
+                phase = 'reporting'
+
+        result.append({
+            'artist': r['artist'],
+            'title': r['title'],
+            'date': date_str,
+            'parsed_date': parsed.strftime('%Y-%m-%d') if parsed else '',
+            'format': r.get('format', ''),
+            'label': r.get('label', ''),
+            'priority': r.get('priority', ''),
+            'week_block': r.get('week_block', 0),
+            'phase': phase,
+            'spotify_uri': r.get('spotify_uri', ''),
+        })
+
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Report Compiler
+# ---------------------------------------------------------------------------
+
+@app.route('/api/report/compile', methods=['POST'])
+def report_compile():
+    data = request.get_json(silent=True) or {}
+    artist = data.get('artist', '').strip()
+    days = data.get('days', 28)
+    radio_region = data.get('radio_region', 'latam')
+    radio_time_range = data.get('radio_time_range', '28d')
+    efforts_text = data.get('efforts_text', '')
+    include_radio = data.get('include_radio', True)
+    include_dsp = data.get('include_dsp', True)
+    include_press = data.get('include_press', True)
+
+    if not artist:
+        return jsonify({'error': 'Please enter an artist name.'}), 400
+
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 28
+
+    job_id = new_job()
+    safe_artist = artist.lower().replace(' ', '_')
+    output_path = REPORT_DIR / f'{safe_artist}_full_report.docx'
+
+    def run():
+        try:
+            import importlib.util
+            spec_path = ROOT_DIR / 'report-compiler' / 'compile_report.py'
+            spec = importlib.util.spec_from_file_location('compile_report', str(spec_path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            result = mod.compile_report(
+                artist=artist,
+                days=days,
+                radio_region=radio_region,
+                radio_time_range=radio_time_range,
+                efforts_text=efforts_text,
+                output_path=str(output_path),
+                log_fn=lambda msg: log_line(job_id, msg),
+                include_radio=include_radio,
+                include_dsp=include_dsp,
+                include_press=include_press,
+            )
+
+            # Summary for result
+            sections = []
+            if result.get('radio_data'):
+                sections.append(f"Radio: {len(result['radio_data'])} entries")
+            if result.get('dsp_data'):
+                total_dsp = sum(len(m) for r in result['dsp_data'].values() for m in r.values())
+                sections.append(f"DSP: {total_dsp} placements")
+            if result.get('press_data'):
+                total_press = sum(len(v) for v in result['press_data'].values())
+                sections.append(f"Press: {total_press} results")
+
+            summary = ' | '.join(sections) if sections else 'Report generated (no data found in selected sections)'
+
+            # Collect proof images
+            proof_dir = REPORT_DIR / 'dsp_proofs'
+            if proof_dir.exists():
+                jobs[job_id]['proof_images'] = sorted([f.name for f in proof_dir.glob('proof_*.png')])
+
+            finish_job(job_id, result=summary, output_path=output_path)
+
+        except Exception as e:
+            finish_job(job_id, error=str(e))
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 

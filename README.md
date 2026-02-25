@@ -9,6 +9,8 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | **Radio Report** | Auto-fetches airplay data from Soundcharts and generates formatted Word reports (LATAM-focused) | ~1-2 hrs/artist |
 | **Press Pickup** | Searches Google News, Brave, and Serper for Spanish/Portuguese-language press + social media posts, matches against media database, formats report with downloadable .docx | ~2-3 hrs/artist |
 | **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
+| **Full Report** | Compiles Radio + DSP + Press into a single client-facing .docx with release timeline, proof images, and optional efforts summary | ~2-3 hrs/artist |
+| **Release Calendar** | Visual timeline of all releases with phase tracking, action buttons to run tools per artist | Team coordination |
 
 ## Web UI (Recommended)
 
@@ -24,6 +26,8 @@ The web UI provides:
 - **Radio Report**: Type an artist name → auto-fetches from Soundcharts → downloads .docx (LATAM or all countries, with custom date range support)
 - **Press Pickup**: Type an artist name + date range → searches Google News RSS + Brave + Serper → displays formatted report (press articles + social media posts) → downloadable .docx
 - **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms → generates proof images and downloadable .docx report
+- **Full Report**: Enter an artist name → runs all three tools automatically → compiles a single client-facing .docx with release timeline, radio plays, playlist highlights (with proof images), and press coverage
+- **Release Calendar** (`/calendar`): Visual timeline of all releases grouped by week, color-coded by phase (Pre-Pitch → Release Week → Reporting), with quick-action buttons to run DSP/Press/Report for any artist
 
 ## Quick Setup
 
@@ -109,6 +113,8 @@ dmm-tools/
 │   └── press_pickup.py             ← Press pickup automation (Google News RSS + Brave + Serper, .docx reports)
 ├── dsp-pickup/
 │   └── dsp_pickup.py               ← DSP playlist checker (proof images + .docx reports)
+├── report-compiler/
+│   └── compile_report.py           ← Full report compiler (orchestrates all 3 tools → single .docx)
 └── reports/                        ← Generated output (.docx, .txt, .json, proof images)
 ```
 

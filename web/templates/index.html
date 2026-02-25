@@ -49,6 +49,36 @@
   --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-title: 'Cormorant Garamond', 'Georgia', serif;
   --font-label: 'Raleway', -apple-system, BlinkMacSystemFont, sans-serif;
+  --logo-filter: none;
+}
+
+html.dark {
+  --bg-base: #0e0e10;
+  --bg-card: #18181b;
+  --bg-input: #111114;
+  --bg-input-focus: #1a1a1e;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --accent: #c43030;
+  --accent-hover: #d43a3a;
+  --accent-light: rgba(196,48,48,.15);
+  --accent-glow: rgba(196,48,48,.3);
+  --border: rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.12);
+  --border-focus: var(--accent);
+  --success: #4ade80;
+  --success-bg: rgba(34,197,94,.1);
+  --success-border: rgba(34,197,94,.25);
+  --error: #f87171;
+  --error-bg: rgba(239,68,68,.1);
+  --error-border: rgba(239,68,68,.25);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
+  --shadow-btn: 0 2px 8px rgba(196,48,48,.3), 0 1px 3px rgba(0,0,0,.3);
+  --shadow-btn-hover: 0 4px 16px rgba(196,48,48,.4), 0 2px 6px rgba(0,0,0,.3);
+  --logo-filter: brightness(0) invert(1);
 }
 
 body {
@@ -134,6 +164,7 @@ body {
 }
 
 .header .logo:hover { opacity: 1; }
+.header .logo { filter: var(--logo-filter); }
 
 .header h1 {
   font-family: var(--font-title);
@@ -153,6 +184,58 @@ body {
   letter-spacing: .01em;
 }
 
+.calendar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 28px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-primary);
+  text-decoration: none;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  transition: all .25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.calendar-btn::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(196,48,48,.08), transparent);
+  transition: left .45s ease;
+}
+.calendar-btn:hover::before {
+  left: 100%;
+}
+.calendar-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-2px);
+}
+.calendar-btn .btn-icon {
+  font-size: 16px;
+  transition: transform .25s ease;
+}
+.calendar-btn:hover .btn-icon {
+  transform: translateX(3px);
+}
+html.dark .calendar-btn {
+  box-shadow: var(--shadow-sm), 0 0 12px rgba(196,48,48,.05);
+}
+html.dark .calendar-btn:hover {
+  box-shadow: var(--shadow-md), 0 0 24px rgba(196,48,48,.15);
+}
+
 /* ============================================================
    TABS — big obvious segmented control
    ============================================================ */
@@ -165,6 +248,7 @@ body {
   border-radius: var(--radius) var(--radius) 0 0;
   position: relative;
 }
+html.dark .tabs { background: rgba(255,255,255,.04); }
 
 .tab-btn {
   position: relative;
@@ -186,6 +270,9 @@ body {
 .tab-btn:hover {
   color: var(--text-secondary);
   background: rgba(255,255,255,.5);
+}
+html.dark .tab-btn:hover {
+  background: rgba(255,255,255,.06);
 }
 
 .tab-btn.active {
@@ -1096,6 +1183,38 @@ input[type="text"]:focus, input[type="date"]:focus {
 }
 
 /* ============================================================
+   THEME TOGGLE
+   ============================================================ */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* Dark mode glow orb adjustments */
+html.dark .bg-glow-orb { opacity: .25; }
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 600px) {
@@ -1111,6 +1230,10 @@ input[type="text"]:focus, input[type="date"]:focus {
 </head>
 <body>
 
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+  <span id="theme-icon">&#9790;</span>
+</button>
+
 <!-- Subtle ambient warmth -->
 <div class="bg-glow">
   <div class="bg-glow-orb bg-glow-orb-1"></div>
@@ -1122,12 +1245,17 @@ input[type="text"]:focus, input[type="date"]:focus {
     <img class="logo" src="https://images.squarespace-cdn.com/content/v1/590102829de4bb02e43309fd/1503502770341-VCOKSUOU944GCVSODOI7/DMM-final-logo-extended.png" alt="Dorado Music Marketing">
     <h1>DMM Tools</h1>
     <p class="subtitle">Run reports without touching the terminal</p>
+    <a href="/calendar" class="calendar-btn">
+      <span>Release Calendar</span>
+      <span class="btn-icon">&rarr;</span>
+    </a>
   </div>
 
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('radio')">Radio Report</button>
     <button class="tab-btn" onclick="switchTab('press')">Press Pickup</button>
     <button class="tab-btn" onclick="switchTab('dsp')">DSP Pickup</button>
+    <button class="tab-btn" onclick="switchTab('report')">Full Report</button>
   </div>
 
   <!-- ================================================================== -->
@@ -1330,6 +1458,75 @@ input[type="text"]:focus, input[type="date"]:focus {
     <div class="result-area" id="dsp-result"></div>
   </div>
 
+  <!-- ================================================================== -->
+  <!-- TAB 4: Full Report (Report Compiler) -->
+  <!-- ================================================================== -->
+  <div id="tab-report" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Generates a <strong>single client-facing .docx</strong> combining Radio, DSP, and Press data in one document.</li>
+              <li>Runs all three tools automatically &mdash; <strong>no need to run them separately</strong> first.</li>
+              <li>Release timeline is <strong>auto-populated</strong> from the Google Sheets release schedule.</li>
+              <li>Use the <strong>efforts summary</strong> to add custom bullet points (e.g. "Serviced PR", "Pitched to DSPs").</li>
+              <li>You can <strong>disable sections</strong> you don't need &mdash; e.g. skip Radio if there's no airplay data yet.</li>
+              <li>This is a <strong>long-running task</strong> (2-5 min) since it checks all platforms. Be patient!</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <label for="report-artist">Artist Name</label>
+    <input type="text" id="report-artist" placeholder="e.g. PNAU">
+
+    <label>Search Period (Press &amp; Radio)</label>
+    <div class="radio-group">
+      <label><input type="radio" name="report-range" value="7d"><span>7 Days</span></label>
+      <label><input type="radio" name="report-range" value="28d" checked><span>28 Days</span></label>
+      <label><input type="radio" name="report-range" value="1y"><span>1 Year</span></label>
+    </div>
+
+    <label>Region (Radio)</label>
+    <div class="radio-group">
+      <label><input type="radio" name="report-region" value="latam" checked><span>LATAM</span></label>
+      <label><input type="radio" name="report-region" value="all"><span>All Countries</span></label>
+    </div>
+
+    <label>Sections to Include</label>
+    <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="report-inc-radio" checked>
+        <label for="report-inc-radio">Radio Plays (Soundcharts)</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="report-inc-dsp" checked>
+        <label for="report-inc-dsp">Streaming / Playlist Highlights (DSP Pickup)</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="report-inc-press" checked>
+        <label for="report-inc-press">Press Pick Up</label>
+      </div>
+    </div>
+
+    <label for="report-efforts" style="margin-top:20px;">Overall Efforts <span style="color:var(--text-tertiary); font-weight:400;">(optional — one per line)</span></label>
+    <textarea id="report-efforts" rows="4" placeholder="- Serviced PR to 50+ outlets across LATAM&#10;- Pitched to DSPs in MX, BR, AR, CL, CO&#10;- Radio servicing across 8 countries" style="width:100%; padding:12px 16px; border:1px solid var(--border-default); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical;"></textarea>
+
+    <button class="btn" id="report-btn" onclick="runReport()">Generate Full Report</button>
+
+    <div class="progress-area" id="report-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="report-log"></div>
+    </div>
+
+    <div class="result-area" id="report-result"></div>
+  </div>
+
   <div class="footer-note">
     Dorado Music Marketing &copy; 2026 &mdash; Internal use only. Confidential.
     <button class="help-btn" onclick="startWalkthrough()" title="Replay walkthrough tour">?</button>
@@ -1340,6 +1537,21 @@ input[type="text"]:focus, input[type="date"]:focus {
 
 <script>
 // =====================================================================
+// Theme toggle
+// =====================================================================
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.getElementById('theme-icon').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('dmm_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('dmm_theme') || 'light');
+
+// =====================================================================
 // Tabs
 // =====================================================================
 function switchTab(name) {
@@ -1347,7 +1559,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('tab-' + name);
   panel.classList.add('active');
-  const tabs = ['radio', 'press', 'dsp'];
+  const tabs = ['radio', 'press', 'dsp', 'report'];
   const idx = tabs.indexOf(name);
   document.querySelectorAll('.tab-btn')[idx].classList.add('active');
   // Re-trigger entrance animation
@@ -1873,6 +2085,104 @@ async function runDsp() {
 }
 
 // =====================================================================
+// Report Compiler
+// =====================================================================
+async function runReport() {
+  const artist = document.getElementById('report-artist').value.trim();
+  if (!artist) return showToast('Please enter an artist name.');
+
+  const timeRange = document.querySelector('input[name="report-range"]:checked').value;
+  const region = document.querySelector('input[name="report-region"]:checked').value;
+  const includeRadio = document.getElementById('report-inc-radio').checked;
+  const includeDsp = document.getElementById('report-inc-dsp').checked;
+  const includePress = document.getElementById('report-inc-press').checked;
+  const efforts = document.getElementById('report-efforts').value;
+
+  if (!includeRadio && !includeDsp && !includePress) {
+    return showToast('Please select at least one section to include.');
+  }
+
+  const daysMap = { '7d': 7, '28d': 28, '1y': 365 };
+
+  const btn = document.getElementById('report-btn');
+  const logEl = document.getElementById('report-log');
+  const progressEl = document.getElementById('report-progress');
+  const resultEl = document.getElementById('report-result');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const resp = await fetch('/api/report/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artist,
+        days: daysMap[timeRange] || 28,
+        radio_region: region,
+        radio_time_range: timeRange,
+        efforts_text: efforts,
+        include_radio: includeRadio,
+        include_dsp: includeDsp,
+        include_press: includePress,
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Full report compiled!</strong></div>`;
+
+        // Show summary badges
+        if (result.result) {
+          html += `<div style="margin:12px 0 16px; font-size:14px; color:var(--text-secondary); line-height:1.8;">${escapeHtml(result.result)}</div>`;
+        }
+
+        // Show proof images if DSP was included
+        const proofImages = result.proof_images || [];
+        if (proofImages.length > 0) {
+          html += `<div class="proof-gallery">`;
+          html += `<div class="proof-gallery-header">`;
+          html += `<strong>DSP Proof Images</strong> <span style="color:var(--text-tertiary)">(${proofImages.length})</span>`;
+          html += `</div>`;
+          html += `<div class="proof-grid">`;
+          for (const img of proofImages) {
+            html += `<a href="/api/proof/${encodeURIComponent(img)}" target="_blank" class="proof-card">`;
+            html += `<img src="/api/proof/${encodeURIComponent(img)}" alt="Proof" loading="lazy">`;
+            html += `</a>`;
+          }
+          html += `</div></div>`;
+        }
+
+        html += `<div class="result-actions">`;
+        if (result.has_file) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}" download>Download Full Report (.docx)</a>`;
+        }
+        if (proofImages.length > 0) {
+          html += `<a class="btn btn-small" href="/api/proofs/zip" download>Download Proofs (.zip)</a>`;
+        }
+        html += `</div>`;
+        resultEl.innerHTML = html;
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+// =====================================================================
 // Helpers
 // =====================================================================
 function escapeHtml(s) {
@@ -1969,11 +2279,38 @@ function formatPressReport(html) {
 })();
 
 // =====================================================================
+// URL parameter handling (for calendar action buttons)
+// =====================================================================
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  const artist = params.get('artist');
+  if (tab) {
+    switchTab(tab);
+    if (artist) {
+      const inputMap = {
+        radio: 'radio-artist',
+        press: 'press-artist',
+        dsp: 'dsp-artist',
+        report: 'report-artist',
+      };
+      const inputId = inputMap[tab];
+      if (inputId) {
+        const el = document.getElementById(inputId);
+        if (el) el.value = decodeURIComponent(artist);
+      }
+    }
+    // Clean URL
+    window.history.replaceState({}, '', '/');
+  }
+})();
+
+// =====================================================================
 // Walkthrough
 // =====================================================================
 const walkthroughSteps = [
   { target: null, text: 'Welcome to DMM Tools! This quick tour will show you how to use the three reporting tools. Click Next to begin.' },
-  { target: '.tabs', text: 'These three tabs are your tools: Radio Report for airplay data, Press Pickup for press coverage, and DSP Pickup for playlist placements.' },
+  { target: '.tabs', text: 'These four tabs are your tools: Radio Report, Press Pickup, DSP Pickup for individual reports \u2014 and Full Report to compile everything into a single client-facing document.' },
   { target: '#radio-artist', tab: 'radio', text: 'Start by typing an artist name. The tool will search Soundcharts for their airplay data.' },
   { target: 'input[name="radio-range"]', tab: 'radio', text: 'Pick a time range for the report \u2014 7 days, 28 days, up to 1 year, or a custom date range.', targetParent: true },
   { target: '#radio-fetch-btn', tab: 'radio', text: 'Click here to fetch songs. You\u2019ll then pick which songs to include and generate a downloadable Word report.' },
