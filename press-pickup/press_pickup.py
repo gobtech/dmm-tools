@@ -16,9 +16,10 @@ Requirements:
 Setup:
   Press articles: No API key required (Google News RSS).
   Social media supplement (optional): export BRAVE_API_KEY="your-brave-api-key"
+  Additional search source (optional): export TAVILY_API_KEY="tvly-..."  # Free 1000/month
 
   Optional (for auto-generating missing media descriptions):
-     export ANTHROPIC_API_KEY="your-anthropic-api-key"
+     export GROQ_API_KEY="your-groq-api-key"  # Free, no billing
 """
 
 import argparse
@@ -289,39 +290,81 @@ def normalize_country(name):
     return mapping.get(name, name)
 
 
-def generate_description_with_llm(media_name, url, snippet):
+def _groq_enrich_descriptions(outlets_to_enrich, log_fn=print):
     """
-    Generate a press description using Claude API for outlets not in the database.
-    Falls back to a basic description if API is not available.
+    Batch-enrich new outlet descriptions using Groq Llama 3.3 70B (free).
+    Each item in outlets_to_enrich is a dict with media_name, url, snippet.
+    Returns a dict mapping media_name → description.
     """
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    if not api_key:
-        return f"Online media outlet covering entertainment and music news."
-    
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=150,
-            messages=[{
-                "role": "user",
-                "content": f"""Write a one-sentence description of the media outlet "{media_name}" based on this context:
-URL: {url}
-Snippet: {snippet}
+    import requests as _req
 
-Format it like: "Description of outlet type and focus. Social Media: [X]K" 
-If you don't know the social media count, omit it. Keep it factual and concise, similar to:
-"Top newspaper in the country, distribution 700K a week. Social Media: 7M"
-"Digital platform focused on music, cinema, shows and culture news."
-Just output the description, nothing else."""
-            }]
-        )
-        return response.content[0].text.strip()
-    except Exception as e:
-        print(f"  Warning: LLM description generation failed: {e}")
-        return f"Online media outlet covering entertainment and music news."
+    api_key = os.environ.get('GROQ_API_KEY')
+    if not api_key:
+        return {}
+
+    BATCH_SIZE = 10
+    results = {}
+
+    for batch_start in range(0, len(outlets_to_enrich), BATCH_SIZE):
+        batch = outlets_to_enrich[batch_start:batch_start + BATCH_SIZE]
+        log_fn(f"  Generating AI descriptions for {len(batch)} new outlet(s)...")
+
+        outlet_list = []
+        for i, o in enumerate(batch):
+            outlet_list.append(
+                f'{i+1}. Name: {o["media_name"]}\n'
+                f'   URL: {o["url"]}\n'
+                f'   Context: {o["snippet"][:150]}'
+            )
+
+        prompt = f"""You are helping a Latin American music marketing team describe new media outlets for their contact database.
+
+For each outlet below, write a one-sentence description. Be factual and concise.
+
+OUTLETS:
+{chr(10).join(outlet_list)}
+
+Respond with a JSON array (no markdown, no code fences). Each element must have:
+- "index": the outlet number (1-based)
+- "description": one sentence, like "Digital platform focused on music, cinema, shows and culture news." or "Brazilian electronic music blog covering DJs, festivals and new releases."
+
+Output ONLY the JSON array, nothing else."""
+
+        try:
+            resp = _req.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                headers={
+                    'Authorization': f'Bearer {api_key}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'model': 'llama-3.3-70b-versatile',
+                    'messages': [{'role': 'user', 'content': prompt}],
+                    'max_tokens': 1024,
+                    'temperature': 0.3,
+                },
+                timeout=30,
+            )
+
+            if resp.status_code == 200:
+                content = resp.json()['choices'][0]['message']['content'].strip()
+                if content.startswith('```'):
+                    content = content.split('\n', 1)[1] if '\n' in content else content[3:]
+                if content.endswith('```'):
+                    content = content[:-3].strip()
+
+                enrichments = json.loads(content)
+                for item in enrichments:
+                    idx = item.get('index', 0) - 1
+                    if 0 <= idx < len(batch) and item.get('description'):
+                        results[batch[idx]['media_name']] = item['description']
+            else:
+                log_fn(f"  Groq API error: {resp.status_code}")
+
+        except Exception as e:
+            log_fn(f"  AI description batch failed: {e}")
+
+    return results
 
 
 def _serper_date_within(date_str, cutoff):
@@ -518,12 +561,70 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             except Exception as e:
                 print(f"    Serper failed: {e}")
 
+    # 4) Tavily — 2 credits per artist: 1 news + 1 general (free tier: 1000/month recurring)
+    tavily_key = os.environ.get('TAVILY_API_KEY')
+    if tavily_key:
+        import requests as _requests
+
+        if days <= 1:
+            time_range = 'day'
+        elif days <= 7:
+            time_range = 'week'
+        elif days <= 30:
+            time_range = 'month'
+        else:
+            time_range = 'year'
+
+        query_parts = [f'"{kw}"' for kw in keywords]
+        base = ' OR '.join(query_parts)
+
+        tavily_calls = [
+            # News search — catches press articles (no country filter for news topic)
+            {'query': base, 'topic': 'news', 'time_range': time_range,
+             'max_results': 20, 'search_depth': 'basic'},
+            # General search with country=mexico — catches blogs, smaller outlets
+            {'query': f'{base} música', 'topic': 'general', 'country': 'mexico',
+             'time_range': time_range, 'max_results': 20, 'search_depth': 'basic'},
+        ]
+
+        for payload in tavily_calls:
+            label = 'News' if payload['topic'] == 'news' else 'Web'
+            print(f"  Tavily {label}: {payload['query'][:80]}")
+            try:
+                resp = _requests.post(
+                    'https://api.tavily.com/search',
+                    headers={'Authorization': f'Bearer {tavily_key}', 'Content-Type': 'application/json'},
+                    json=payload,
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                tavily_results = resp.json().get('results', [])
+                added = 0
+                for item in tavily_results:
+                    link = item.get('url', '')
+                    domain = extract_domain(link) or ''
+                    if any(skip in domain for skip in SKIP_DOMAINS):
+                        continue
+                    if link not in seen_urls:
+                        seen_urls.add(link)
+                        all_results.append({
+                            'title': item.get('title', ''),
+                            'link': link,
+                            'snippet': item.get('content', ''),
+                            'domain': domain,
+                        })
+                        added += 1
+                print(f"    → {added} new results")
+            except Exception as e:
+                print(f"    Tavily failed: {e}")
+
     print(f"\nFound {len(all_results)} total unique results")
     
     # Match against press database and group by country
     country_results = {}
     skipped = 0
     keywords_lower = [k.lower() for k in keywords]
+    new_outlets_to_enrich = []  # Collect new outlets for batch AI enrichment
 
     for result in all_results:
         domain = result['domain']
@@ -557,12 +658,17 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             if not country:
                 country = 'LATAM'
         elif is_latam_domain(domain):
-            # New outlet with LATAM TLD — include and flag
+            # New outlet with LATAM TLD — placeholder description, enrich later
             media_name = domain.split('.')[0].title() if domain else 'Unknown'
-            description = generate_description_with_llm(media_name, result['link'], result['snippet'])
+            description = 'Online media outlet covering entertainment and music news.'
             if not country:
                 country = 'LATAM'
             print(f"  New outlet (not in DB): {media_name} ({domain})")
+            new_outlets_to_enrich.append({
+                'media_name': media_name,
+                'url': result['link'],
+                'snippet': result.get('snippet', ''),
+            })
         else:
             # Non-LATAM domain, not in DB — skip (likely US/UK/Spain)
             skipped += 1
@@ -581,6 +687,24 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             'snippet': result['snippet'],
             'in_database': media_entry is not None,
         })
+
+    # Batch-enrich new outlet descriptions with Groq AI (free)
+    if new_outlets_to_enrich:
+        # Deduplicate by media_name before enriching
+        seen_names = set()
+        unique_to_enrich = []
+        for o in new_outlets_to_enrich:
+            if o['media_name'] not in seen_names:
+                seen_names.add(o['media_name'])
+                unique_to_enrich.append(o)
+
+        enriched = _groq_enrich_descriptions(unique_to_enrich, log_fn=print)
+        if enriched:
+            # Apply enriched descriptions back to country_results
+            for country_entries in country_results.values():
+                for entry in country_entries:
+                    if not entry['in_database'] and entry['media_name'] in enriched:
+                        entry['description'] = enriched[entry['media_name']]
 
     if skipped:
         print(f"  Filtered out {skipped} non-LATAM or irrelevant results")
@@ -735,7 +859,8 @@ Examples:
   python press_pickup.py --all --days 7
 
 Environment Variables:
-  ANTHROPIC_API_KEY  Anthropic API key (optional, for generating missing descriptions)
+  GROQ_API_KEY       Groq API key (optional, free — for generating missing descriptions)
+  TAVILY_API_KEY     Tavily API key (optional, free 1000 credits/month — additional search source)
   PRESS_DB_PATH      Path to press description database CSV
   RELEASE_SCHEDULE_URL  Published Google Sheets URL for release schedule
         """

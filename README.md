@@ -7,7 +7,7 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | Tool | What it does | Manual time saved |
 |------|-------------|-------------------|
 | **Radio Report** | Auto-fetches airplay data from Soundcharts and generates formatted Word reports (LATAM-focused) | ~1-2 hrs/artist |
-| **Press Pickup** | Searches Google News, Brave, and Serper for Spanish/Portuguese-language press + social media posts, matches against media database, formats report with downloadable .docx | ~2-3 hrs/artist |
+| **Press Pickup** | Searches Google News, Brave, Serper, and Tavily for Spanish/Portuguese-language press + social media posts, matches against media database, formats report with downloadable .docx | ~2-3 hrs/artist |
 | **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
 | **Full Report** | Compiles Radio + DSP + Press into a single client-facing .docx with release timeline, proof images, and optional efforts summary | ~2-3 hrs/artist |
 | **Weekly Digest** | Generates lightweight email-ready summaries (HTML + plain text) with copy-to-clipboard for pasting into Gmail/Outlook | ~30-60 min/artist/week |
@@ -28,7 +28,7 @@ python web/app.py
 
 The web UI provides:
 - **Radio Report**: Type an artist name → auto-fetches from Soundcharts → downloads .docx (LATAM or all countries, with custom date range support)
-- **Press Pickup**: Type an artist name + date range → searches Google News RSS + Brave + Serper → displays formatted report (press articles + social media posts) → downloadable .docx
+- **Press Pickup**: Type an artist name + date range → searches Google News RSS + Brave + Serper + Tavily → displays formatted report (press articles + social media posts) → downloadable .docx
 - **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms → generates proof images and downloadable .docx report
 - **Full Report**: Enter an artist name → runs all three tools automatically → compiles a single client-facing .docx with release timeline, radio plays, playlist highlights (with proof images), and press coverage
 - **Proposal Generator**: Select artist, genre, target countries, radio stations, budget options → generates complete proposal .docx with campaign overview, genre-filtered press/radio targets, DSP pitching strategies, and budget breakdown with real-time preview
@@ -55,6 +55,7 @@ export BRAVE_API_KEY="..."          # Brave Search (supplementary, for Press Pic
 export SOUNDCHARTS_EMAIL="..."      # Soundcharts login (for Radio Report)
 export SOUNDCHARTS_PASSWORD="..."
 export GEMINI_API_KEY="..."         # Google Gemini (optional, for PR Translator AI mode — free tier)
+export TAVILY_API_KEY="tvly-..."    # Tavily (optional, for Press Pickup — free 1000 credits/month)
 export GROQ_API_KEY="..."          # Groq (optional, for Discovery AI descriptions — free, no billing)
 ```
 
@@ -124,7 +125,7 @@ dmm-tools/
 │   ├── batch_generate.sh
 │   └── artists.json
 ├── press-pickup/
-│   └── press_pickup.py             ← Press pickup automation (Google News RSS + Brave + Serper, .docx reports)
+│   └── press_pickup.py             ← Press pickup automation (Google News RSS + Brave + Serper + Tavily, .docx reports)
 ├── dsp-pickup/
 │   └── dsp_pickup.py               ← DSP playlist checker (proof images + .docx reports)
 ├── report-compiler/
