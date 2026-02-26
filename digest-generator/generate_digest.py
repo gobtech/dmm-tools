@@ -12,6 +12,7 @@ Called from the web UI via /api/digest/generate.
 import importlib.util
 import io
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -190,10 +191,18 @@ def generate_digest(
         log_fn('\n── DSP ──')
         log_fn('  No releases found — skipping DSP check.')
 
+    # ─── AI campaign analysis ─────────────────────────────────────
+    play_key = PLAY_KEY_MAP.get(radio_time_range, 'weekly_plays')
+    analysis = None
+    has_any_data = radio_data or press_data or dsp_data
+    if has_any_data:
+        analysis = _groq_analyze_campaign(
+            artist, radio_data, press_data, dsp_data, play_key, days, log_fn=log_fn,
+        )
+
     # ─── Build digest ─────────────────────────────────────────────
     log_fn('\n── Building digest ──')
 
-    play_key = PLAY_KEY_MAP.get(radio_time_range, 'weekly_plays')
     greeting = contact_name.strip() if contact_name.strip() else 'team'
     sign_off = sender_name.strip() if sender_name.strip() else 'DMM Team'
 
@@ -206,6 +215,7 @@ def generate_digest(
         next_steps=next_steps,
         greeting=greeting,
         sign_off=sign_off,
+        analysis=analysis,
     )
 
     result['html'] = html
@@ -219,8 +229,132 @@ def generate_digest(
     return result
 
 
+def _groq_analyze_campaign(artist, radio_data, press_data, dsp_data, play_key, days, log_fn=print):
+    """Generate AI campaign analysis from collected data via Groq."""
+    import json
+    import requests as _req
+
+    api_key = os.environ.get('GROQ_API_KEY')
+    if not api_key:
+        return None
+
+    # ── Serialize data into a structured summary for the LLM ──
+    parts = []
+
+    if radio_data:
+        country_plays = {}
+        stations = []
+        for entry in radio_data:
+            country = entry.get('country', 'UNKNOWN')
+            station = entry.get('station', '')
+            song = entry.get('song', '')
+            plays = entry.get(play_key, 0) or 0
+            if not plays:
+                continue
+            country_plays[country] = country_plays.get(country, 0) + plays
+            stations.append(f"{station} ({country}): \"{song}\" — {plays} plays")
+
+        total = sum(country_plays.values())
+        parts.append(f'RADIO: {total} total plays across {len(set(e.get("station","") for e in radio_data))} stations in {len(country_plays)} countries.')
+        for c, p in sorted(country_plays.items(), key=lambda x: -x[1]):
+            parts.append(f'  {c}: {p} plays')
+        for s in stations[:10]:
+            parts.append(f'  → {s}')
+    else:
+        parts.append('RADIO: No airplay data found.')
+
+    if press_data:
+        total = sum(len(v) for v in press_data.values())
+        db_hits = sum(1 for entries in press_data.values() for e in entries if e.get('in_database'))
+        new_hits = total - db_hits
+        countries = list(press_data.keys())
+        parts.append(f'\nPRESS: {total} articles across {len(countries)} countries: {", ".join(countries)}')
+        parts.append(f'  Known DB outlets: {db_hits}, New outlets: {new_hits}')
+        outlets = []
+        for entries in press_data.values():
+            for e in entries:
+                name = e.get('media_name', '')
+                if name and name not in outlets:
+                    outlets.append(name)
+                if len(outlets) >= 12:
+                    break
+            if len(outlets) >= 12:
+                break
+        parts.append(f'  Outlets: {", ".join(outlets)}')
+    else:
+        parts.append('\nPRESS: No press coverage found.')
+
+    if dsp_data:
+        all_m = [m for rd in dsp_data.values() for matches in rd.values() for m in matches]
+        if all_m:
+            plat_counts = {}
+            for m in all_m:
+                p = m.get('platform', '?')
+                plat_counts[p] = plat_counts.get(p, 0) + 1
+            parts.append(f'\nDSP: {len(all_m)} playlist placements across {len(plat_counts)} platforms.')
+            for p, c in sorted(plat_counts.items(), key=lambda x: -x[1]):
+                parts.append(f'  {p}: {c} playlists')
+            for m in all_m[:10]:
+                detail = f'  → {m.get("playlist_name","")} ({m.get("platform","")})'
+                if m.get('playlist_followers'):
+                    detail += f' [{m["playlist_followers"]} followers]'
+                detail += f' at #{m.get("position","?")}'
+                parts.append(detail)
+        else:
+            parts.append('\nDSP: No playlist placements found.')
+    else:
+        parts.append('\nDSP: No DSP data available.')
+
+    data_summary = '\n'.join(parts)
+
+    prompt = f"""You are a senior LATAM music marketing strategist at DMM (Dorado Music Marketing). Analyze the following campaign data for {artist} from the last {days} days.
+
+{data_summary}
+
+Write a concise campaign analysis (4-6 bullet points) covering:
+1. **Overall momentum** — Is the campaign gaining traction or are there gaps? Base this on the volume and spread of the data.
+2. **Geographic analysis** — Which LATAM markets are strongest? Where are there coverage gaps?
+3. **Standout wins** — Highlight notable placements, high-play-count stations, or significant press outlets.
+4. **Areas of concern** — Flag anything that needs attention (missing markets, low play counts, absent platforms, etc.)
+5. **Recommendations** — 2-3 specific, actionable next steps for the campaign team.
+
+Be specific and data-driven. Reference actual numbers, station/outlet/playlist names from the data. Write in professional but direct English. If a section (radio/press/DSP) has no data, note it as a gap.
+
+Respond with ONLY the bullet points. Use this format:
+- **Label:** analysis text"""
+
+    log_fn('  Generating AI campaign analysis via Groq...')
+
+    try:
+        resp = _req.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json',
+            },
+            json={
+                'model': 'llama-3.3-70b-versatile',
+                'messages': [{'role': 'user', 'content': prompt}],
+                'max_tokens': 800,
+                'temperature': 0.4,
+            },
+            timeout=30,
+        )
+
+        if resp.status_code == 200:
+            analysis = resp.json()['choices'][0]['message']['content'].strip()
+            log_fn('  AI analysis generated successfully')
+            return analysis
+        else:
+            log_fn(f'  Groq API error: {resp.status_code} — skipping analysis')
+    except Exception as e:
+        log_fn(f'  AI analysis failed: {e}')
+
+    return None
+
+
 def _build_digest(artist, radio_data, press_data, dsp_data, play_key,
-                  next_steps, greeting, sign_off):
+                  next_steps, greeting, sign_off, analysis=None):
     """Build HTML and plain text versions of the digest email."""
 
     counts = {'radio': 0, 'dsp': 0, 'press': 0}
@@ -368,6 +502,34 @@ def _build_digest(artist, radio_data, press_data, dsp_data, play_key,
 
             html_sections.append(h)
             text_sections.append(t)
+
+    # ─── AI Campaign Analysis ────────────────────────────────
+    if analysis:
+        h = '<h3 style="margin:20px 0 10px;font-size:16px;color:#1a1a1a;">Campaign Analysis</h3>\n'
+        t = '\nCAMPAIGN ANALYSIS\n' + '─' * 40 + '\n'
+
+        for line in analysis.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            # Strip leading bullet marker only (preserve markdown **bold**)
+            clean = re.sub(r'^[-•]\s*', '', line).strip()
+            if not clean:
+                continue
+
+            # Parse **Label:** pattern → bold label in HTML
+            label_match = re.match(r'\*\*(.+?)\*\*:?\s*(.*)', clean)
+            if label_match:
+                label = label_match.group(1).rstrip(':')
+                body = label_match.group(2)
+                h += f'<p style="margin:6px 0 2px 16px;color:#555;">• <strong style="color:#333;">{escape(label)}:</strong> {escape(body)}</p>\n'
+                t += f'  • {label}: {body}\n'
+            else:
+                h += f'<p style="margin:2px 0 2px 16px;color:#555;">• {escape(clean)}</p>\n'
+                t += f'  • {clean}\n'
+
+        html_sections.append(h)
+        text_sections.append(t)
 
     # ─── Next Steps ────────────────────────────────────────────
     if next_steps and next_steps.strip():

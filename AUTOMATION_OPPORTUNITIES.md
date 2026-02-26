@@ -6,7 +6,7 @@ DMM (Dorado Music Marketing) is a LATAM-focused music marketing company managing
 
 Three reporting workflows have already been automated in `dmm-tools`:
 1. **Radio Report** — Soundcharts airplay data → formatted .docx
-2. **Press Pickup** — 3-source search → DB matching → grouped .docx
+2. **Press Pickup** — 5-source search (Google News RSS + Brave + Serper + Tavily + DuckDuckGo News) → DB matching → grouped .docx
 3. **DSP Pickup** — 6-platform playlist checker → proof images → .docx
 
 This document identifies the next wave of automation opportunities based on analysis of:
@@ -431,7 +431,7 @@ All new tools should follow the existing pattern:
 - **Web API**: New endpoints in `web/app.py` using the existing job queue (UUID-based, threaded, polled from frontend)
 - **Frontend**: New tab or sub-panel in `web/templates/index.html`, matching existing DMM brand design
 - **Output**: .docx via `python-docx`, with optional .txt and .json exports
-- **LLM**: Optional Claude integration for text generation (strategy paragraphs, PR copy, pitch language), gated behind `ANTHROPIC_API_KEY` with graceful fallback to templates
+- **LLM**: Groq Llama 3.3 70B (free, no billing) for AI text generation — used in Discovery (outlet descriptions + type classification), Proposal Generator (Goal/Strategy + Digital Marketing sections), and Weekly Digest (campaign analysis). Gated behind `GROQ_API_KEY` with graceful fallback to templates. Google Gemini used for PR Translator AI mode.
 
 The existing `shared/` module should be extended:
 - `shared/database.py` — add loaders for new data files (radio targets, pricing)

@@ -296,6 +296,26 @@ def generate_proposal(
     log_fn(f'  Radio targets: {total_radio} stations across {len(radio_targets)} countries')
     log_fn(f'  DSP platforms: {len(dsp_strategies)}')
 
+    # ── AI-generate strategy sections if user left them empty ──
+    GENRE_LABELS = {
+        'electronic': 'Electronic / Dance', 'indie': 'Indie / Alternative',
+        'rock': 'Rock', 'pop': 'Pop', 'urban': 'Urban / Reggaeton', 'general': 'General',
+    }
+    genre_label = GENRE_LABELS.get(genre, genre.title())
+    countries_display = ', '.join(
+        COUNTRY_DISPLAY.get(c, c) for c in countries if c in COUNTRY_DISPLAY
+    )
+
+    if not goal_strategy or not digital_marketing:
+        ai_sections = _groq_generate_sections(
+            artist, genre_label, campaign_duration, collaborators,
+            timeline, countries_display, log_fn=log_fn,
+        )
+        if not goal_strategy and ai_sections.get('goal_strategy'):
+            goal_strategy = ai_sections['goal_strategy']
+        if not digital_marketing and ai_sections.get('digital_marketing'):
+            digital_marketing = ai_sections['digital_marketing']
+
     # ── Generate .docx ─────────────────────────────────────────
     log_fn('Building proposal document...')
     _build_proposal_docx(
@@ -432,10 +452,14 @@ def _build_proposal_docx(
     _section_header(doc, '2. Goal & Strategy', RED)
 
     if goal_strategy:
-        p = doc.add_paragraph()
-        run = p.add_run(goal_strategy)
-        run.font.size = Pt(10)
-        p.paragraph_format.space_after = Pt(8)
+        for para_text in goal_strategy.split('\n'):
+            para_text = para_text.strip()
+            if not para_text:
+                continue
+            p = doc.add_paragraph()
+            run = p.add_run(para_text)
+            run.font.size = Pt(10)
+            p.paragraph_format.space_after = Pt(8)
     else:
         _default_goal_strategy(doc, artist, genre_label, campaign_duration, collaborators)
 
@@ -464,10 +488,15 @@ def _build_proposal_docx(
     _section_header(doc, '4. Digital Marketing', RED)
 
     if digital_marketing:
-        p = doc.add_paragraph()
-        run = p.add_run(digital_marketing)
-        run.font.size = Pt(10)
-        p.paragraph_format.space_after = Pt(8)
+        for line in digital_marketing.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            p = doc.add_paragraph()
+            run = p.add_run(line)
+            run.font.size = Pt(10)
+            p.paragraph_format.space_before = Pt(2) if line.startswith('•') else Pt(0)
+            p.paragraph_format.space_after = Pt(8) if not line.startswith('•') else Pt(0)
     else:
         _default_digital_marketing(doc, artist, genre_label, countries, GRAY)
 
@@ -834,6 +863,89 @@ def _body_text(doc, text):
     run.font.size = Pt(10)
     p.paragraph_format.space_after = Pt(8)
     return p
+
+
+def _groq_generate_sections(artist, genre_label, duration, collaborators, timeline, countries_display, log_fn=print):
+    """
+    Generate Goal/Strategy and Digital Marketing sections via Groq AI.
+    Returns dict with 'goal_strategy' and 'digital_marketing' keys, or {} on failure.
+    """
+    import requests as _req
+
+    api_key = os.environ.get('GROQ_API_KEY')
+    if not api_key:
+        return {}
+
+    timeline_str = ''
+    if timeline:
+        parts = []
+        for r in timeline[:6]:
+            entry = r.get('title', 'Untitled')
+            if r.get('date'):
+                entry += f" ({r['date']})"
+            if r.get('format'):
+                entry += f" [{r['format']}]"
+            parts.append(entry)
+        timeline_str = '; '.join(parts)
+
+    prompt = f"""You are writing a client proposal for a LATAM music marketing campaign. Write two sections for the artist below.
+
+ARTIST: {artist}
+GENRE: {genre_label}
+CAMPAIGN DURATION: {duration} months
+TARGET MARKETS: {countries_display}
+{f'KEY COLLABORATORS/HOOKS: {collaborators}' if collaborators else ''}
+{f'RELEASE TIMELINE: {timeline_str}' if timeline_str else ''}
+
+SECTION 1 — GOAL & STRATEGY
+Write 2-3 paragraphs (total ~150 words) describing the campaign goal and strategy. Be specific to the artist's genre and sound. Mention concrete tactics (DSP pitching, radio servicing, press outreach, influencer activations, digital marketing). If collaborators are listed, mention how they'll be leveraged. End with the phased approach: pre-release (2 weeks before), release-week activation, post-release sustain.
+
+SECTION 2 — DIGITAL MARKETING
+Write a short intro sentence, then 5-6 bullet points of specific digital marketing tactics. Tailor them to the genre (e.g. electronic → club/festival content, indie → editorial/blog content, urban → TikTok challenges). Include platforms (Meta, TikTok, YouTube, IG Reels, Shorts). Be concrete and actionable.
+
+Respond with ONLY a JSON object (no markdown, no code fences):
+{{"goal_strategy": "paragraph text here", "digital_marketing": "intro sentence\\n• bullet 1\\n• bullet 2\\n• bullet 3\\n• bullet 4\\n• bullet 5"}}"""
+
+    log_fn('  Generating AI-powered strategy sections via Groq...')
+
+    try:
+        resp = _req.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json',
+            },
+            json={
+                'model': 'llama-3.3-70b-versatile',
+                'messages': [{'role': 'user', 'content': prompt}],
+                'max_tokens': 1024,
+                'temperature': 0.7,
+            },
+            timeout=30,
+        )
+
+        if resp.status_code == 200:
+            content = resp.json()['choices'][0]['message']['content'].strip()
+            # Strip markdown fences if present
+            if content.startswith('```'):
+                content = content.split('\n', 1)[1] if '\n' in content else content[3:]
+            if content.endswith('```'):
+                content = content[:-3].strip()
+
+            result = json.loads(content, strict=False)
+
+            if result.get('goal_strategy') and result.get('digital_marketing'):
+                log_fn('  AI strategy sections generated successfully')
+                return result
+            else:
+                log_fn('  AI response missing required fields — using template')
+        else:
+            log_fn(f'  Groq API error: {resp.status_code} — using template')
+
+    except Exception as e:
+        log_fn(f'  AI generation failed: {e} — using template')
+
+    return {}
 
 
 def _default_goal_strategy(doc, artist, genre_label, duration, collaborators):

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>O.R.A.C.L.E. | DMM Advanced Computing Division</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;color:#00ff41;font-family:'Courier New',monospace;overflow-x:hidden;min-height:100vh}
+canvas#matrix{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;opacity:.35}
+.overlay{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+
+/* Header */
+.classification{font-size:10px;letter-spacing:.4em;color:#ff004088;border:1px solid #ff004044;padding:4px 16px;margin-bottom:24px;text-transform:uppercase}
+h1{font-size:clamp(36px,8vw,72px);font-weight:900;letter-spacing:.15em;text-shadow:0 0 30px #00ff4166,0 0 60px #00ff4133;margin-bottom:4px}
+.acronym{font-size:clamp(10px,2vw,13px);letter-spacing:.2em;color:#00ff41aa;margin-bottom:8px;text-align:center;max-width:600px}
+.version{font-size:10px;color:#00ff4144;margin-bottom:40px}
+.tagline{font-size:13px;color:#00ff4177;margin-bottom:40px;text-align:center;max-width:500px;line-height:1.7}
+
+/* Input section */
+.input-section{display:flex;flex-direction:column;align-items:center;gap:16px;margin-bottom:32px}
+.input-label{font-size:11px;letter-spacing:.3em;color:#00ff4188}
+.input-field{background:rgba(0,255,65,.05);border:1px solid #00ff4133;color:#00ff41;font-family:'Courier New',monospace;font-size:28px;padding:16px 24px;text-align:center;width:320px;outline:none;transition:all .3s}
+.input-field:focus{border-color:#00ff41;box-shadow:0 0 20px #00ff4133}
+.input-field::placeholder{color:#00ff4133}
+.compute-btn{background:transparent;border:2px solid #00ff41;color:#00ff41;font-family:'Courier New',monospace;font-size:14px;letter-spacing:.3em;padding:14px 48px;cursor:pointer;transition:all .3s;text-transform:uppercase;position:relative;overflow:hidden}
+.compute-btn:hover{background:#00ff41;color:#000;box-shadow:0 0 30px #00ff4166}
+.compute-btn:disabled{opacity:.3;cursor:not-allowed}
+.compute-btn:disabled:hover{background:transparent;color:#00ff41;box-shadow:none}
+
+/* Computation display */
+.computation{width:100%;max-width:800px;display:none}
+.computation.active{display:block}
+
+/* Phase indicators */
+.phases{display:flex;flex-direction:column;gap:10px;margin-bottom:24px}
+.phase{display:flex;align-items:center;gap:12px;font-size:11px;letter-spacing:.15em}
+.phase-num{color:#00ff4144;min-width:70px}
+.phase-name{flex:1;color:#00ff4155;transition:color .5s}
+.phase-bar{width:120px;height:4px;background:#00ff4111;border-radius:2px;overflow:hidden}
+.phase-bar-fill{width:0%;height:100%;background:#00ff41;border-radius:2px;transition:width .1s linear}
+.phase-status{min-width:70px;text-align:right;font-size:9px;letter-spacing:.2em;color:#00ff4133}
+.phase.active .phase-name{color:#00ff41}
+.phase.active .phase-status{color:#00ff41}
+.phase.complete .phase-name{color:#00ff4166}
+.phase.complete .phase-status{color:#00ff4166}
+
+/* Terminal */
+.terminal{background:rgba(0,20,0,.85);border:1px solid #00ff4122;border-radius:4px;padding:16px;margin-bottom:24px;height:220px;overflow-y:auto;font-size:12px;line-height:1.8}
+.terminal::-webkit-scrollbar{width:4px}
+.terminal::-webkit-scrollbar-thumb{background:#00ff4133;border-radius:2px}
+.term-line{opacity:0;animation:termAppear .3s forwards}
+.term-line .prefix{color:#00ff4166}
+.term-line .value{color:#00b33c}
+.term-line .warn{color:#ff6b00}
+.term-line .success{color:#00ff41}
+@keyframes termAppear{to{opacity:1}}
+
+/* Floating formulas */
+.formula-layer{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:hidden}
+.formula{position:absolute;color:rgba(0,255,65,.15);font-family:'Times New Roman',serif;font-style:italic;white-space:nowrap;animation:floatUp 6s linear forwards}
+@keyframes floatUp{0%{opacity:0;transform:translateY(30px)}8%{opacity:.4}85%{opacity:.4}100%{opacity:0;transform:translateY(-120px)}}
+
+/* Result */
+.result{display:none;text-align:center;padding:40px 0}
+.result.active{display:block}
+.result-flash{animation:flashIn .6s ease-out}
+@keyframes flashIn{0%{opacity:0;transform:scale(.8)}50%{opacity:1;transform:scale(1.05)}100%{transform:scale(1)}}
+.result-label{font-size:11px;letter-spacing:.5em;color:#00ff4166;margin-bottom:16px}
+.result-number{font-size:18px;color:#00ff4188;margin-bottom:8px}
+.result-value{font-size:clamp(48px,12vw,96px);font-weight:900;letter-spacing:.2em;text-shadow:0 0 40px #00ff4166,0 0 80px #00ff4133;margin-bottom:24px}
+.result-confidence{font-size:12px;color:#00ff4166;margin-bottom:40px}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;max-width:700px;margin:0 auto 32px;width:100%}
+.stat{background:rgba(0,255,65,.03);border:1px solid #00ff4111;padding:12px;text-align:center}
+.stat-value{font-size:16px;color:#00ff41;margin-bottom:4px}
+.stat-label{font-size:9px;letter-spacing:.2em;color:#00ff4155}
+
+/* The punchline */
+.method{margin-top:40px;padding:20px;border:1px solid #ff004033;background:rgba(255,0,64,.03);border-radius:4px;max-width:500px;width:100%}
+.method-label{font-size:9px;letter-spacing:.3em;color:#ff004066;margin-bottom:8px}
+.method-code{font-size:14px;color:#ff0040;font-family:'Courier New',monospace}
+.method-comment{font-size:11px;color:#ff004044;margin-top:8px}
+
+/* Reset button */
+.reset-btn{margin-top:32px;background:transparent;border:1px solid #00ff4133;color:#00ff4166;font-family:'Courier New',monospace;font-size:11px;letter-spacing:.2em;padding:10px 32px;cursor:pointer;transition:all .3s}
+.reset-btn:hover{border-color:#00ff41;color:#00ff41}
+
+/* Back link */
+.back-link{position:fixed;top:16px;left:16px;z-index:10;color:#00ff4133;text-decoration:none;font-size:11px;letter-spacing:.1em;transition:color .3s}
+.back-link:hover{color:#00ff41}
+
+/* Scanline overlay */
+.scanlines{position:fixed;top:0;left:0;width:100%;height:100%;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px);pointer-events:none;z-index:999}
+</style>
+</head>
+<body>
+
+<canvas id="matrix"></canvas>
+<div class="scanlines"></div>
+<div class="formula-layer" id="formulaLayer"></div>
+
+<a href="/" class="back-link">&larr; EXIT</a>
+
+<div class="overlay">
+  <div class="classification">CLASSIFICATION: ULTRA &bull; DMM ADVANCED COMPUTING DIVISION</div>
+
+  <h1>O.R.A.C.L.E.</h1>
+  <div class="acronym">OMNIDIRECTIONAL RECURSIVE ALGORITHM FOR COMPUTATIONAL LATTICE EVALUATION</div>
+  <div class="version">v7.4.1-rc3 // Build 847291 // Quantum-Ready</div>
+
+  <p class="tagline">
+    Harnessing quantum field theory, topological manifold calculus, and 47.3 billion neural parameters
+    to solve problems once thought intractable by classical computation.
+  </p>
+
+  <div class="input-section" id="inputSection">
+    <div class="input-label">NUMERICAL INPUT VECTOR</div>
+    <input type="number" class="input-field" id="inputNumber" placeholder="Enter integer">
+    <button class="compute-btn" id="computeBtn" onclick="initiateComputation()">
+      INITIATE COMPUTATION
+    </button>
+  </div>
+
+  <div class="computation" id="computation">
+    <div class="phases" id="phases">
+      <div class="phase" data-phase="1">
+        <span class="phase-num">PHASE 1</span>
+        <span class="phase-name">Prime Factorization & Quantum Simulation</span>
+        <div class="phase-bar"><div class="phase-bar-fill"></div></div>
+        <span class="phase-status">PENDING</span>
+      </div>
+      <div class="phase" data-phase="2">
+        <span class="phase-num">PHASE 2</span>
+        <span class="phase-name">Discrete Fourier Transform & Manifold Embedding</span>
+        <div class="phase-bar"><div class="phase-bar-fill"></div></div>
+        <span class="phase-status">PENDING</span>
+      </div>
+      <div class="phase" data-phase="3">
+        <span class="phase-num">PHASE 3</span>
+        <span class="phase-name">Neural Network Training (8→4→1, 50 epochs)</span>
+        <div class="phase-bar"><div class="phase-bar-fill"></div></div>
+        <span class="phase-status">PENDING</span>
+      </div>
+      <div class="phase" data-phase="4">
+        <span class="phase-num">PHASE 4</span>
+        <span class="phase-name">Monte Carlo Simulation (1,000,000 samples)</span>
+        <div class="phase-bar"><div class="phase-bar-fill"></div></div>
+        <span class="phase-status">PENDING</span>
+      </div>
+      <div class="phase" data-phase="5">
+        <span class="phase-num">PHASE 5</span>
+        <span class="phase-name">WebAssembly Bubble Sort (82-byte binary)</span>
+        <div class="phase-bar"><div class="phase-bar-fill"></div></div>
+        <span class="phase-status">PENDING</span>
+      </div>
+    </div>
+    <div class="terminal" id="terminal"></div>
+  </div>
+
+  <div class="result" id="result">
+    <div class="result-flash">
+      <div class="result-label">COMPUTATION RESULT</div>
+      <div class="result-number" id="resultNumber"></div>
+      <div class="result-value" id="resultValue"></div>
+      <div class="result-confidence">Confidence: 99.9999997% &bull; Verified against Peano axioms</div>
+    </div>
+
+    <div class="stats" id="stats">
+      <div class="stat"><div class="stat-value" id="statRuntime">—</div><div class="stat-label">RUNTIME</div></div>
+      <div class="stat"><div class="stat-value">8.4 &times; 10&sup1;&sup8;</div><div class="stat-label">CPU CYCLES</div></div>
+      <div class="stat"><div class="stat-value">2,847</div><div class="stat-label">PAPERS CITED</div></div>
+      <div class="stat"><div class="stat-value">$47,382</div><div class="stat-label">EST. CLOUD COST</div></div>
+      <div class="stat"><div class="stat-value">12.7 kg</div><div class="stat-label">CO&sup2; EMITTED</div></div>
+      <div class="stat"><div class="stat-value">2,048</div><div class="stat-label">QUBITS USED</div></div>
+    </div>
+
+    <div class="method">
+      <div class="method-label">ACTUAL COMPUTATION PERFORMED</div>
+      <div class="method-code">n % 2 === 0 ? "EVEN" : "ODD"</div>
+      <div class="method-comment">// That's it. That's the whole algorithm.</div>
+    </div>
+
+    <button class="reset-btn" onclick="resetOracle()">NEW COMPUTATION</button>
+  </div>
+</div>
+
+<script>
+// ─── Matrix Rain ─────────────────────────────────────────────
+const canvas = document.getElementById('matrix');
+const ctx = canvas.getContext('2d');
+const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789αβγδεζηθικλμνξπρστυφχψω∑∏∫∂∇≈≠≤≥±∞√%';
+let cols, drops;
+
+function initMatrix() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  cols = Math.floor(canvas.width / 14);
+  drops = new Array(cols).fill(0).map(() => Math.random() * -50 | 0);
+}
+initMatrix();
+window.addEventListener('resize', initMatrix);
+
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#00ff41';
+  ctx.font = '14px monospace';
+  for (let i = 0; i < drops.length; i++) {
+    const char = chars[Math.random() * chars.length | 0];
+    ctx.fillText(char, i * 14, drops[i] * 14);
+    if (drops[i] * 14 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    drops[i]++;
+  }
+}
+setInterval(drawMatrix, 50);
+
+// ─── Floating Formulas ──────────────────────────────────────
+const FORMULAS = [
+  'iℏ ∂ψ/∂t = Ĥψ',
+  'Gμν + Λgμν = (8πG/c⁴)Tμν',
+  'F̂(ξ) = ∫ f(x)e^(−2πixξ) dx',
+  'ρ(∂v/∂t + v·∇v) = −∇p + μ∇²v',
+  '∇·E = ρ/ε₀',
+  'e^(iπ) + 1 = 0',
+  'ζ(s) = Σ n⁻ˢ for Re(s) > 1',
+  '∂²u/∂t² = c²∇²u',
+  'H|ψ⟩ = E|ψ⟩',
+  'det(A − λI) = 0',
+  'P(A|B) = P(B|A)P(A) / P(B)',
+  '∇ × B = μ₀J + μ₀ε₀ ∂E/∂t',
+  'ds² = −c²dt² + dx² + dy² + dz²',
+  'S = −kB Σ pᵢ ln pᵢ',
+  'Rμν − ½gμνR = 8πTμν',
+  '∮ E·dl = −dΦB/dt',
+];
+let formulaInterval;
+
+function spawnFormula() {
+  const el = document.createElement('div');
+  el.className = 'formula';
+  el.textContent = FORMULAS[Math.random() * FORMULAS.length | 0];
+  el.style.left = (Math.random() * 80 + 10) + '%';
+  el.style.top = (Math.random() * 70 + 15) + '%';
+  el.style.fontSize = (14 + Math.random() * 10) + 'px';
+  document.getElementById('formulaLayer').appendChild(el);
+  setTimeout(() => el.remove(), 6000);
+}
+
+// ─── REAL COMPUTATION ENGINES ────────────────────────────────
+
+// 1. Actual prime factorization via trial division
+function realFactorize(n) {
+  const steps = [], factors = [];
+  let val = Math.abs(n) || 1;
+  for (let d = 2; d * d <= val; d++) {
+    while (val % d === 0) {
+      steps.push({ divisor: d, quotient: val / d, original: val });
+      factors.push(d); val /= d;
+    }
+  }
+  if (val > 1) { steps.push({ divisor: val, quotient: 1, original: val, isPrime: true }); factors.push(val); }
+  return { factors, steps };
+}
+
+// 2. Actual Discrete Fourier Transform — real complex arithmetic
+function realDFT(signal) {
+  const N = signal.length, result = [];
+  for (let k = 0; k < N; k++) {
+    let re = 0, im = 0;
+    for (let n = 0; n < N; n++) {
+      const angle = -2 * Math.PI * k * n / N;
+      re += signal[n] * Math.cos(angle);
+      im += signal[n] * Math.sin(angle);
+    }
+    result.push({ k, re, im, mag: Math.sqrt(re * re + im * im) });
+  }
+  const energy = result.reduce((s, x) => s + x.mag * x.mag, 0);
+  return { bins: result, energy, dominant: result.reduce((a, b) => b.mag > a.mag ? b : a) };
+}
+
+// 3. Actual neural network — trains via backprop to classify odd/even
+function realNeuralNet(targetN) {
+  const toBin = n => Array.from({ length: 8 }, (_, i) => (n >> i) & 1);
+  const sig = x => 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, x))));
+  const rand = () => (Math.random() - 0.5) * 2;
+  const w1 = Array.from({ length: 4 }, () => Array.from({ length: 8 }, rand));
+  const b1 = Array.from({ length: 4 }, rand);
+  const w2 = Array.from({ length: 4 }, rand);
+  let b2 = rand(), lr = 0.5, logs = [];
+  const data = Array.from({ length: 200 }, () => { const x = Math.floor(Math.random() * 256); return { input: toBin(x), target: x % 2 === 0 ? 1 : 0 }; });
+  for (let epoch = 1; epoch <= 50; epoch++) {
+    let loss = 0, correct = 0;
+    for (const { input, target } of data) {
+      const h = w1.map((w, j) => sig(w.reduce((s, wk, k) => s + wk * input[k], 0) + b1[j]));
+      const out = sig(w2.reduce((s, w, j) => s + w * h[j], 0) + b2);
+      loss += -(target * Math.log(out + 1e-10) + (1 - target) * Math.log(1 - out + 1e-10));
+      if ((out > 0.5 ? 1 : 0) === target) correct++;
+      const dOut = out - target;
+      for (let j = 0; j < 4; j++) {
+        const dh = dOut * w2[j] * h[j] * (1 - h[j]);
+        w2[j] -= lr * dOut * h[j];
+        for (let k = 0; k < 8; k++) w1[j][k] -= lr * dh * input[k];
+        b1[j] -= lr * dh;
+      }
+      b2 -= lr * dOut;
+    }
+    if (epoch % 10 === 0) logs.push({ epoch, loss: loss / 200, acc: correct / 200 });
+  }
+  const inp = toBin(Math.abs(targetN) % 256);
+  const h = w1.map((w, j) => sig(w.reduce((s, wk, k) => s + wk * inp[k], 0) + b1[j]));
+  const pred = sig(w2.reduce((s, w, j) => s + w * h[j], 0) + b2);
+  return { logs, prediction: pred };
+}
+
+// 4. Actual Monte Carlo — 1M random samples (result is useless for parity)
+function realMonteCarlo(n, iters) {
+  const checkpoints = []; let evenCount = 0;
+  for (let i = 1; i <= iters; i++) {
+    if (Math.floor(Math.random() * 1000000) % 2 === 0) evenCount++;
+    if (i === Math.floor(iters * 0.1) || i === Math.floor(iters * 0.5) || i === iters)
+      checkpoints.push({ iter: i, ratio: evenCount / i });
+  }
+  return { checkpoints, actual: n % 2 };
+}
+
+// 5. Actual WebAssembly bubble sort — hand-crafted 82-byte WASM binary
+async function realWasmBubbleSort(digits) {
+  const wasmBytes = new Uint8Array([
+    0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,  // WASM header
+    0x01,0x06,0x01,0x60,0x02,0x7f,0x7f,0x00,  // Type: (i32,i32)->void
+    0x03,0x02,0x01,0x00,                        // Func: 1 function, type 0
+    0x05,0x03,0x01,0x00,0x01,                   // Memory: 1 page (64KB)
+    0x07,0x09,0x02,0x01,0x73,0x00,0x00,0x01,0x6d,0x02,0x00, // Export "s","m"
+    0x0a,0x2c,0x01,0x2a,                        // Code section
+    0x02,0x01,0x7f,0x01,0x7f,                   // Locals: 2x i32
+    0x20,0x00,0x2d,0x00,0x00,0x21,0x02,         // $a = i32.load8_u($i)
+    0x20,0x01,0x2d,0x00,0x00,0x21,0x03,         // $b = i32.load8_u($j)
+    0x20,0x02,0x20,0x03,0x4b,                   // i32.gt_u($a,$b)
+    0x04,0x40,                                   // if (swap needed)
+    0x20,0x00,0x20,0x03,0x3a,0x00,0x00,         //   i32.store8($i,$b)
+    0x20,0x01,0x20,0x02,0x3a,0x00,0x00,         //   i32.store8($j,$a)
+    0x0b,0x0b,                                   // end if, end func
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasmBytes);
+  const mem = new Uint8Array(instance.exports.m.buffer);
+  const cmpswap = instance.exports.s;
+  digits.forEach((d, i) => mem[i] = d);
+  const ops = []; let done = false, passNum = 0;
+  while (!done) {
+    done = true; passNum++;
+    for (let i = 0; i < digits.length - 1; i++) {
+      const a = mem[i], b = mem[i + 1];
+      cmpswap(i, i + 1);
+      const swapped = mem[i] !== a;
+      if (swapped) done = false;
+      if (ops.length < 12) ops.push({ pass: passNum, i, a, b, swapped });
+    }
+  }
+  const sorted = Array.from(mem.slice(0, digits.length));
+  const hex = Array.from(wasmBytes.slice(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+  return { ops, sorted, hex, totalBytes: wasmBytes.length, passes: passNum };
+}
+
+// ─── Build Terminal Lines from REAL Results ─────────────────
+function buildTerminalLines(n, factor, dft, nn, mc, wasm) {
+  const digits = String(Math.abs(n) || 0).split('').map(Number);
+  const fmtF = v => v >= 0 ? v.toFixed(3) : v.toFixed(3);
+  return {
+    1: [
+      `[INIT] Allocating 2,048 qubits in superconducting register...`,
+      `[INIT] Cooling dilution refrigerator to 15 mK...`,
+      `[QCMP] Loading input vector: n = ${n}`,
+      ...factor.steps.map(s => s.isPrime
+        ? `[QCMP] Trial division: ${s.original} is prime (factor: ${s.divisor})`
+        : `[QCMP] Trial division: ${s.original} ÷ ${s.divisor} = ${s.quotient}`),
+      `[QCMP] Complete factorization: ${Math.abs(n) || 0} = ${factor.factors.join(' × ') || n}`,
+      `[QCMP] Simulating 2-qubit Hadamard: |ψ⟩ = 0.500|00⟩ + 0.500|01⟩ + 0.500|10⟩ + 0.500|11⟩ ✓`,
+    ],
+    2: [
+      `[MNFD] Signal vector from digits: [${digits.join(', ')}]  (N=${digits.length})`,
+      ...dft.bins.slice(0, 4).map(b =>
+        `[MNFD] DFT X[${b.k}] = ${fmtF(b.re)} ${b.im >= 0 ? '+' : '−'} ${Math.abs(b.im).toFixed(3)}i  |X|=${b.mag.toFixed(3)}`),
+      `[MNFD] Dominant frequency: k=${dft.dominant.k}, magnitude ${dft.dominant.mag.toFixed(3)}`,
+      `[MNFD] Spectral energy (Parseval): ${dft.energy.toFixed(3)}`,
+      `[MNFD] Embedding into 11-dim Calabi-Yau manifold... Euler χ = 24 ✓`,
+    ],
+    3: [
+      `[NEUR] Architecture: 8-input → 4-hidden → 1-output (sigmoid, lr=0.5)`,
+      `[NEUR] Training set: 200 random integers, 50 epochs`,
+      ...nn.logs.map(l =>
+        `[NEUR] Epoch ${l.epoch}/50 — loss: ${l.loss.toFixed(4)}, accuracy: ${(l.acc * 100).toFixed(1)}%`),
+      `[NEUR] Prediction for n=${n}: P(even) = ${nn.prediction.toFixed(6)}`,
+      `[NEUR] ⚠ Network result DISCARDED — using analytical method`,
+    ],
+    4: [
+      `[STAT] Monte Carlo: sampling 1,000,000 random integers...`,
+      ...mc.checkpoints.map(c =>
+        `[STAT] Iteration ${c.iter.toLocaleString()}: P(random is even) = ${c.ratio.toFixed(5)}`),
+      `[STAT] Convergence: P(even) → 0.5 (Law of Large Numbers, as expected)`,
+      `[STAT] Actual test: ${n} mod 2 = ${mc.actual} → ${mc.actual === 0 ? 'EVEN' : 'ODD'}`,
+      `[STAT] ⚠ The 1,000,000 samples were entirely unnecessary`,
+    ],
+    5: wasm ? [
+      `[WASM] Compiling 82-byte WebAssembly module...`,
+      `[WASM] Bytecode: ${wasm.hex}...`,
+      `[WASM] Module: 1 function (cmpswap), 1 memory page (64KB), 2 locals`,
+      `[WASM] Writing digits [${digits.join(',')}] to linear memory at 0x00`,
+      ...wasm.ops.slice(0, 6).map(o =>
+        `[WASM] Pass ${o.pass}: mem[${o.i}]=${o.a} vs mem[${o.i+1}]=${o.b} → ${o.swapped ? 'SWAP' : 'OK'}`),
+      `[WASM] Sorted digits: [${wasm.sorted.join(', ')}] (${wasm.passes} passes)`,
+      `[WASM] ⚠ Sorted digits have no bearing on parity classification`,
+      `[████] ALL COMPUTATIONS COMPLETE — total FLOPs: 8.4×10¹⁸ ✓`,
+    ] : [
+      `[WASM] ⚠ WebAssembly unavailable — skipping sort phase`,
+      `[████] COMPUTATION COMPLETE ✓`,
+    ],
+  };
+}
+
+// ─── Computation Engine ─────────────────────────────────────
+const terminal = document.getElementById('terminal');
+const computation = document.getElementById('computation');
+const result = document.getElementById('result');
+const inputSection = document.getElementById('inputSection');
+let startTime;
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function addTermLine(html) {
+  const div = document.createElement('div');
+  div.className = 'term-line';
+  div.innerHTML = html;
+  terminal.appendChild(div);
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
+async function fillBar(phaseNum, duration) {
+  const bar = document.querySelector(`.phase[data-phase="${phaseNum}"] .phase-bar-fill`);
+  const status = document.querySelector(`.phase[data-phase="${phaseNum}"] .phase-status`);
+  const steps = 50;
+  const stepTime = duration / steps;
+  for (let i = 1; i <= steps; i++) {
+    bar.style.width = (i / steps * 100) + '%';
+    status.textContent = Math.round(i / steps * 100) + '%';
+    await sleep(stepTime);
+  }
+}
+
+function setPhaseActive(num) {
+  document.querySelectorAll('.phase').forEach(p => {
+    const pn = parseInt(p.dataset.phase);
+    if (pn < num) { p.className = 'phase complete'; p.querySelector('.phase-status').textContent = 'DONE'; }
+    else if (pn === num) { p.className = 'phase active'; }
+  });
+}
+
+async function typeLines(lines, baseDelay) {
+  for (const line of lines) {
+    let html = `<span class="prefix">&gt; </span>`;
+    if (line.includes('⚠')) html += `<span class="warn">${line}</span>`;
+    else if (line.includes('✓') || line.includes('COMPLETE')) html += `<span class="success">${line}</span>`;
+    else html += `<span class="value">${line}</span>`;
+    addTermLine(html);
+    await sleep(baseDelay + Math.random() * 150);
+  }
+}
+
+async function runPhase(num, lines, barDuration) {
+  setPhaseActive(num);
+  await Promise.all([
+    typeLines(lines, 250),
+    fillBar(num, barDuration),
+  ]);
+}
+
+async function initiateComputation() {
+  const input = document.getElementById('inputNumber');
+  const n = parseInt(input.value);
+  if (isNaN(n)) { input.style.borderColor = '#ff0040'; setTimeout(() => input.style.borderColor = '#00ff4133', 1000); return; }
+
+  startTime = performance.now();
+  document.getElementById('computeBtn').disabled = true;
+  terminal.innerHTML = '';
+  computation.classList.add('active');
+  result.classList.remove('active');
+
+  // ─── PRE-COMPUTE EVERYTHING (real math!) ──────────────────
+  const digits = String(Math.abs(n) || 0).split('').map(Number);
+  const factorResult = realFactorize(n);
+  const dftResult = realDFT(digits);
+  const nnResult = realNeuralNet(n);
+  const mcResult = realMonteCarlo(n, 1000000);
+  let wasmResult = null;
+  try { wasmResult = await realWasmBubbleSort([...digits]); } catch (e) { /* graceful */ }
+
+  const lines = buildTerminalLines(n, factorResult, dftResult, nnResult, mcResult, wasmResult);
+
+  // ─── THEATRICAL DISPLAY OF REAL RESULTS ───────────────────
+  formulaInterval = setInterval(spawnFormula, 600);
+
+  addTermLine(`<span class="prefix">&gt; </span><span class="success">O.R.A.C.L.E. v7.4.1 — Computation initiated for n = ${n}</span>`);
+  addTermLine(`<span class="prefix">&gt; </span><span class="value">Timestamp: ${new Date().toISOString()}</span>`);
+  addTermLine('');
+  await sleep(500);
+
+  await runPhase(1, lines[1], 3000);
+  await sleep(300);
+  await runPhase(2, lines[2], 2500);
+  await sleep(300);
+  await runPhase(3, lines[3], 3500);
+  await sleep(300);
+  await runPhase(4, lines[4], 2500);
+  await sleep(300);
+  await runPhase(5, lines[5], 2000);
+
+  setPhaseActive(6);
+  clearInterval(formulaInterval);
+  await sleep(600);
+
+  // ─── THE ACTUAL COMPUTATION ───────────────────────────────
+  const answer = n % 2 === 0 ? 'EVEN' : 'ODD';
+  const elapsed = ((performance.now() - startTime) / 1000).toFixed(3);
+
+  // Flash
+  document.body.style.background = '#00ff41';
+  await sleep(80);
+  document.body.style.background = '#000';
+  await sleep(80);
+  document.body.style.background = '#00ff41';
+  await sleep(60);
+  document.body.style.background = '#000';
+
+  // Reveal
+  computation.classList.remove('active');
+  inputSection.style.display = 'none';
+  document.getElementById('resultNumber').textContent = `The integer ${n} is classified as:`;
+  document.getElementById('resultValue').textContent = answer;
+  document.getElementById('statRuntime').textContent = elapsed + 's';
+  result.classList.add('active');
+  result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetOracle() {
+  computation.classList.remove('active');
+  result.classList.remove('active');
+  inputSection.style.display = '';
+  document.getElementById('computeBtn').disabled = false;
+  document.getElementById('inputNumber').value = '';
+  terminal.innerHTML = '';
+  document.querySelectorAll('.phase').forEach(p => {
+    p.className = 'phase';
+    p.querySelector('.phase-bar-fill').style.width = '0%';
+    p.querySelector('.phase-status').textContent = 'PENDING';
+  });
+}
+
+// Spawn a few formulas on load for ambiance
+setTimeout(() => { for (let i = 0; i < 3; i++) setTimeout(spawnFormula, i * 800); }, 1000);
+</script>
+</body>
+</html>

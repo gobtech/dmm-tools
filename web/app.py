@@ -970,6 +970,11 @@ def licensing():
     return render_template('licensing.html')
 
 
+@app.route('/oracle')
+def oracle():
+    return render_template('oracle.html')
+
+
 @app.route('/api/releases')
 def api_releases():
     """Return release schedule as JSON with computed phase per release."""

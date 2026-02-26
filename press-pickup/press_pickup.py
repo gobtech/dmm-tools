@@ -14,9 +14,10 @@ Requirements:
   pip install requests
 
 Setup:
-  Press articles: No API key required (Google News RSS).
+  Press articles: No API key required (Google News RSS + DuckDuckGo).
   Social media supplement (optional): export BRAVE_API_KEY="your-brave-api-key"
   Additional search source (optional): export TAVILY_API_KEY="tvly-..."  # Free 1000/month
+  DuckDuckGo: No API key needed (pip install duckduckgo_search)
 
   Optional (for auto-generating missing media descriptions):
      export GROQ_API_KEY="your-groq-api-key"  # Free, no billing
@@ -618,8 +619,41 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             except Exception as e:
                 print(f"    Tavily failed: {e}")
 
+    # 5) DuckDuckGo News — free, unlimited, unofficial (could break if DDG changes backend)
+    #    Only news search is used; text search in this library version returns garbage results.
+    try:
+        from duckduckgo_search import DDGS
+
+        ddg_queries = [f'{kw} música' for kw in keywords]
+
+        for query in ddg_queries:
+            print(f"  DuckDuckGo News: {query}")
+            try:
+                ddg = DDGS()
+                raw = ddg.news(query, max_results=20)
+                added = 0
+                for item in raw:
+                    link = item.get('url', '')
+                    domain = extract_domain(link) or ''
+                    if any(skip in domain for skip in SKIP_DOMAINS):
+                        continue
+                    if link not in seen_urls:
+                        seen_urls.add(link)
+                        all_results.append({
+                            'title': item.get('title', ''),
+                            'link': link,
+                            'snippet': item.get('body', ''),
+                            'domain': domain,
+                        })
+                        added += 1
+                print(f"    → {added} new results")
+            except Exception as e:
+                print(f"    DuckDuckGo failed: {e}")
+    except ImportError:
+        print("  DuckDuckGo: skipped (duckduckgo_search not installed)")
+
     print(f"\nFound {len(all_results)} total unique results")
-    
+
     # Match against press database and group by country
     country_results = {}
     skipped = 0

@@ -253,18 +253,19 @@ html.dark .tabs { background: rgba(255,255,255,.04); }
 .tab-btn {
   position: relative;
   flex: 1;
-  padding: 14px 24px;
+  padding: 14px 10px;
   border: none;
   background: transparent;
   color: var(--text-tertiary);
   font-family: var(--font-label);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   border-radius: var(--radius-md);
   transition: all var(--transition);
   text-transform: uppercase;
-  letter-spacing: .08em;
+  letter-spacing: .06em;
+  min-width: 0;
 }
 
 .tab-btn:hover {
@@ -1393,6 +1394,12 @@ html.dark .bg-glow-orb { opacity: .25; }
       <span class="tool-card-desc">Translate press releases from labels into Spanish and Portuguese. Preserves all .docx formatting</span>
       <span class="tool-card-badge">WIP</span>
     </button>
+    <button class="tool-card" onclick="window.location.href='/oracle'" style="border-color:var(--accent);">
+      <span class="tool-card-icon">&#129504;</span>
+      <span class="tool-card-title" style="color:var(--accent);">O.R.A.C.L.E.</span>
+      <span class="tool-card-desc">Quantum-ready numerical analysis engine. Harnesses 47.3B neural parameters, WebAssembly, and topological manifold calculus</span>
+      <span class="tool-card-badge" style="background:var(--accent);color:#fff;">ADVANCED</span>
+    </button>
   </div>
 
   <!-- ================================================================== -->
@@ -1412,6 +1419,7 @@ html.dark .bg-glow-orb { opacity: .25; }
       <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
       <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
       <button class="tab-btn" onclick="switchTab('pr')">PR Translator</button>
+      <button class="tab-btn" onclick="window.location.href='/oracle'" style="color:var(--accent)">O.R.A.C.L.E.</button>
     </div>
 
   <!-- ================================================================== -->
@@ -1528,9 +1536,10 @@ html.dark .bg-glow-orb { opacity: .25; }
         <div class="tab-tips-body">
           <div>
             <ul class="tab-tips-list">
-              <li>Searches <strong>3 sources</strong>: Google News, Brave Search, and Serper for maximum coverage.</li>
+              <li>Searches <strong>5 sources</strong>: Google News, Brave Search, Serper, Tavily, and DuckDuckGo for maximum coverage.</li>
               <li>Results are matched against our <strong>1,500+ outlet database</strong> from Notion, grouped by country.</li>
               <li><strong>Social media posts</strong> (Instagram, Facebook, X) are included via Serper but are listed separately from press outlets.</li>
+              <li>New outlets not in the database get <strong>AI-generated descriptions</strong> instead of a generic placeholder.</li>
               <li>Spell the artist name <strong>exactly as it appears in press</strong> for best results. Try variations if coverage seems low.</li>
               <li>Longer search periods find more results but may include <strong>older or less relevant</strong> articles.</li>
             </ul>
@@ -1697,6 +1706,8 @@ html.dark .bg-glow-orb { opacity: .25; }
             Generates a complete client proposal document with campaign overview, DSP strategy,
             press and radio targets filtered by genre, and a budget breakdown.
             All data is pulled from the internal databases — just fill in the artist details.
+            <strong>Goal/Strategy and Digital Marketing sections are AI-generated</strong> via Groq
+            (tailored to the artist's genre, collaborators, and timeline) when left blank.
           </div>
         </div>
       </div>
@@ -1864,6 +1875,7 @@ html.dark .bg-glow-orb { opacity: .25; }
               <li>Includes <strong>HTML and plain text</strong> versions — copy whichever works for your email client.</li>
               <li>Add <strong>next steps</strong> to include action items at the bottom of the digest.</li>
               <li>Customize the <strong>greeting and sign-off</strong> names for a personal touch.</li>
+              <li><strong>AI Campaign Analysis</strong> — automatically generates strategic insights (momentum, geographic gaps, standout wins, recommendations) via Groq AI when data is available.</li>
             </ul>
           </div>
         </div>
@@ -3638,7 +3650,7 @@ const walkthroughSteps = [
   { target: '#radio-artist', tab: 'radio', text: 'Start by typing an artist name. The tool will search Soundcharts for their airplay data.' },
   { target: 'input[name="radio-range"]', tab: 'radio', text: 'Pick a time range for the report \u2014 7 days, 28 days, up to 1 year, or a custom date range.', targetParent: true },
   { target: '#radio-fetch-btn', tab: 'radio', text: 'Click here to fetch songs. You\u2019ll then pick which songs to include and generate a downloadable Word report.' },
-  { target: '#press-artist', tab: 'press', text: 'Press Pickup searches Google News, Brave, and Serper for press coverage. Enter an artist name, pick a date range, and click Search.' },
+  { target: '#press-artist', tab: 'press', text: 'Press Pickup searches 5 sources (Google News, Brave, Serper, Tavily, DuckDuckGo) for press coverage. Enter an artist name, pick a date range, and click Search.' },
   { target: 'input[name="dsp-mode"]', tab: 'dsp', text: 'DSP Pickup checks 80+ LATAM editorial playlists for your artists. Search by artist, check this week\u2019s releases, or scan all releases at once.', targetParent: true },
   { target: null, text: 'You\u2019re all set! Click the ? button at the bottom anytime to replay this tour.' },
 ];
