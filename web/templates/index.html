@@ -141,7 +141,7 @@ body {
 .container {
   position: relative;
   z-index: 1;
-  max-width: 860px;
+  max-width: 920px;
   margin: 0 auto;
   padding: 52px 24px 80px;
 }
@@ -1387,6 +1387,12 @@ html.dark .bg-glow-orb { opacity: .25; }
       <span class="tool-card-desc">Find new LATAM press outlets and blogs not yet in the database</span>
       <span class="tool-card-badge">WIP</span>
     </button>
+    <button class="tool-card" onclick="goToTool('pr')">
+      <span class="tool-card-icon">&#127760;</span>
+      <span class="tool-card-title">PR Translator</span>
+      <span class="tool-card-desc">Translate press releases from labels into Spanish and Portuguese for LATAM distribution</span>
+      <span class="tool-card-badge">WIP</span>
+    </button>
   </div>
 
   <!-- ================================================================== -->
@@ -1405,6 +1411,7 @@ html.dark .bg-glow-orb { opacity: .25; }
       <button class="tab-btn" onclick="switchTab('proposal')">Proposal <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
       <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
       <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
+      <button class="tab-btn" onclick="switchTab('pr')">PR Translator <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
     </div>
 
   <!-- ================================================================== -->
@@ -1991,6 +1998,88 @@ html.dark .bg-glow-orb { opacity: .25; }
     <div class="result-area" id="discovery-result"></div>
   </div>
 
+  <!-- ================================================================== -->
+  <!-- TAB 8: Press Release Translator -->
+  <!-- ================================================================== -->
+  <div id="tab-pr" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li><strong>Translates press releases</strong> from labels/artists into Spanish and/or Brazilian Portuguese for LATAM distribution.</li>
+              <li>Paste the PR text directly <strong>or upload the .docx</strong> file from the label.</li>
+              <li>Uses <strong>Gemini Flash AI</strong> for high-quality music-industry translation that preserves formatting, quotes, tracklists, tour dates, and links.</li>
+              <li>Artist names, song titles, venue names, and URLs are <strong>kept as-is</strong> &mdash; only prose is translated.</li>
+              <li>Auto-detects the <strong>source language</strong> (English, French, Spanish, Portuguese).</li>
+              <li>AI mode requires <strong>GEMINI_API_KEY</strong> in .env (free tier: 1,500 req/day).</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input: paste or upload -->
+    <label>Source PR</label>
+    <div class="radio-group" style="margin-bottom:12px;">
+      <label><input type="radio" name="pr-input-mode" value="paste" checked onchange="prInputModeChanged()"><span>Paste Text</span></label>
+      <label><input type="radio" name="pr-input-mode" value="upload" onchange="prInputModeChanged()"><span>Upload .docx</span></label>
+    </div>
+
+    <div id="pr-paste-area">
+      <textarea id="pr-text" rows="10" placeholder="Paste the full press release text here..." style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical; line-height:1.6;"></textarea>
+    </div>
+
+    <div id="pr-upload-area" style="display:none;">
+      <div id="pr-dropzone" class="dropzone" onclick="document.getElementById('pr-file-input').click()" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="event.preventDefault(); this.classList.remove('dragover'); handlePrFile(event.dataTransfer.files)">
+        <span style="font-size:28px; display:block; margin-bottom:8px;">&#128196;</span>
+        <span>Drop .docx file here or click to browse</span>
+      </div>
+      <input type="file" id="pr-file-input" accept=".docx" style="display:none;" onchange="handlePrFile(this.files)">
+      <div id="pr-file-name" style="display:none; margin-top:8px; font-size:13px; color:var(--text-secondary); display:flex; align-items:center; gap:8px;"></div>
+    </div>
+
+    <!-- Target languages -->
+    <label style="margin-top:16px;">Translate to</label>
+    <div style="display:flex; gap:16px; margin-top:4px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="pr-target-es" checked>
+        <label for="pr-target-es">Spanish (LATAM)</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="pr-target-pt" checked>
+        <label for="pr-target-pt">Portuguese (Brazil)</label>
+      </div>
+    </div>
+
+    <!-- Engine toggle -->
+    <div style="margin-top:16px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="pr-use-ai">
+        <label for="pr-use-ai">Use Gemini AI <span style="color:var(--text-tertiary); font-weight:400;">(higher quality, preserves proper nouns &amp; music-industry tone — free)</span></label>
+      </div>
+      <div style="font-size:12px; color:var(--text-tertiary); margin-top:4px; padding-left:24px;">Default: Google Translate (free, no API key needed)</div>
+    </div>
+
+    <!-- Adaptation notes (only relevant for AI mode) -->
+    <details id="pr-notes-section" style="margin-top:12px;">
+      <summary style="font-size:13px; color:var(--text-secondary); cursor:pointer;">Adaptation Notes <span style="color:var(--text-tertiary); font-weight:400;">(optional, AI mode only)</span></summary>
+      <textarea id="pr-notes" rows="2" placeholder="e.g. Add DMM contact info at the bottom, adapt tour dates for LATAM audience..." style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical; margin-top:8px;"></textarea>
+    </details>
+
+    <button class="btn" id="pr-btn" onclick="runPrTranslate()">Translate Press Release</button>
+
+    <div class="progress-area" id="pr-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <pre class="log-output" id="pr-log"></pre>
+    </div>
+
+    <div class="result-area" id="pr-result"></div>
+  </div>
+
   </div><!-- /tool-view -->
 
   <div class="footer-note">
@@ -2052,7 +2141,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('tab-' + name);
   panel.classList.add('active');
-  const tabs = ['radio', 'press', 'dsp', 'report', 'proposal', 'digest', 'discovery'];
+  const tabs = ['radio', 'press', 'dsp', 'report', 'proposal', 'digest', 'discovery', 'pr'];
   const idx = tabs.indexOf(name);
   document.querySelectorAll('.tab-btn')[idx].classList.add('active');
   // Re-trigger entrance animation
@@ -3306,6 +3395,167 @@ function formatPressReport(html) {
   return out;
 }
 
+// =====================================================================
+// PR Translator
+// =====================================================================
+let prUploadedFile = null;
+
+function prInputModeChanged() {
+  const mode = document.querySelector('input[name="pr-input-mode"]:checked').value;
+  document.getElementById('pr-paste-area').style.display = mode === 'paste' ? '' : 'none';
+  document.getElementById('pr-upload-area').style.display = mode === 'upload' ? '' : 'none';
+}
+
+function handlePrFile(files) {
+  if (!files || files.length === 0) return;
+  const file = files[0];
+  if (!file.name.endsWith('.docx')) {
+    showToast('Please upload a .docx file.');
+    return;
+  }
+  prUploadedFile = file;
+  const nameEl = document.getElementById('pr-file-name');
+  nameEl.style.display = 'flex';
+  nameEl.innerHTML = `<span>&#128196;</span> <strong>${escapeHtml(file.name)}</strong> <span style="color:var(--text-tertiary);">(${(file.size / 1024).toFixed(1)} KB)</span> <button onclick="clearPrFile()" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:13px;">Remove</button>`;
+}
+
+function clearPrFile() {
+  prUploadedFile = null;
+  document.getElementById('pr-file-input').value = '';
+  document.getElementById('pr-file-name').style.display = 'none';
+  document.getElementById('pr-file-name').innerHTML = '';
+}
+
+async function runPrTranslate() {
+  const mode = document.querySelector('input[name="pr-input-mode"]:checked').value;
+  const text = document.getElementById('pr-text').value.trim();
+  const targetEs = document.getElementById('pr-target-es').checked;
+  const targetPt = document.getElementById('pr-target-pt').checked;
+  const notes = document.getElementById('pr-notes') ? document.getElementById('pr-notes').value.trim() : '';
+
+  if (mode === 'paste' && !text) return showToast('Please paste the press release text.');
+  if (mode === 'upload' && !prUploadedFile) return showToast('Please upload a .docx file.');
+  if (!targetEs && !targetPt) return showToast('Please select at least one target language.');
+
+  const btn = document.getElementById('pr-btn');
+  const logEl = document.getElementById('pr-log');
+  const progressEl = document.getElementById('pr-progress');
+  const resultEl = document.getElementById('pr-result');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const useAi = document.getElementById('pr-use-ai').checked;
+
+    const formData = new FormData();
+    if (mode === 'paste') {
+      formData.append('text', text);
+    } else {
+      formData.append('file', prUploadedFile);
+    }
+    formData.append('target_es', targetEs ? 'true' : 'false');
+    formData.append('target_pt', targetPt ? 'true' : 'false');
+    formData.append('use_ai', useAi ? 'true' : 'false');
+    formData.append('notes', notes);
+
+    const resp = await fetch('/api/pr/translate', {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        renderPrTranslation(result, resultEl);
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+function renderPrTranslation(result, resultEl) {
+  const esText = result.pr_es_text || '';
+  const ptText = result.pr_pt_text || '';
+  const sourceLang = result.pr_source_lang || 'Unknown';
+
+  let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Translation complete!</strong></div>`;
+
+  if (result.result) {
+    html += `<div style="margin:12px 0 16px; font-size:14px; color:var(--text-secondary); line-height:1.8;">${escapeHtml(result.result)}</div>`;
+  }
+
+  // Build toggle buttons for available languages
+  const views = [];
+  if (esText) views.push({ id: 'es', label: 'Spanish' });
+  if (ptText) views.push({ id: 'pt', label: 'Portuguese' });
+
+  if (views.length > 1) {
+    html += `<div style="margin:16px 0 8px; display:flex; gap:8px;">`;
+    views.forEach((v, i) => {
+      html += `<button class="btn btn-small" onclick="showPrView('${v.id}')" id="pr-view-${v.id}-btn" style="opacity:${i === 0 ? '1' : '.5'};">${v.label}</button>`;
+    });
+    html += `</div>`;
+  }
+
+  // Spanish translation
+  if (esText) {
+    html += `<div id="pr-view-es" style="margin:8px 0 16px;">`;
+    html += `<pre style="background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px; font-size:13px; line-height:1.7; white-space:pre-wrap; color:var(--text-primary); overflow-x:auto;">${escapeHtml(esText)}</pre>`;
+    html += `</div>`;
+  }
+
+  // Portuguese translation (hidden if both exist)
+  if (ptText) {
+    html += `<div id="pr-view-pt" style="${esText ? 'display:none; ' : ''}margin:8px 0 16px;">`;
+    html += `<pre style="background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px; font-size:13px; line-height:1.7; white-space:pre-wrap; color:var(--text-primary); overflow-x:auto;">${escapeHtml(ptText)}</pre>`;
+    html += `</div>`;
+  }
+
+  // Copy button
+  html += `<div class="result-actions">`;
+  html += `<button class="btn btn-small" onclick="copyPrCurrent()">Copy Current View</button>`;
+  html += `</div>`;
+
+  resultEl.innerHTML = html;
+
+  // Store for copy
+  resultEl._prData = { esText, ptText };
+  resultEl._prCurrentView = esText ? 'es' : 'pt';
+}
+
+function showPrView(view) {
+  ['es', 'pt'].forEach(v => {
+    const el = document.getElementById('pr-view-' + v);
+    const btn = document.getElementById('pr-view-' + v + '-btn');
+    if (el) el.style.display = v === view ? '' : 'none';
+    if (btn) btn.style.opacity = v === view ? '1' : '.5';
+  });
+  const resultEl = document.getElementById('pr-result');
+  if (resultEl) resultEl._prCurrentView = view;
+}
+
+function copyPrCurrent() {
+  const resultEl = document.getElementById('pr-result');
+  const data = resultEl._prData || {};
+  const view = resultEl._prCurrentView || 'es';
+  const content = view === 'es' ? (data.esText || '') : (data.ptText || '');
+  navigator.clipboard.writeText(content).then(() => showToast('Copied to clipboard!'));
+}
+
 // Default week date to this Friday
 (function() {
   const d = new Date();
@@ -3340,6 +3590,7 @@ function formatPressReport(html) {
         report: 'report-artist',
         proposal: 'proposal-artist',
         digest: 'digest-artist',
+        pr: 'pr-artist',
       };
       const inputId = inputMap[tab];
       if (inputId) {

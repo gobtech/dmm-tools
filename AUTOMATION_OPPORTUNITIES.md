@@ -326,7 +326,7 @@ A **Discovery Assistant** that:
 
 ---
 
-## Opportunity 7: Press Release Generator
+## Opportunity 7: Press Release Generator — DONE ✓
 
 ### Priority: MEDIUM-LOW
 ### Time saved: ~30-45 min per release
@@ -419,7 +419,7 @@ These require building new data files (radio target database, pricing table, pit
 ### Phase 4 — Nice-to-have
 | # | Opportunity | Effort | New code | New data |
 |---|-----------|--------|----------|----------|
-| 7 | **Press Release Generator** | Low-Medium | ~200 lines Python + UI | PR templates |
+| 7 | **Press Release Generator** — DONE ✓ | Low-Medium | ~200 lines Python + UI | PR templates |
 | 8 | **Budget Calculator** | Low | ~100 lines JS | pricing.json |
 
 ---
@@ -449,7 +449,7 @@ The existing `shared/` module should be extended:
 | 4 | DSP Pitch Email Drafter | Medium-High | Medium | Do third |
 | 5 | Release Calendar Dashboard | Medium | Medium | Do third |
 | 6 | Contact Discovery Assistant | Medium | Medium | Do later |
-| 7 | Press Release Generator | Medium-Low | Low-Medium | Do later |
+| 7 | Press Release Generator | Medium-Low | Low-Medium | **DONE** ✓ |
 | 8 | Budget Calculator | Low | Low | Do later |
 
 **Recommended starting point**: Build the Client Report Compiler (#1) and Weekly Digest (#3) together — they share the same "run all three tools and format the output" logic, just at different levels of detail. This delivers the most value with the least new infrastructure.

@@ -112,6 +112,9 @@ def job_status(job_id):
         'digest_text': job.get('digest_text', ''),
         'discovery_html': job.get('discovery_html', ''),
         'discovery_outlets': job.get('discovery_outlets', []),
+        'pr_es_text': job.get('pr_es_text', ''),
+        'pr_pt_text': job.get('pr_pt_text', ''),
+        'pr_source_lang': job.get('pr_source_lang', ''),
     })
 
 
@@ -1364,6 +1367,94 @@ def proposal_generate():
                 f"{result['dsp_platforms']} DSP platforms"
             )
             finish_job(job_id, result=summary, output_path=output_path)
+
+        except Exception as e:
+            finish_job(job_id, error=str(e))
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+# ---------------------------------------------------------------------------
+# Press Release Translator
+# ---------------------------------------------------------------------------
+
+@app.route('/api/pr/translate', methods=['POST'])
+def pr_translate():
+    # Handle both JSON (pasted text) and multipart/form-data (file upload)
+    text = ''
+    docx_path = ''
+    target_es = True
+    target_pt = True
+    notes = ''
+
+    use_ai = False
+
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        text = request.form.get('text', '').strip()
+        target_es = request.form.get('target_es', 'true') == 'true'
+        target_pt = request.form.get('target_pt', 'true') == 'true'
+        use_ai = request.form.get('use_ai', 'false') == 'true'
+        notes = request.form.get('notes', '')
+
+        # Handle file upload
+        uploaded = request.files.get('file')
+        if uploaded and uploaded.filename:
+            job_id = str(uuid.uuid4())
+            upload_path = UPLOAD_DIR / job_id
+            upload_path.mkdir(parents=True, exist_ok=True)
+            file_path = upload_path / uploaded.filename
+            uploaded.save(str(file_path))
+            docx_path = str(file_path)
+    else:
+        data = request.get_json(silent=True) or {}
+        text = data.get('text', '').strip()
+        target_es = data.get('target_es', True)
+        target_pt = data.get('target_pt', True)
+        use_ai = data.get('use_ai', False)
+        notes = data.get('notes', '')
+
+    if not text and not docx_path:
+        return jsonify({'error': 'Please paste the PR text or upload a .docx file.'}), 400
+
+    if not target_es and not target_pt:
+        return jsonify({'error': 'Please select at least one target language.'}), 400
+
+    job_id = new_job()
+
+    def run():
+        try:
+            import importlib.util
+            spec_path = ROOT_DIR / 'pr-generator' / 'generate_pr.py'
+            spec = importlib.util.spec_from_file_location('generate_pr', str(spec_path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            result = mod.translate_pr(
+                text=text,
+                docx_path=docx_path,
+                target_es=target_es,
+                target_pt=target_pt,
+                use_ai=use_ai,
+                notes=notes,
+                log_fn=lambda msg: log_line(job_id, msg),
+            )
+
+            jobs[job_id]['pr_es_text'] = result['es_text']
+            jobs[job_id]['pr_pt_text'] = result['pt_text']
+            jobs[job_id]['pr_source_lang'] = result['source_lang']
+
+            langs = []
+            if result['es_text']:
+                langs.append('Spanish')
+            if result['pt_text']:
+                langs.append('Portuguese')
+
+            engine_label = 'Gemini Flash' if result.get('engine') == 'gemini' else 'Google Translate'
+            finish_job(
+                job_id,
+                result=f"Translated from {result['source_lang']} → {' + '.join(langs)} (via {engine_label})",
+            )
 
         except Exception as e:
             finish_job(job_id, error=str(e))
