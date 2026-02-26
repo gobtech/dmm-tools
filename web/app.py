@@ -115,6 +115,8 @@ def job_status(job_id):
         'pr_es_text': job.get('pr_es_text', ''),
         'pr_pt_text': job.get('pr_pt_text', ''),
         'pr_source_lang': job.get('pr_source_lang', ''),
+        'pr_es_has_docx': bool(job.get('pr_es_docx_path')),
+        'pr_pt_has_docx': bool(job.get('pr_pt_docx_path')),
     })
 
 
@@ -1164,7 +1166,7 @@ def discovery_csv(job_id):
         return jsonify({'error': 'No new outlets found'}), 404
 
     output = io_mod.StringIO()
-    fieldnames = ['NAME OF MEDIA', 'Territory', 'DESCRIPTION & SM', 'WEBSITE', 'REACH']
+    fieldnames = ['NAME OF MEDIA', 'Territory', 'DESCRIPTION & SM', 'WEBSITE', 'TYPE', 'REACH']
     writer = csv_mod.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(rows)
@@ -1422,6 +1424,9 @@ def pr_translate():
 
     job_id = new_job()
 
+    # Output directory for translated .docx files
+    pr_output_dir = str(REPORT_DIR / 'pr_translations')
+
     def run():
         try:
             import importlib.util
@@ -1437,12 +1442,15 @@ def pr_translate():
                 target_pt=target_pt,
                 use_ai=use_ai,
                 notes=notes,
+                output_dir=pr_output_dir,
                 log_fn=lambda msg: log_line(job_id, msg),
             )
 
             jobs[job_id]['pr_es_text'] = result['es_text']
             jobs[job_id]['pr_pt_text'] = result['pt_text']
             jobs[job_id]['pr_source_lang'] = result['source_lang']
+            jobs[job_id]['pr_es_docx_path'] = result.get('es_docx_path', '')
+            jobs[job_id]['pr_pt_docx_path'] = result.get('pt_docx_path', '')
 
             langs = []
             if result['es_text']:
@@ -1453,7 +1461,7 @@ def pr_translate():
             engine_label = 'Gemini Flash' if result.get('engine') == 'gemini' else 'Google Translate'
             finish_job(
                 job_id,
-                result=f"Translated from {result['source_lang']} → {' + '.join(langs)} (via {engine_label})",
+                result=f"Translated from {result['source_lang']} \u2192 {' + '.join(langs)} (via {engine_label})",
             )
 
         except Exception as e:
@@ -1461,6 +1469,23 @@ def pr_translate():
 
     threading.Thread(target=run, daemon=True).start()
     return jsonify({'job_id': job_id})
+
+
+@app.route('/api/pr/download/<job_id>')
+def pr_download(job_id):
+    """Download a translated PR .docx file."""
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    lang = request.args.get('lang', 'es')
+    key = f'pr_{lang}_docx_path'
+    path_str = job.get(key, '')
+    if not path_str:
+        return jsonify({'error': 'No .docx file available for this language.'}), 404
+    p = Path(path_str)
+    if not p.exists():
+        return jsonify({'error': 'File not found on disk.'}), 404
+    return send_file(str(p), as_attachment=True, download_name=p.name)
 
 
 # ---------------------------------------------------------------------------

@@ -1390,7 +1390,7 @@ html.dark .bg-glow-orb { opacity: .25; }
     <button class="tool-card" onclick="goToTool('pr')">
       <span class="tool-card-icon">&#127760;</span>
       <span class="tool-card-title">PR Translator</span>
-      <span class="tool-card-desc">Translate press releases from labels into Spanish and Portuguese for LATAM distribution</span>
+      <span class="tool-card-desc">Translate press releases from labels into Spanish and Portuguese. Preserves all .docx formatting</span>
       <span class="tool-card-badge">WIP</span>
     </button>
   </div>
@@ -1411,7 +1411,7 @@ html.dark .bg-glow-orb { opacity: .25; }
       <button class="tab-btn" onclick="switchTab('proposal')">Proposal <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
       <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
       <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
-      <button class="tab-btn" onclick="switchTab('pr')">PR Translator <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
+      <button class="tab-btn" onclick="switchTab('pr')">PR Translator</button>
     </div>
 
   <!-- ================================================================== -->
@@ -1940,7 +1940,7 @@ html.dark .bg-glow-orb { opacity: .25; }
               <li>Proactively <strong>discovers new press outlets</strong> not yet in the database &mdash; blogs, magazines, podcasts, content creators.</li>
               <li>Searches Google News, Brave, and Serper with <strong>genre + region-focused</strong> queries.</li>
               <li>Automatically <strong>deduplicates</strong> against the existing 1,500+ outlet database.</li>
-              <li>Optionally uses <strong>Claude AI</strong> to generate one-line descriptions for each new outlet.</li>
+              <li>Optionally uses <strong>AI</strong> (Groq Llama 3.3 70B &mdash; free) to generate descriptions and classify outlet types.</li>
               <li>Download results as <strong>CSV</strong> for direct import into Notion.</li>
               <li>Use <strong>custom query</strong> mode for specific searches (e.g. "cumbia digital argentina blog").</li>
             </ul>
@@ -1984,7 +1984,7 @@ html.dark .bg-glow-orb { opacity: .25; }
     <div style="margin-top:16px;">
       <div class="checkbox-row">
         <input type="checkbox" id="discovery-llm" checked>
-        <label for="discovery-llm">Use AI for descriptions <span style="color:var(--text-tertiary); font-weight:400;">(requires ANTHROPIC_API_KEY)</span></label>
+        <label for="discovery-llm">Use AI for descriptions <span style="color:var(--text-tertiary); font-weight:400;">(Groq &mdash; free)</span></label>
       </div>
     </div>
 
@@ -3274,6 +3274,9 @@ function renderDiscovery(result, jobId, resultEl) {
       html += `<div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:4px;">`;
       html += `<strong style="font-size:15px;">${escapeHtml(o.name)}</strong>`;
       html += `<span style="font-size:12px; color:var(--text-tertiary);">${escapeHtml(o.domain)}</span>`;
+      if (o.outlet_type) {
+        html += `<span style="display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; background:var(--bg-input); color:var(--text-secondary); border:1px solid var(--border); margin-left:8px;">${escapeHtml(o.outlet_type)}</span>`;
+      }
       html += `</div>`;
       if (o.description) {
         html += `<p style="margin:6px 0 4px; font-size:13px; color:var(--text-secondary); line-height:1.5;">${escapeHtml(o.description)}</p>`;
@@ -3471,12 +3474,14 @@ async function runPrTranslate() {
       return;
     }
 
-    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+    const prJobId = data.job_id;
+    pollJob(prJobId, logEl, progressEl, resultEl, (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
         resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
       } else {
+        result._jobId = prJobId;
         renderPrTranslation(result, resultEl);
       }
     });
@@ -3490,7 +3495,9 @@ async function runPrTranslate() {
 function renderPrTranslation(result, resultEl) {
   const esText = result.pr_es_text || '';
   const ptText = result.pr_pt_text || '';
-  const sourceLang = result.pr_source_lang || 'Unknown';
+  const esHasDocx = result.pr_es_has_docx || false;
+  const ptHasDocx = result.pr_pt_has_docx || false;
+  const jobId = result._jobId || '';
 
   let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Translation complete!</strong></div>`;
 
@@ -3498,30 +3505,49 @@ function renderPrTranslation(result, resultEl) {
     html += `<div style="margin:12px 0 16px; font-size:14px; color:var(--text-secondary); line-height:1.8;">${escapeHtml(result.result)}</div>`;
   }
 
-  // Build toggle buttons for available languages
+  // Download buttons for translated .docx files
+  if (esHasDocx || ptHasDocx) {
+    html += `<div style="margin:16px 0; display:flex; gap:10px; flex-wrap:wrap;">`;
+    if (esHasDocx) {
+      html += `<a href="/api/pr/download/${jobId}?lang=es" class="btn btn-small" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">&#128196; Download Spanish .docx</a>`;
+    }
+    if (ptHasDocx) {
+      html += `<a href="/api/pr/download/${jobId}?lang=pt" class="btn btn-small" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">&#128196; Download Portuguese .docx</a>`;
+    }
+    html += `</div>`;
+    if (esHasDocx || ptHasDocx) {
+      html += `<div style="font-size:12px; color:var(--text-tertiary); margin-bottom:16px;">The .docx files preserve the original document's formatting (fonts, bold, italic, alignment, sizes).</div>`;
+    }
+  }
+
+  // Build toggle buttons for text preview
   const views = [];
   if (esText) views.push({ id: 'es', label: 'Spanish' });
   if (ptText) views.push({ id: 'pt', label: 'Portuguese' });
 
+  if (views.length > 0) {
+    html += `<label style="font-size:13px; color:var(--text-secondary); margin-bottom:4px; display:block;">Text Preview</label>`;
+  }
+
   if (views.length > 1) {
-    html += `<div style="margin:16px 0 8px; display:flex; gap:8px;">`;
+    html += `<div style="margin:4px 0 8px; display:flex; gap:8px;">`;
     views.forEach((v, i) => {
       html += `<button class="btn btn-small" onclick="showPrView('${v.id}')" id="pr-view-${v.id}-btn" style="opacity:${i === 0 ? '1' : '.5'};">${v.label}</button>`;
     });
     html += `</div>`;
   }
 
-  // Spanish translation
+  // Spanish text preview
   if (esText) {
     html += `<div id="pr-view-es" style="margin:8px 0 16px;">`;
-    html += `<pre style="background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px; font-size:13px; line-height:1.7; white-space:pre-wrap; color:var(--text-primary); overflow-x:auto;">${escapeHtml(esText)}</pre>`;
+    html += `<pre style="background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px; font-size:13px; line-height:1.7; white-space:pre-wrap; color:var(--text-primary); overflow-x:auto; max-height:400px;">${escapeHtml(esText)}</pre>`;
     html += `</div>`;
   }
 
-  // Portuguese translation (hidden if both exist)
+  // Portuguese text preview (hidden if both exist)
   if (ptText) {
     html += `<div id="pr-view-pt" style="${esText ? 'display:none; ' : ''}margin:8px 0 16px;">`;
-    html += `<pre style="background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px; font-size:13px; line-height:1.7; white-space:pre-wrap; color:var(--text-primary); overflow-x:auto;">${escapeHtml(ptText)}</pre>`;
+    html += `<pre style="background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px; font-size:13px; line-height:1.7; white-space:pre-wrap; color:var(--text-primary); overflow-x:auto; max-height:400px;">${escapeHtml(ptText)}</pre>`;
     html += `</div>`;
   }
 

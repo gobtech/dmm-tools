@@ -57,6 +57,15 @@ def load_press_database(csv_path):
     return index, entries
 
 
+def normalize_name(name):
+    """Strip spaces, punctuation, accents → lowercase core for fuzzy matching.
+    'Indie Rocks' → 'indierocks', 'DJ Sound' → 'djsound', 'El Espectador' → 'elespectador'"""
+    import unicodedata
+    nfkd = unicodedata.normalize('NFKD', name.lower())
+    ascii_only = ''.join(c for c in nfkd if not unicodedata.combining(c))
+    return re.sub(r'[^a-z0-9]', '', ascii_only)
+
+
 def extract_domain(url):
     """Extract clean domain from URL."""
     url = url.strip().lower()
@@ -120,13 +129,18 @@ def match_url_to_media(url, press_index):
         entry_name_lower = entry['name'].lower().strip()
         if len(entry_name_lower) < 3:  # Skip garbage entries
             continue
+        # Also compare normalized (spaces/punctuation stripped):
+        # "djsound" matches "dj sound", "indierocks" matches "indie rocks"
+        entry_name_norm = normalize_name(entry_name_lower)
         # Require close length similarity to prevent false substring matches
-        # e.g. "esto" matching inside "readgroovestories"
-        shorter = min(len(domain_core), len(entry_name_lower))
-        longer = max(len(domain_core), len(entry_name_lower))
+        # Use normalized lengths for comparison since spaces shouldn't affect this
+        shorter = min(len(domain_core), len(entry_name_norm))
+        longer = max(len(domain_core), len(entry_name_norm))
         if shorter / longer < 0.5:
             continue  # Too different in length — skip
-        if domain_core == entry_name_lower or domain_core.startswith(entry_name_lower) or entry_name_lower.startswith(domain_core):
+        if (domain_core == entry_name_lower or domain_core == entry_name_norm
+                or domain_core.startswith(entry_name_lower) or entry_name_lower.startswith(domain_core)
+                or domain_core.startswith(entry_name_norm) or entry_name_norm.startswith(domain_core)):
             # If we know the URL's country, prefer territory-matching entries
             if url_country and entry.get('territory'):
                 if url_country in entry['territory'].upper():

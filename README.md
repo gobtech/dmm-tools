@@ -11,9 +11,9 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
 | **Full Report** | Compiles Radio + DSP + Press into a single client-facing .docx with release timeline, proof images, and optional efforts summary | ~2-3 hrs/artist |
 | **Weekly Digest** | Generates lightweight email-ready summaries (HTML + plain text) with copy-to-clipboard for pasting into Gmail/Outlook | ~30-60 min/artist/week |
-| **Outlet Discovery** *(WIP)* | Searches for new LATAM press outlets/blogs/podcasts not in the database, with genre filtering and CSV export for Notion import | ~1-2 hrs/month |
+| **Outlet Discovery** *(WIP)* | Searches for new LATAM press outlets/blogs/podcasts not in the database, with AI-powered descriptions (Groq — free), outlet type classification, and CSV export for Notion import | ~1-2 hrs/month |
 | **Proposal Generator** | Generates complete client proposal .docx with campaign overview, genre-filtered press/radio targets, DSP strategies, and real-time budget calculator | ~1-2 hrs/proposal |
-| **PR Translator** *(WIP)* | Translates press releases from labels/artists into Spanish and/or Portuguese for LATAM distribution. Paste text or upload .docx, uses Claude AI for music-industry translation | ~30-60 min/PR |
+| **PR Translator** | Translates press releases from labels/artists into Spanish and/or Portuguese for LATAM distribution. Upload .docx (preserves all formatting) or paste text. Google Translate (free) or Gemini AI | ~30-60 min/PR |
 | **Release Calendar** | Visual timeline of all releases with phase tracking, action buttons to run tools per artist | Team coordination |
 
 ## Web UI (Recommended)
@@ -33,8 +33,8 @@ The web UI provides:
 - **Full Report**: Enter an artist name → runs all three tools automatically → compiles a single client-facing .docx with release timeline, radio plays, playlist highlights (with proof images), and press coverage
 - **Proposal Generator**: Select artist, genre, target countries, radio stations, budget options → generates complete proposal .docx with campaign overview, genre-filtered press/radio targets, DSP pitching strategies, and budget breakdown with real-time preview
 - **Weekly Digest** *(WIP)*: Enter an artist name → runs Radio/DSP/Press checks → generates a copy-paste-ready email summary (HTML + plain text) with customizable greeting, sign-off, and next steps
-- **Outlet Discovery** *(WIP)*: Select a genre and region → searches for new LATAM outlets not in the database → deduplicates against 1,500+ known outlets → optional AI descriptions → downloadable CSV for Notion import
-- **PR Translator** *(WIP)*: Paste a press release or upload the .docx from the label → auto-detects source language → translates to Spanish and/or Portuguese using Claude AI → copy to clipboard for distribution. Preserves formatting, quotes, tracklists, tour dates, and links.
+- **Outlet Discovery** *(WIP)*: Select a genre and region → searches for new LATAM outlets not in the database → deduplicates against 1,500+ known outlets (name-normalized matching) → optional AI descriptions and type classification (Groq Llama 3.3 70B — free) → downloadable CSV for Notion import
+- **PR Translator**: Upload the .docx from the label or paste text → auto-detects source language → translates to Spanish and/or Portuguese using Google Translate (free) or Gemini AI → download translated .docx with all original formatting preserved (fonts, bold, italic, alignment, sizes, images) or copy plain text to clipboard
 - **Release Calendar** (`/calendar`): Visual timeline of all releases grouped by week, color-coded by phase (Pre-Pitch → Release Week → Reporting), with quick-action buttons to run DSP/Press/Report for any artist
 - **Playlist Database** (`/playlists`): Browse, search, and filter all 99+ tracked editorial playlists with platform badges, mood tags, and sortable columns. Add new playlists (auto-detects platform from URL) or remove existing ones — changes sync directly with the DSP Pickup database
 
@@ -55,6 +55,7 @@ export BRAVE_API_KEY="..."          # Brave Search (supplementary, for Press Pic
 export SOUNDCHARTS_EMAIL="..."      # Soundcharts login (for Radio Report)
 export SOUNDCHARTS_PASSWORD="..."
 export GEMINI_API_KEY="..."         # Google Gemini (optional, for PR Translator AI mode — free tier)
+export GROQ_API_KEY="..."          # Groq (optional, for Discovery AI descriptions — free, no billing)
 ```
 
 ## CLI Usage
@@ -109,7 +110,7 @@ dmm-tools/
 │   ├── playlist_database.csv       ← Notion export (target playlists)
 │   └── djo/                        ← Manual Soundcharts CSVs (optional fallback)
 ├── shared/
-│   ├── database.py                 ← Shared data loaders + press matching
+│   ├── database.py                 ← Shared data loaders + press matching (name-normalized dedup)
 │   └── soundcharts.py              ← Soundcharts API client (auto-login, search, airplay fetch)
 ├── web/
 │   ├── app.py                      ← Flask web server
@@ -133,9 +134,9 @@ dmm-tools/
 ├── digest-generator/
 │   └── generate_digest.py          ← Weekly digest generator (email-ready HTML + plain text)
 ├── discovery/
-│   └── discover_outlets.py         ← Outlet discovery assistant (genre search + DB dedup + CSV export)
+│   └── discover_outlets.py         ← Outlet discovery assistant (genre search + DB dedup + Groq AI enrichment)
 ├── pr-generator/
-│   └── generate_pr.py              ← PR translator (paste or .docx → ES/PT via Claude AI)
+│   └── generate_pr.py              ← PR translator (paste or .docx → ES/PT, format-preserving)
 └── reports/                        ← Generated output (.docx, .txt, .json, proof images)
 ```
 

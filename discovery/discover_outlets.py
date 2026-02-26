@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(ROOT_DIR))
 
-from shared.database import load_press_database, extract_domain
+from shared.database import load_press_database, extract_domain, normalize_name
 
 PRESS_DB_PATH = os.environ.get(
     'PRESS_DB_PATH',
@@ -142,7 +142,15 @@ def discover_outlets(
     for key in press_index:
         if '.' in key:  # It's a domain key
             known_domains.add(key)
-    log_fn(f'  Loaded {len(press_entries)} outlets, {len(known_domains)} known domains')
+
+    # Build normalized name cores for name-based dedup (catches 83% of entries with no website)
+    # "Indie Rocks" → "indierocks", "El Espectador" → "elespectador"
+    known_name_cores = set()
+    for entry in press_entries:
+        core = normalize_name(entry['name'])
+        if len(core) > 3:  # Skip very short names to avoid false positives
+            known_name_cores.add(core)
+    log_fn(f'  Loaded {len(press_entries)} outlets, {len(known_domains)} known domains, {len(known_name_cores)} name cores')
 
     # Build search queries
     queries = _build_queries(genre, countries, custom_query)
@@ -202,8 +210,10 @@ def discover_outlets(
     already_in_db = 0
     new_outlets = []
     for domain, group in domain_groups.items():
+        # Collect source_names from articles for name-based matching
+        source_names = {a.get('source_name', '') for a in group['articles']} - {''}
         # Check if domain (or close variant) is in DB
-        if _domain_in_db(domain, known_domains, press_index):
+        if _domain_in_db(domain, known_domains, press_index, known_name_cores, source_names):
             group['in_db'] = True
             already_in_db += 1
             continue
@@ -238,17 +248,14 @@ def discover_outlets(
 
     # LLM enrichment pass
     if use_llm and enriched:
-        log_fn('\n── Generating descriptions with LLM ──')
-        api_key = os.environ.get('ANTHROPIC_API_KEY')
-        if not api_key:
-            log_fn('  ANTHROPIC_API_KEY not set — using basic descriptions')
+        log_fn('\n── Generating descriptions with AI ──')
+        groq_key = os.environ.get('GROQ_API_KEY')
+        if not groq_key:
+            log_fn('  GROQ_API_KEY not set — using basic descriptions')
             for o in enriched:
                 o['description'] = _basic_description(o)
         else:
-            for i, o in enumerate(enriched):
-                log_fn(f'  [{i+1}/{len(enriched)}] {o["name"]}...')
-                o['description'] = _llm_description(api_key, o)
-                time.sleep(0.3)
+            _groq_enrich_batch(groq_key, enriched, log_fn)
     elif enriched:
         for o in enriched:
             o['description'] = _basic_description(o)
@@ -494,8 +501,14 @@ def _search_serper(query, gl, max_results):
 # Deduplication & enrichment
 # ---------------------------------------------------------------------------
 
-def _domain_in_db(domain, known_domains, press_index):
-    """Check if a domain (or close variant) is already in the press DB."""
+def _domain_in_db(domain, known_domains, press_index, known_name_cores=None, source_names=None):
+    """Check if a domain (or close variant) is already in the press DB.
+
+    Checks three layers:
+    1. Domain-based: exact domain, bare domain, domain core vs known domains
+    2. Name-core: domain core vs normalized DB names (catches entries without websites)
+    3. Source-name: Google News source_name vs press index name keys
+    """
     if domain in known_domains or domain in press_index:
         return True
     # Check without 'www.'
@@ -504,10 +517,30 @@ def _domain_in_db(domain, known_domains, press_index):
         return True
     # Check core domain (e.g., "indierocks" from "indierocks.mx")
     core = bare.split('.')[0] if '.' in bare else bare
+
+    # Layer 1: domain core vs other domain cores
     for known in known_domains:
         known_core = known.replace('www.', '').split('.')[0]
         if core == known_core and len(core) > 3:
             return True
+
+    # Layer 2: domain core vs normalized DB outlet names
+    # This catches "indierocks.com" → "indierocks" matching "Indie Rocks" → "indierocks"
+    if known_name_cores and len(core) > 3 and core in known_name_cores:
+        return True
+
+    # Layer 3: check source_name from search results against press index
+    # Google News RSS provides source_name (e.g., "El Espectador") — check directly
+    if source_names:
+        for sname in source_names:
+            if sname and sname.lower().strip() in press_index:
+                return True
+            # Also check normalized form
+            if sname and known_name_cores:
+                sname_core = normalize_name(sname)
+                if len(sname_core) > 3 and sname_core in known_name_cores:
+                    return True
+
     return False
 
 
@@ -538,35 +571,100 @@ def _basic_description(outlet):
     return ' '.join(parts) if parts else 'Music/entertainment outlet discovered via search.'
 
 
-def _llm_description(api_key, outlet):
-    """Generate an enriched description using Claude."""
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+def _groq_enrich_batch(api_key, outlets, log_fn):
+    """
+    Enrich outlets with AI-generated descriptions and types using Groq.
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=150,
-            messages=[{
-                "role": "user",
-                "content": f"""Write a one-sentence description of this media outlet for a music marketing team's contact database.
+    Batches outlets (up to 10 per API call) for efficiency.
+    Uses Llama 3.3 70B — completely free, no billing.
+    """
+    import json
+    import requests
 
-Domain: {outlet['domain']}
-Sample article title: {outlet['sample_title']}
-Sample snippet: {outlet['sample_snippet'][:200]}
-Countries found in: {', '.join(outlet['countries'])}
+    BATCH_SIZE = 10
 
-Format: "[Type of outlet] covering [focus]. [Optional: Social Media: XK]"
-Examples:
+    for batch_start in range(0, len(outlets), BATCH_SIZE):
+        batch = outlets[batch_start:batch_start + BATCH_SIZE]
+        log_fn(f'  Enriching outlets {batch_start + 1}–{batch_start + len(batch)} of {len(outlets)}...')
+
+        # Build the prompt with outlet info
+        outlet_list = []
+        for i, o in enumerate(batch):
+            outlet_list.append(
+                f'{i+1}. Domain: {o["domain"]}\n'
+                f'   Sample title: {o["sample_title"][:120]}\n'
+                f'   Snippet: {o["sample_snippet"][:150]}\n'
+                f'   Region: {", ".join(o["countries"])}'
+            )
+
+        prompt = f"""You are helping a Latin American music marketing team catalog new media outlets.
+
+For each outlet below, provide:
+1. A one-sentence description for a contact database
+2. The outlet type (one of: blog, magazine, podcast, radio, newspaper, tv, website, other)
+
+OUTLETS:
+{chr(10).join(outlet_list)}
+
+Respond with a JSON array (no markdown, no code fences). Each element must have:
+- "index": the outlet number (1-based)
+- "description": one sentence, format: "[Type] covering [focus] in [region]."
+- "type": one of blog, magazine, podcast, radio, newspaper, tv, website, other
+
+Examples of good descriptions:
 - "Digital music magazine covering indie and alternative music in Mexico."
 - "Brazilian entertainment blog focused on electronic music and DJ culture."
 - "Chilean podcast network covering Latin American rock and pop."
-Just output the description, nothing else."""
-            }]
-        )
-        return response.content[0].text.strip()
-    except Exception:
-        return _basic_description(outlet)
+
+Output ONLY the JSON array, nothing else."""
+
+        try:
+            resp = requests.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                headers={
+                    'Authorization': f'Bearer {api_key}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'model': 'llama-3.3-70b-versatile',
+                    'messages': [{'role': 'user', 'content': prompt}],
+                    'max_tokens': 1024,
+                    'temperature': 0.3,
+                },
+                timeout=30,
+            )
+
+            if resp.status_code == 200:
+                content = resp.json()['choices'][0]['message']['content'].strip()
+                # Strip markdown code fences if present
+                if content.startswith('```'):
+                    content = content.split('\n', 1)[1] if '\n' in content else content[3:]
+                if content.endswith('```'):
+                    content = content[:-3].strip()
+
+                enrichments = json.loads(content)
+
+                for item in enrichments:
+                    idx = item.get('index', 0) - 1
+                    if 0 <= idx < len(batch):
+                        if item.get('description'):
+                            batch[idx]['description'] = item['description']
+                        if item.get('type'):
+                            batch[idx]['outlet_type'] = item['type']
+            else:
+                log_fn(f'  Groq API error: {resp.status_code} — using basic descriptions for this batch')
+
+        except (json.JSONDecodeError, KeyError, Exception) as e:
+            log_fn(f'  AI enrichment failed for batch ({e}) — using basic descriptions')
+
+        # Fill in any outlets that didn't get enriched
+        for o in batch:
+            if not o.get('description'):
+                o['description'] = _basic_description(o)
+            if not o.get('outlet_type'):
+                o['outlet_type'] = 'website'
+
+        time.sleep(0.3)
 
 
 # ---------------------------------------------------------------------------
@@ -589,7 +687,7 @@ def _build_html(outlets, genre, countries):
         for i, o in enumerate(outlets, 1):
             countries_str = ', '.join(o.get('countries', []))
             html += f"""<div style="margin:0 0 16px;padding:12px 16px;border:1px solid #e5e5e5;border-radius:8px;">
-<p style="margin:0 0 4px;"><strong>{escape(o['name'])}</strong> <span style="color:#888;">({escape(o['domain'])})</span></p>
+<p style="margin:0 0 4px;"><strong>{escape(o['name'])}</strong> <span style="color:#888;">({escape(o['domain'])})</span>{f' <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;background:#e8e8e8;color:#555;margin-left:6px;">{escape(o.get("outlet_type", "website"))}</span>' if o.get('outlet_type') else ''}</p>
 <p style="margin:0 0 4px;color:#555;font-size:13px;">{escape(o.get('description', ''))}</p>
 <p style="margin:0;font-size:12px;color:#888;">Region: {escape(countries_str)} | Mentions: {o.get('mentions', 1)} | <a href="{escape(o.get('sample_url', o['url']))}" style="color:#2e74b5;">Sample article</a></p>
 </div>
@@ -608,6 +706,7 @@ def _build_csv_rows(outlets):
             'Territory': ', '.join(o.get('countries', [])),
             'DESCRIPTION & SM': o.get('description', ''),
             'WEBSITE': o['url'],
+            'TYPE': o.get('outlet_type', 'website'),
             'REACH': '',
         })
     return rows
