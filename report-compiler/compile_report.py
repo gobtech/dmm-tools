@@ -205,9 +205,18 @@ def compile_report(
         log_fn('\n── DSP Pickup ──')
         log_fn('  No releases found for this artist — skipping DSP check.')
 
+    # ─── Save snapshot to dashboard history ──────────────────────
+    play_key = PLAY_KEY_MAP.get(radio_time_range, 'plays_28d')
+    try:
+        from shared.history import save_snapshot
+        save_snapshot(artist, radio_data=radio_data, press_data=press_data,
+                      dsp_data=dsp_data, play_key=play_key, source='report')
+        log_fn('  Snapshot saved to dashboard history')
+    except Exception as e:
+        log_fn(f'  (Snapshot save skipped: {e})')
+
     # ─── Generate combined .docx ──────────────────────────────────
     log_fn('\n── Generating Full Report ──')
-    play_key = PLAY_KEY_MAP.get(radio_time_range, 'plays_28d')
     _generate_full_docx(
         artist=artist,
         days=days,

@@ -1494,6 +1494,93 @@ def pr_download(job_id):
 
 
 # ---------------------------------------------------------------------------
+# Artist Dashboard
+# ---------------------------------------------------------------------------
+
+RELEASE_SCHEDULE_URL = os.environ.get(
+    'RELEASE_SCHEDULE_URL',
+    'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
+)
+
+
+@app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html')
+
+
+@app.route('/api/dashboard/artists')
+def dashboard_artists():
+    """List artists: those with snapshot data + those from release schedule."""
+    from shared.history import get_artists
+    from shared.database import load_release_schedule
+
+    with_data = get_artists()
+    # Normalize key: history DB uses 'artist', frontend expects 'name'
+    for a in with_data:
+        a['name'] = a.pop('artist')
+    data_names = {a['name'] for a in with_data}
+
+    # Get unique artist names from release schedule
+    try:
+        releases = load_release_schedule(RELEASE_SCHEDULE_URL)
+        schedule_names = sorted({r['artist'] for r in releases} - data_names)
+    except Exception:
+        schedule_names = []
+
+    return jsonify({
+        'with_data': with_data,
+        'from_schedule': schedule_names,
+    })
+
+
+@app.route('/api/dashboard/<path:artist>')
+def dashboard_artist(artist):
+    """Get historical snapshots for a specific artist."""
+    from shared.history import get_artist_history
+    snapshots = get_artist_history(artist.strip(), days=365)
+    return jsonify({'artist': artist.strip(), 'snapshots': snapshots})
+
+
+@app.route('/api/dashboard/collect', methods=['POST'])
+def dashboard_collect():
+    """Trigger a fresh data collection for an artist (reuses digest pipeline)."""
+    data = request.get_json(silent=True) or {}
+    artist = data.get('artist', '').strip()
+    if not artist:
+        return jsonify({'error': 'Artist name required'}), 400
+
+    job_id = new_job()
+
+    def run():
+        try:
+            import importlib.util
+            spec_path = ROOT_DIR / 'digest-generator' / 'generate_digest.py'
+            spec = importlib.util.spec_from_file_location('generate_digest_dash', str(spec_path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            mod.generate_digest(
+                artist=artist,
+                days=7,
+                radio_region='latam',
+                radio_time_range='7d',
+                next_steps='',
+                sender_name='',
+                contact_name='',
+                include_radio=True,
+                include_dsp=True,
+                include_press=True,
+                log_fn=lambda msg: log_line(job_id, msg),
+            )
+            finish_job(job_id, result='Snapshot collected')
+        except Exception as e:
+            finish_job(job_id, error=str(e))
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 

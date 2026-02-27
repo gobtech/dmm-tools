@@ -191,8 +191,17 @@ def generate_digest(
         log_fn('\n── DSP ──')
         log_fn('  No releases found — skipping DSP check.')
 
-    # ─── AI campaign analysis ─────────────────────────────────────
+    # ─── Save snapshot to dashboard history ──────────────────────
     play_key = PLAY_KEY_MAP.get(radio_time_range, 'weekly_plays')
+    try:
+        from shared.history import save_snapshot
+        save_snapshot(artist, radio_data=radio_data, press_data=press_data,
+                      dsp_data=dsp_data, play_key=play_key, source='digest')
+        log_fn('  Snapshot saved to dashboard history')
+    except Exception as e:
+        log_fn(f'  (Snapshot save skipped: {e})')
+
+    # ─── AI campaign analysis ─────────────────────────────────────
     analysis = None
     has_any_data = radio_data or press_data or dsp_data
     if has_any_data:
