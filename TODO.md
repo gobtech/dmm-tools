@@ -6,7 +6,7 @@
 - [x] Pre-fill from dashboard — action buttons auto-fill artist in tools (already worked)
 
 ## Medium effort
-- [ ] Batch digest — run weekly digest for all active artists in one click
+- [x] Batch digest — run weekly digest for all active artists in one click
 - [ ] DSP pitch email drafter — generate outreach emails from playlist data
 - [ ] Export dashboard as PDF/image
 

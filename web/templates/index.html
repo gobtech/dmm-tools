@@ -516,6 +516,59 @@ input[type="text"]:focus, input[type="date"]:focus {
 }
 
 /* ============================================================
+   PLATFORM TOGGLES — pill-style multi-select
+   ============================================================ */
+.platform-toggle-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.platform-toggle-group label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-xs);
+  margin: 0;
+  transition: all var(--transition);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  user-select: none;
+}
+
+.platform-toggle-group label:hover {
+  border-color: var(--border-strong);
+  background: #fafafa;
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.platform-toggle-group label:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(196,48,48,.25);
+  transform: translateY(-1px);
+}
+
+.platform-toggle-group label:has(input:checked) span::before {
+  content: '\2713\00a0';
+}
+
+.platform-toggle-group input[type="checkbox"] {
+  display: none;
+}
+
+/* ============================================================
    DROPZONE — big and inviting
    ============================================================ */
 .dropzone {
@@ -1343,6 +1396,10 @@ html.dark .bg-glow-orb { opacity: .25; }
         <span>Playlist Database</span>
         <span class="btn-icon">&rarr;</span>
       </a>
+      <a href="/compare" class="calendar-btn">
+        <span>Compare Artists</span>
+        <span class="btn-icon">&rarr;</span>
+      </a>
     </div>
   </div>
 
@@ -1615,9 +1672,20 @@ html.dark .bg-glow-orb { opacity: .25; }
       <input type="date" id="dsp-week">
     </div>
 
-    <div class="checkbox-row">
-      <input type="checkbox" id="dsp-spotify-only">
-      <label for="dsp-spotify-only">Spotify only (faster)</label>
+    <label>Platforms</label>
+    <div class="platform-toggle-group">
+      <label><input type="checkbox" class="dsp-platform" value="Spotify" checked><span>Spotify</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="Apple Music" checked><span>Apple Music</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="Deezer" checked><span>Deezer</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="Amazon Music" checked><span>Amazon Music</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="YouTube Music" checked><span>YouTube Music</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="Claro Música" checked><span>Claro M&uacute;sica</span></label>
+    </div>
+
+    <label>Report grouping</label>
+    <div class="radio-group">
+      <label><input type="radio" name="dsp-grouping" value="platform" checked><span>Group by platform</span></label>
+      <label><input type="radio" name="dsp-grouping" value="artist"><span>Group by artist</span></label>
     </div>
 
     <button class="btn" id="dsp-btn" onclick="runDsp()">Check Playlists</button>
@@ -1889,18 +1957,47 @@ html.dark .bg-glow-orb { opacity: .25; }
       </div>
     </div>
 
-    <label for="digest-artist">Artist Name</label>
-    <input type="text" id="digest-artist" placeholder="e.g. PNAU">
+    <label>Mode</label>
+    <div class="radio-group">
+      <label><input type="radio" name="digest-mode" value="single" checked onchange="toggleDigestMode()"><span>Single Artist</span></label>
+      <label><input type="radio" name="digest-mode" value="batch" onchange="toggleDigestMode()"><span>Batch Mode</span></label>
+    </div>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:4px;">
-      <div>
-        <label for="digest-contact">Recipient Name <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
-        <input type="text" id="digest-contact" placeholder="e.g. Sarah">
+    <!-- Single artist fields -->
+    <div id="digest-single-fields">
+      <label for="digest-artist">Artist Name</label>
+      <input type="text" id="digest-artist" placeholder="e.g. PNAU">
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:4px;">
+        <div>
+          <label for="digest-contact">Recipient Name <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+          <input type="text" id="digest-contact" placeholder="e.g. Sarah">
+        </div>
+        <div>
+          <label for="digest-sender">Sign-off Name <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+          <input type="text" id="digest-sender" placeholder="e.g. Luis Felipe">
+        </div>
       </div>
-      <div>
-        <label for="digest-sender">Sign-off Name <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
-        <input type="text" id="digest-sender" placeholder="e.g. Luis Felipe">
+    </div>
+
+    <!-- Batch mode fields -->
+    <div id="digest-batch-fields" style="display:none;">
+      <label>Output</label>
+      <div class="radio-group">
+        <label><input type="radio" name="digest-batch-output" value="digest" checked><span>Generate Digests</span></label>
+        <label><input type="radio" name="digest-batch-output" value="snapshot"><span>Collect Snapshots Only</span></label>
       </div>
+
+      <label style="margin-top:12px;">Artists</label>
+      <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">
+        <input type="text" id="digest-batch-filter" placeholder="Filter artists..." style="flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:13px;">
+        <button class="btn btn-small" onclick="digestBatchSelectAll(true)" style="white-space:nowrap;">Select All</button>
+        <button class="btn btn-small" onclick="digestBatchSelectAll(false)" style="white-space:nowrap;">Deselect All</button>
+      </div>
+      <div id="digest-batch-artists" style="max-height:280px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); padding:8px 12px;">
+        <div style="color:var(--text-tertiary); font-size:13px;">Loading artists...</div>
+      </div>
+      <div id="digest-batch-count" style="font-size:12px; color:var(--text-tertiary); margin-top:6px;">0 artists selected</div>
     </div>
 
     <label>Search Period</label>
@@ -1931,10 +2028,14 @@ html.dark .bg-glow-orb { opacity: .25; }
       </div>
     </div>
 
-    <label for="digest-steps" style="margin-top:20px;">Next Steps <span style="color:var(--text-tertiary); font-weight:400;">(optional — one per line)</span></label>
-    <textarea id="digest-steps" rows="3" placeholder="- Follow up with Spotify editorial&#10;- Send updated assets to press contacts&#10;- Schedule radio re-pitch" style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical;"></textarea>
+    <!-- Single mode: next steps -->
+    <div id="digest-single-steps">
+      <label for="digest-steps" style="margin-top:20px;">Next Steps <span style="color:var(--text-tertiary); font-weight:400;">(optional — one per line)</span></label>
+      <textarea id="digest-steps" rows="3" placeholder="- Follow up with Spotify editorial&#10;- Send updated assets to press contacts&#10;- Schedule radio re-pitch" style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical;"></textarea>
+    </div>
 
     <button class="btn" id="digest-btn" onclick="runDigest()">Generate Digest</button>
+    <button class="btn" id="digest-batch-btn" onclick="runBatchDigest()" style="display:none;">Run Batch (0 artists)</button>
 
     <div class="progress-area" id="digest-progress">
       <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
@@ -2597,9 +2698,11 @@ async function runDsp() {
   const mode = document.querySelector('input[name="dsp-mode"]:checked').value;
   const artist = document.getElementById('dsp-artist').value.trim();
   const week = document.getElementById('dsp-week').value;
-  const spotifyOnly = document.getElementById('dsp-spotify-only').checked;
+  const platforms = [...document.querySelectorAll('.dsp-platform:checked')].map(el => el.value);
+  const grouping = document.querySelector('input[name="dsp-grouping"]:checked').value;
 
   if (mode === 'artist' && !artist) return showToast('Please enter an artist name.');
+  if (!platforms.length) return showToast('Please select at least one platform.');
 
   const btn = document.getElementById('dsp-btn');
   const logEl = document.getElementById('dsp-log');
@@ -2613,7 +2716,7 @@ async function runDsp() {
     const resp = await fetch('/api/dsp/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode, artist, week: week || 'current', spotify_only: spotifyOnly }),
+      body: JSON.stringify({ mode, artist, week: week || 'current', platforms, grouping }),
     });
     const data = await resp.json();
     if (data.error) {
@@ -3192,6 +3295,257 @@ function copyDigestText() {
   const el = document.getElementById('digest-result');
   const text = el._digestText || '';
   navigator.clipboard.writeText(text).then(() => showToast('Plain text copied to clipboard!'));
+}
+
+// =====================================================================
+// Batch Digest
+// =====================================================================
+let digestBatchArtists = [];  // cached artist list
+
+function toggleDigestMode() {
+  const isBatch = document.querySelector('input[name="digest-mode"]:checked').value === 'batch';
+  document.getElementById('digest-single-fields').style.display = isBatch ? 'none' : '';
+  document.getElementById('digest-batch-fields').style.display = isBatch ? '' : 'none';
+  document.getElementById('digest-single-steps').style.display = isBatch ? 'none' : '';
+  document.getElementById('digest-btn').style.display = isBatch ? 'none' : '';
+  document.getElementById('digest-batch-btn').style.display = isBatch ? '' : 'none';
+  if (isBatch && digestBatchArtists.length === 0) loadDigestBatchArtists();
+}
+
+async function loadDigestBatchArtists() {
+  const container = document.getElementById('digest-batch-artists');
+  container.innerHTML = '<div style="color:var(--text-tertiary); font-size:13px;">Loading artists...</div>';
+  try {
+    const resp = await fetch('/api/dashboard/artists');
+    const data = await resp.json();
+    _digestBatchWithData = (data.with_data || []).map(a => a.name);
+    _digestBatchFromSchedule = data.from_schedule || [];
+    digestBatchArtists = [..._digestBatchWithData, ..._digestBatchFromSchedule];
+    renderDigestBatchArtists(_digestBatchWithData, _digestBatchFromSchedule);
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--accent-red); font-size:13px;">Failed to load artists.</div>';
+  }
+}
+
+function renderDigestBatchArtists(withData, fromSchedule) {
+  const container = document.getElementById('digest-batch-artists');
+  const filter = document.getElementById('digest-batch-filter').value.toLowerCase();
+  let html = '';
+
+  const makeCheckbox = (name) => {
+    if (filter && !name.toLowerCase().includes(filter)) return '';
+    const id = 'dbatch-' + name.replace(/[^a-zA-Z0-9]/g, '_');
+    return `<div class="checkbox-row" style="padding:3px 0;"><input type="checkbox" id="${id}" class="digest-batch-cb" value="${escapeHtml(name)}" onchange="updateDigestBatchCount()"><label for="${id}" style="font-size:13px;">${escapeHtml(name)}</label></div>`;
+  };
+
+  if (withData.length) {
+    html += '<div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-tertiary); margin:4px 0 6px; font-weight:600;">With Dashboard Data</div>';
+    withData.forEach(n => { html += makeCheckbox(n); });
+  }
+  if (fromSchedule.length) {
+    html += '<div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-tertiary); margin:10px 0 6px; font-weight:600;">From Release Schedule</div>';
+    fromSchedule.forEach(n => { html += makeCheckbox(n); });
+  }
+  if (!html) html = '<div style="color:var(--text-tertiary); font-size:13px;">No artists match filter.</div>';
+  container.innerHTML = html;
+  updateDigestBatchCount();
+}
+
+function digestBatchSelectAll(select) {
+  const filter = document.getElementById('digest-batch-filter').value.toLowerCase();
+  document.querySelectorAll('.digest-batch-cb').forEach(cb => {
+    if (!filter || cb.value.toLowerCase().includes(filter)) cb.checked = select;
+  });
+  updateDigestBatchCount();
+}
+
+function updateDigestBatchCount() {
+  const count = document.querySelectorAll('.digest-batch-cb:checked').length;
+  document.getElementById('digest-batch-count').textContent = count + ' artist' + (count !== 1 ? 's' : '') + ' selected';
+  document.getElementById('digest-batch-btn').textContent = 'Run Batch (' + count + ' artist' + (count !== 1 ? 's' : '') + ')';
+}
+
+// Wire up filter input — uses cached artist lists
+let _digestBatchWithData = [];
+let _digestBatchFromSchedule = [];
+
+document.getElementById('digest-batch-filter').addEventListener('input', function() {
+  const checked = new Set();
+  document.querySelectorAll('.digest-batch-cb:checked').forEach(cb => checked.add(cb.value));
+  renderDigestBatchArtists(_digestBatchWithData, _digestBatchFromSchedule);
+  document.querySelectorAll('.digest-batch-cb').forEach(cb => {
+    if (checked.has(cb.value)) cb.checked = true;
+  });
+  updateDigestBatchCount();
+});
+
+async function runBatchDigest() {
+  const selected = [];
+  document.querySelectorAll('.digest-batch-cb:checked').forEach(cb => selected.push(cb.value));
+  if (!selected.length) return showToast('Please select at least one artist.');
+
+  const mode = document.querySelector('input[name="digest-batch-output"]:checked').value;
+  const timeRange = document.querySelector('input[name="digest-range"]:checked').value;
+  const region = document.querySelector('input[name="digest-region"]:checked').value;
+  const includeRadio = document.getElementById('digest-inc-radio').checked;
+  const includeDsp = document.getElementById('digest-inc-dsp').checked;
+  const includePress = document.getElementById('digest-inc-press').checked;
+
+  if (!includeRadio && !includeDsp && !includePress) {
+    return showToast('Please select at least one section to include.');
+  }
+
+  const btn = document.getElementById('digest-batch-btn');
+  const logEl = document.getElementById('digest-log');
+  const progressEl = document.getElementById('digest-progress');
+  const resultEl = document.getElementById('digest-result');
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  try {
+    const resp = await fetch('/api/digest/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artists: selected,
+        mode,
+        radio_region: region,
+        radio_time_range: timeRange,
+        include_radio: includeRadio,
+        include_dsp: includeDsp,
+        include_press: includePress,
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+      } else {
+        renderBatchDigest(result, mode);
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    resultEl.classList.add('visible');
+    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+  }
+}
+
+function renderBatchDigest(result, mode) {
+  const resultEl = document.getElementById('digest-result');
+  const batchResults = result.batch_results || {};
+  const artists = Object.keys(batchResults);
+
+  let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Batch complete</strong></div>`;
+  if (result.result) {
+    html += `<div style="margin:12px 0 16px; font-size:14px; color:var(--text-secondary); line-height:1.8;">${escapeHtml(result.result)}</div>`;
+  }
+
+  if (mode === 'snapshot') {
+    // Compact table view
+    html += '<div style="border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; margin-top:8px;">';
+    html += '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
+    html += '<thead><tr style="background:var(--bg-input);"><th style="text-align:left; padding:10px 12px; border-bottom:1px solid var(--border);">Artist</th><th style="padding:10px 8px; border-bottom:1px solid var(--border);">Radio</th><th style="padding:10px 8px; border-bottom:1px solid var(--border);">DSP</th><th style="padding:10px 8px; border-bottom:1px solid var(--border);">Press</th></tr></thead><tbody>';
+    artists.forEach(name => {
+      const r = batchResults[name];
+      const err = r.error ? ' title="' + escapeHtml(r.error) + '"' : '';
+      const rowStyle = r.error ? ' style="color:var(--accent-red);"' : (!r.radio_count && !r.dsp_count && !r.press_count ? ' style="color:var(--text-tertiary);"' : '');
+      html += `<tr${rowStyle}><td style="padding:8px 12px; border-bottom:1px solid var(--border);"${err}>${escapeHtml(name)}${r.error ? ' &#9888;' : ''}</td>`;
+      html += `<td style="text-align:center; padding:8px; border-bottom:1px solid var(--border);">${r.radio_count || 0}</td>`;
+      html += `<td style="text-align:center; padding:8px; border-bottom:1px solid var(--border);">${r.dsp_count || 0}</td>`;
+      html += `<td style="text-align:center; padding:8px; border-bottom:1px solid var(--border);">${r.press_count || 0}</td></tr>`;
+    });
+    html += '</tbody></table></div>';
+  } else {
+    // Expandable cards for full digest mode
+    artists.forEach((name, idx) => {
+      const r = batchResults[name];
+      const counts = [];
+      if (r.radio_count) counts.push('Radio: ' + r.radio_count);
+      if (r.dsp_count) counts.push('DSP: ' + r.dsp_count);
+      if (r.press_count) counts.push('Press: ' + r.press_count);
+      const countStr = counts.length ? counts.join(' | ') : 'No activity';
+      const hasContent = r.html || r.text;
+      const cardId = 'batch-card-' + idx;
+
+      html += `<div style="border:1px solid var(--border); border-radius:var(--radius-sm); margin-top:8px; overflow:hidden;">`;
+      html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:var(--bg-input); cursor:${hasContent ? 'pointer' : 'default'};" ${hasContent ? `onclick="document.getElementById('${cardId}').style.display = document.getElementById('${cardId}').style.display === 'none' ? '' : 'none'"` : ''}>`;
+      html += `<div><strong>${escapeHtml(name)}</strong>`;
+      if (r.error) html += ` <span style="color:var(--accent-red); font-size:12px;">Error</span>`;
+      html += `</div>`;
+      html += `<div style="font-size:13px; color:var(--text-secondary);">${escapeHtml(countStr)}${hasContent ? ' &#9660;' : ''}</div>`;
+      html += `</div>`;
+
+      if (hasContent) {
+        html += `<div id="${cardId}" style="display:none; padding:16px; border-top:1px solid var(--border);">`;
+        // Toggle + preview
+        html += `<div style="display:flex; gap:8px; margin-bottom:8px;">`;
+        html += `<button class="btn btn-small" onclick="showBatchCardView(${idx},'html')" id="bc-html-btn-${idx}" style="opacity:1;">Email Preview</button>`;
+        html += `<button class="btn btn-small" onclick="showBatchCardView(${idx},'text')" id="bc-text-btn-${idx}" style="opacity:.5;">Plain Text</button>`;
+        html += `<button class="btn btn-small" onclick="copyBatchHtml(${idx})" style="margin-left:auto;">Copy HTML</button>`;
+        html += `<button class="btn btn-small" onclick="copyBatchText(${idx})">Copy Text</button>`;
+        html += `</div>`;
+        html += `<div id="bc-html-${idx}" style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:16px; max-height:400px; overflow-y:auto;">${r.html || ''}</div>`;
+        html += `<div id="bc-text-${idx}" style="display:none;"><pre style="background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; font-size:13px; line-height:1.6; white-space:pre-wrap; color:var(--text-primary); max-height:400px; overflow-y:auto;">${escapeHtml(r.text || '')}</pre></div>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+    });
+  }
+
+  resultEl.innerHTML = html;
+  // Store batch results for copy functions
+  resultEl._batchResults = batchResults;
+}
+
+function showBatchCardView(idx, view) {
+  const htmlEl = document.getElementById('bc-html-' + idx);
+  const textEl = document.getElementById('bc-text-' + idx);
+  const htmlBtn = document.getElementById('bc-html-btn-' + idx);
+  const textBtn = document.getElementById('bc-text-btn-' + idx);
+  if (view === 'html') {
+    htmlEl.style.display = ''; textEl.style.display = 'none';
+    htmlBtn.style.opacity = '1'; textBtn.style.opacity = '.5';
+  } else {
+    htmlEl.style.display = 'none'; textEl.style.display = '';
+    htmlBtn.style.opacity = '.5'; textBtn.style.opacity = '1';
+  }
+}
+
+function copyBatchHtml(idx) {
+  const el = document.getElementById('digest-result');
+  const artists = Object.keys(el._batchResults || {});
+  const r = el._batchResults[artists[idx]];
+  if (!r) return;
+  if (navigator.clipboard && navigator.clipboard.write) {
+    const blob = new Blob([r.html || ''], { type: 'text/html' });
+    const textBlob = new Blob([r.text || ''], { type: 'text/plain' });
+    navigator.clipboard.write([
+      new ClipboardItem({ 'text/html': blob, 'text/plain': textBlob })
+    ]).then(() => showToast('HTML copied!')).catch(() => {
+      navigator.clipboard.writeText(r.html || '').then(() => showToast('HTML copied as text!'));
+    });
+  } else {
+    navigator.clipboard.writeText(r.html || '').then(() => showToast('HTML copied!'));
+  }
+}
+
+function copyBatchText(idx) {
+  const el = document.getElementById('digest-result');
+  const artists = Object.keys(el._batchResults || {});
+  const r = el._batchResults[artists[idx]];
+  if (!r) return;
+  navigator.clipboard.writeText(r.text || '').then(() => showToast('Plain text copied!'));
 }
 
 // =====================================================================

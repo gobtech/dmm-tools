@@ -117,6 +117,7 @@ def job_status(job_id):
         'pr_source_lang': job.get('pr_source_lang', ''),
         'pr_es_has_docx': bool(job.get('pr_es_docx_path')),
         'pr_pt_has_docx': bool(job.get('pr_pt_docx_path')),
+        'batch_results': job.get('batch_results', {}),
     })
 
 
@@ -666,7 +667,8 @@ def dsp_run():
     mode = data.get('mode', 'artist')  # artist | week | all
     artist = data.get('artist', '').strip()
     week = data.get('week', 'current').strip()
-    spotify_only = data.get('spotify_only', False)
+    platforms = data.get('platforms', None)  # list of platform names, or None for all
+    grouping = data.get('grouping', 'platform')
 
     if mode == 'artist' and not artist:
         return jsonify({'error': 'Please enter an artist name.'}), 400
@@ -682,9 +684,9 @@ def dsp_run():
             playlists = load_playlist_database(pl_path)
             log_line(job_id, f'  Loaded {len(playlists)} playlists')
 
-            if spotify_only:
-                playlists = [p for p in playlists if p['platform'] == 'Spotify']
-                log_line(job_id, f'  Filtered to {len(playlists)} Spotify playlists')
+            if platforms and isinstance(platforms, list) and len(platforms) < 6:
+                playlists = [p for p in playlists if p['platform'] in platforms]
+                log_line(job_id, f'  Filtered to {len(playlists)} playlists ({", ".join(platforms)})')
 
             schedule_url = os.environ.get(
                 'RELEASE_SCHEDULE_URL',
@@ -734,7 +736,7 @@ def dsp_run():
                 spec = importlib.util.spec_from_file_location('dsp_pickup_run', str(spec_path))
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
-                results = mod.run_dsp_pickup(releases, playlists, str(output_path))
+                results = mod.run_dsp_pickup(releases, playlists, str(output_path), grouping=grouping)
             finally:
                 sys.stdout = old_stdout
 
@@ -1255,6 +1257,116 @@ def digest_generate():
     return jsonify({'job_id': job_id})
 
 
+@app.route('/api/digest/batch', methods=['POST'])
+def digest_batch():
+    """Run digests for multiple artists sequentially."""
+    data = request.get_json(silent=True) or {}
+    artists = data.get('artists', [])
+    mode = data.get('mode', 'digest')  # 'digest' or 'snapshot'
+    radio_region = data.get('radio_region', 'latam')
+    radio_time_range = data.get('radio_time_range', '7d')
+    include_radio = data.get('include_radio', True)
+    include_dsp = data.get('include_dsp', True)
+    include_press = data.get('include_press', True)
+
+    if not artists or not isinstance(artists, list):
+        return jsonify({'error': 'Please select at least one artist.'}), 400
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for a in artists:
+        name = a.strip()
+        if name and name not in seen:
+            seen.add(name)
+            unique.append(name)
+    artists = unique
+
+    if not artists:
+        return jsonify({'error': 'Please select at least one artist.'}), 400
+
+    daysMap = {'7d': 7, '28d': 28}
+    days = daysMap.get(radio_time_range, 7)
+
+    job_id = new_job()
+    jobs[job_id]['batch_results'] = {}
+
+    def run():
+        try:
+            import importlib.util
+            spec_path = ROOT_DIR / 'digest-generator' / 'generate_digest.py'
+            spec = importlib.util.spec_from_file_location('generate_digest', str(spec_path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            total = len(artists)
+            with_activity = 0
+
+            for i, artist in enumerate(artists, 1):
+                log_line(job_id, f"[{i}/{total}] Running digest for {artist}...")
+
+                try:
+                    result = mod.generate_digest(
+                        artist=artist,
+                        days=days,
+                        radio_region=radio_region,
+                        radio_time_range=radio_time_range,
+                        next_steps='',
+                        sender_name='',
+                        contact_name='',
+                        include_radio=include_radio,
+                        include_dsp=include_dsp,
+                        include_press=include_press,
+                        log_fn=lambda msg, _jid=job_id: log_line(_jid, f"  {msg}"),
+                    )
+
+                    entry = {
+                        'radio_count': result.get('radio_count', 0),
+                        'dsp_count': result.get('dsp_count', 0),
+                        'press_count': result.get('press_count', 0),
+                    }
+
+                    has_activity = (entry['radio_count'] or entry['dsp_count']
+                                    or entry['press_count'])
+                    if has_activity:
+                        with_activity += 1
+
+                    if mode == 'digest':
+                        entry['html'] = result.get('html', '')
+                        entry['text'] = result.get('text', '')
+
+                    jobs[job_id]['batch_results'][artist] = entry
+
+                    counts = []
+                    if entry['radio_count']:
+                        counts.append(f"Radio: {entry['radio_count']}")
+                    if entry['dsp_count']:
+                        counts.append(f"DSP: {entry['dsp_count']}")
+                    if entry['press_count']:
+                        counts.append(f"Press: {entry['press_count']}")
+                    status_str = ' | '.join(counts) if counts else 'No activity'
+                    log_line(job_id, f"  => {artist}: {status_str}")
+
+                except Exception as e:
+                    log_line(job_id, f"  => {artist}: Error — {e}")
+                    jobs[job_id]['batch_results'][artist] = {
+                        'radio_count': 0, 'dsp_count': 0, 'press_count': 0,
+                        'error': str(e),
+                    }
+
+            no_data = total - with_activity
+            summary = f"{total} artists processed: {with_activity} with activity"
+            if no_data:
+                summary += f", {no_data} no data"
+            finish_job(job_id, result=summary)
+
+        except Exception as e:
+            finish_job(job_id, error=str(e))
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
 # ---------------------------------------------------------------------------
 # Proposal Generator
 # ---------------------------------------------------------------------------
@@ -1508,6 +1620,11 @@ def dashboard():
     return render_template('dashboard.html')
 
 
+@app.route('/compare')
+def compare():
+    return render_template('compare.html')
+
+
 @app.route('/api/dashboard/artists')
 def dashboard_artists():
     """List artists: those with snapshot data + those from release schedule."""
@@ -1531,6 +1648,19 @@ def dashboard_artists():
         'with_data': with_data,
         'from_schedule': schedule_names,
     })
+
+
+@app.route('/api/dashboard/compare')
+def dashboard_compare():
+    """Get snapshot data for multiple artists (max 4) in one call."""
+    from shared.history import get_artist_history
+    names = request.args.get('artists', '')
+    artists = [n.strip() for n in names.split(',') if n.strip()][:4]
+    result = {}
+    for name in artists:
+        snapshots = get_artist_history(name, days=365)
+        result[name] = {'artist': name, 'snapshots': snapshots}
+    return jsonify(result)
 
 
 @app.route('/api/dashboard/<path:artist>')
