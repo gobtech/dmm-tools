@@ -47,6 +47,15 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_snapshots_artist
             ON snapshots(artist, timestamp);
+
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            text TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_notes_artist
+            ON notes(artist, timestamp);
     """)
     conn.commit()
     conn.close()
@@ -215,3 +224,38 @@ def get_latest_snapshot(artist):
                  'radio_top', 'press_top', 'dsp_top'):
         d[key] = json.loads(d[key])
     return d
+
+
+# ── Campaign Notes ──
+
+def add_note(artist, text):
+    """Add a campaign note for an artist."""
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO notes (artist, timestamp, text) VALUES (?, ?, ?)",
+        (artist.strip(), datetime.utcnow().isoformat(), text.strip()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_notes(artist):
+    """Get all notes for an artist, newest first."""
+    init_db()
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT id, timestamp, text FROM notes WHERE artist = ? ORDER BY timestamp DESC",
+        (artist.strip(),),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_note(note_id):
+    """Delete a note by ID."""
+    init_db()
+    conn = _get_conn()
+    conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+    conn.commit()
+    conn.close()

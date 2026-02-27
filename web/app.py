@@ -1580,6 +1580,34 @@ def dashboard_collect():
     return jsonify({'job_id': job_id})
 
 
+@app.route('/api/dashboard/<path:artist>/notes')
+def dashboard_notes(artist):
+    """Get all campaign notes for an artist."""
+    from shared.history import get_notes
+    return jsonify({'notes': get_notes(artist.strip())})
+
+
+@app.route('/api/dashboard/notes', methods=['POST'])
+def dashboard_add_note():
+    """Add a campaign note."""
+    from shared.history import add_note
+    data = request.get_json(silent=True) or {}
+    artist = data.get('artist', '').strip()
+    text = data.get('text', '').strip()
+    if not artist or not text:
+        return jsonify({'error': 'Artist and text required'}), 400
+    add_note(artist, text)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/dashboard/notes/<int:note_id>', methods=['DELETE'])
+def dashboard_delete_note(note_id):
+    """Delete a campaign note."""
+    from shared.history import delete_note
+    delete_note(note_id)
+    return jsonify({'ok': True})
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------

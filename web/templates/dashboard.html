@@ -320,6 +320,104 @@
     }
     .btn-action:hover { border-color: var(--accent); }
 
+    /* ── Compare selector ── */
+    .compare-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .compare-label {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      font-weight: 500;
+    }
+    .compare-select {
+      background: var(--bg-input);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: var(--radius-xs);
+      outline: none;
+      cursor: pointer;
+      transition: border-color var(--transition);
+    }
+    .compare-select:focus { border-color: var(--accent); }
+
+    /* ── Campaign notes ── */
+    .notes-section {
+      margin-top: 24px;
+    }
+    .notes-section h3 {
+      font-family: var(--font-heading);
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+    .note-input-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .note-input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: var(--radius-xs);
+      outline: none;
+      transition: border-color var(--transition);
+    }
+    .note-input:focus { border-color: var(--accent); }
+    .note-input::placeholder { color: var(--text-tertiary); }
+    .note-list {
+      list-style: none;
+    }
+    .note-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .note-item:last-child { border-bottom: none; }
+    .note-time {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+      min-width: 80px;
+      padding-top: 1px;
+    }
+    .note-text { flex: 1; }
+    .note-delete {
+      background: none;
+      border: none;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0 4px;
+      transition: color var(--transition);
+    }
+    .note-delete:hover { color: var(--accent); }
+    .note-empty {
+      color: var(--text-tertiary);
+      font-size: 13px;
+      font-style: italic;
+      padding: 8px 0;
+    }
+
     /* ── Collect log ── */
     .collect-log {
       background: var(--bg-input);
@@ -380,6 +478,13 @@
   <div id="dashboard" style="display:none;">
     <div class="snapshot-info" id="snapshot-info"></div>
 
+    <div class="compare-row" id="compare-row" style="display:none;">
+      <span class="compare-label">Compare against:</span>
+      <select class="compare-select" id="compare-select" onchange="onCompareChange()">
+        <option value="prev">Previous snapshot</option>
+      </select>
+    </div>
+
     <div class="metrics-row">
       <div class="metric-card">
         <div class="metric-label">Radio Plays</div>
@@ -434,6 +539,17 @@
       <a class="btn-action" id="btn-press" href="/">Run Press Search</a>
       <a class="btn-action" id="btn-dsp" href="/">Run DSP Check</a>
     </div>
+
+    <div class="notes-section">
+      <h3>Campaign Notes</h3>
+      <div class="note-input-row">
+        <input type="text" class="note-input" id="note-input"
+               placeholder="Add a note&hellip;" maxlength="500"
+               onkeydown="if(event.key==='Enter')addNote()" />
+        <button class="btn" onclick="addNote()">Add</button>
+      </div>
+      <ul class="note-list" id="note-list"></ul>
+    </div>
   </div>
 
   <pre class="collect-log" id="collect-log"></pre>
@@ -445,6 +561,7 @@
    ================================================================ */
 
 let currentArtist = null;
+let currentData = null;    // last fetched dashboard data
 let allArtists = [];       // [{name, snapshots, group}]
 let trendChart = null;
 let countryChart = null;
@@ -630,13 +747,16 @@ async function selectArtist(name) {
 
     stateEl.style.display = 'none';
     dashEl.style.display = '';
+    currentData = data;
 
+    buildCompareDropdown(data);
     renderMetrics(data);
     renderTrendChart(data);
     renderCountryChart(data);
     renderPlatformChart(data);
     renderActivityFeed(data);
     updateActionButtons(name);
+    loadNotes(name);
   } catch (e) {
     console.error('Dashboard fetch failed:', e);
     stateEl.innerHTML = '<h2>Failed to load data</h2><p>' + esc(e.message) + '</p>';
@@ -645,10 +765,52 @@ async function selectArtist(name) {
   }
 }
 
+// ── Compare dropdown ──
+function buildCompareDropdown(data) {
+  const sel = document.getElementById('compare-select');
+  const row = document.getElementById('compare-row');
+  sel.innerHTML = '';
+
+  if (data.snapshots.length < 2) {
+    row.style.display = 'none';
+    return;
+  }
+  row.style.display = '';
+
+  // "Previous" option (default)
+  const optPrev = document.createElement('option');
+  optPrev.value = 'prev';
+  optPrev.textContent = 'Previous snapshot';
+  sel.appendChild(optPrev);
+
+  // Individual snapshot options (skip the latest itself)
+  for (let i = data.snapshots.length - 2; i >= 0; i--) {
+    const s = data.snapshots[i];
+    const d = new Date(s.timestamp);
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = d.toLocaleDateString() + ' — R:' + s.radio_total + ' P:' + s.press_total + ' D:' + s.dsp_total;
+    sel.appendChild(opt);
+  }
+}
+
+function getCompareSnapshot(data) {
+  const val = document.getElementById('compare-select').value;
+  if (data.snapshots.length < 2) return null;
+  if (val === 'prev') return data.snapshots[data.snapshots.length - 2];
+  const idx = parseInt(val, 10);
+  if (!isNaN(idx) && idx >= 0 && idx < data.snapshots.length) return data.snapshots[idx];
+  return data.snapshots[data.snapshots.length - 2];
+}
+
+function onCompareChange() {
+  if (currentData) renderMetrics(currentData);
+}
+
 // ── Metrics ──
 function renderMetrics(data) {
   const latest = data.snapshots[data.snapshots.length - 1];
-  const prev = data.snapshots.length > 1 ? data.snapshots[data.snapshots.length - 2] : null;
+  const prev = getCompareSnapshot(data);
 
   setMetric('m-radio', latest.radio_total, prev ? prev.radio_total : null);
   setMetric('m-press', latest.press_total, prev ? prev.press_total : null);
@@ -872,6 +1034,59 @@ async function collectData() {
 
   btn.disabled = false;
   btn.textContent = 'Collect Data';
+}
+
+// ── Campaign Notes ──
+async function loadNotes(artist) {
+  const list = document.getElementById('note-list');
+  try {
+    const resp = await fetch('/api/dashboard/' + encodeURIComponent(artist) + '/notes');
+    const data = await resp.json();
+    const notes = data.notes || [];
+    if (!notes.length) {
+      list.innerHTML = '<li class="note-empty">No notes yet. Add context about campaigns, releases, or strategy.</li>';
+      return;
+    }
+    list.innerHTML = notes.map(n => {
+      const d = new Date(n.timestamp);
+      const ts = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      return '<li class="note-item">'
+        + '<span class="note-time">' + ts + '</span>'
+        + '<span class="note-text">' + esc(n.text) + '</span>'
+        + '<button class="note-delete" onclick="deleteNote(' + n.id + ')" title="Delete note">&times;</button>'
+        + '</li>';
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<li class="note-empty">Failed to load notes.</li>';
+  }
+}
+
+async function addNote() {
+  if (!currentArtist) return;
+  const input = document.getElementById('note-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  try {
+    await fetch('/api/dashboard/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artist: currentArtist, text }),
+    });
+    input.value = '';
+    await loadNotes(currentArtist);
+  } catch (e) {
+    console.error('Failed to add note:', e);
+  }
+}
+
+async function deleteNote(id) {
+  try {
+    await fetch('/api/dashboard/notes/' + id, { method: 'DELETE' });
+    if (currentArtist) await loadNotes(currentArtist);
+  } catch (e) {
+    console.error('Failed to delete note:', e);
+  }
 }
 
 // ── Utility ──
