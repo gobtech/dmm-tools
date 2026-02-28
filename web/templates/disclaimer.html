@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Disclaimer — DMM Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS
+   ============================================================ */
+:root {
+  --bg-base: #f2f0ec;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #a0a0a0;
+  --accent: #c43030;
+  --accent-light: #fef2f2;
+  --border: rgba(0,0,0,.08);
+  --border-strong: rgba(0,0,0,.12);
+  --radius: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 0 0 1px rgba(0,0,0,.03), 0 4px 12px rgba(0,0,0,.05), 0 16px 40px rgba(0,0,0,.04);
+  --transition: .2s cubic-bezier(.25,.46,.45,.94);
+  --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Cormorant Garamond', 'Georgia', serif;
+  --font-label: 'Raleway', -apple-system, BlinkMacSystemFont, sans-serif;
+  --logo-filter: none;
+}
+
+html.dark {
+  --bg-base: #0e0e10;
+  --bg-card: #18181b;
+  --bg-card-hover: #1f1f23;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --accent: #c43030;
+  --accent-light: rgba(196,48,48,.15);
+  --border: rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.12);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --logo-filter: brightness(0) invert(1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.7;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.container {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px 100px;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+.header .logo {
+  height: 32px;
+  opacity: .7;
+  margin-bottom: 16px;
+  filter: var(--logo-filter);
+}
+.header h1 {
+  font-family: var(--font-heading);
+  font-size: 42px;
+  font-weight: 300;
+  letter-spacing: .02em;
+  margin-bottom: 8px;
+}
+.header .subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   NAV BUTTON
+   ============================================================ */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 28px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-primary);
+  text-decoration: none;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  transition: all .25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.back-link::before {
+  content: '';
+  position: absolute;
+  top: 0; right: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(270deg, transparent, rgba(196,48,48,.08), transparent);
+  transition: right .45s ease;
+}
+.back-link:hover::before { right: 100%; }
+.back-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-2px);
+}
+.back-link .btn-icon {
+  font-size: 16px;
+  transition: transform .25s ease;
+}
+.back-link:hover .btn-icon { transform: translateX(-3px); }
+
+/* ============================================================
+   THEME TOGGLE
+   ============================================================ */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   CONTENT CARDS
+   ============================================================ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 36px 40px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.card h2 {
+  font-family: var(--font-heading);
+  font-size: 28px;
+  font-weight: 400;
+  margin-bottom: 16px;
+  letter-spacing: .01em;
+}
+
+.card p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin-bottom: 12px;
+  line-height: 1.8;
+}
+
+.card ul {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 12px;
+}
+
+.card li {
+  color: var(--text-secondary);
+  font-size: 15px;
+  padding: 6px 0 6px 20px;
+  position: relative;
+  line-height: 1.7;
+}
+.card li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 600px) {
+  .container { padding: 28px 16px 60px; }
+  .card { padding: 24px 20px; }
+  .header h1 { font-size: 32px; }
+}
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+  <span id="theme-icon">&#9790;</span>
+</button>
+
+<div class="container">
+  <div class="header">
+    <img class="logo" src="https://images.squarespace-cdn.com/content/v1/590102829de4bb02e43309fd/1503502770341-VCOKSUOU944GCVSODOI7/DMM-final-logo-extended.png" alt="Dorado Music Marketing">
+    <h1>Disclaimer</h1>
+    <p class="subtitle">Prototype status and expectations</p>
+    <a href="/" class="back-link">
+      <span class="btn-icon">&larr;</span>
+      <span>Back to Tools</span>
+    </a>
+  </div>
+
+  <!-- PROTOTYPE NOTICE -->
+  <div class="card">
+    <h2>Prototype Notice</h2>
+    <ul>
+      <li>This is an early-stage internal prototype, actively under heavy development</li>
+      <li>Not a polished or finished product — expect rough edges</li>
+      <li>Shared for internal demo and testing purposes only</li>
+      <li>Not intended for client-facing use or external distribution</li>
+    </ul>
+  </div>
+
+  <!-- WHAT TO EXPECT -->
+  <div class="card">
+    <h2>What to Expect</h2>
+    <ul>
+      <li>Features may be incomplete, change significantly, or break between sessions</li>
+      <li>Data accuracy depends on upstream APIs and sources (Soundcharts, Google News, Spotify, etc.) — results should be verified</li>
+      <li>The UI is functional but not final — layouts, workflows, and visual design will continue to evolve</li>
+      <li>Performance may vary (some operations hit multiple external APIs sequentially)</li>
+      <li>No authentication or multi-user support — this is a single-user local tool</li>
+      <li>No automated test suite yet — manual testing is ongoing</li>
+    </ul>
+  </div>
+
+  <!-- FEEDBACK & ISSUES -->
+  <div class="card">
+    <h2>Feedback &amp; Issues</h2>
+    <ul>
+      <li>Bugs, suggestions, and feedback should go directly to Luis Felipe</li>
+      <li>Things will change between sessions as the tool evolves rapidly</li>
+      <li>If something breaks, report it — don't assume it's a known issue</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.getElementById('theme-icon').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('dmm_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('dmm_theme') || 'light');
+</script>
+</body>
+</html>

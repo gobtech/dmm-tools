@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compare Artists &mdash; DMM Tools</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Raleway:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── Light theme (default) ── */
+    :root {
+      --bg-base: #f2f0ec;
+      --bg-card: #ffffff;
+      --bg-input: #f8f7f5;
+      --text-primary: #1a1a1a;
+      --text-secondary: #6b6b6b;
+      --text-tertiary: #a0a0a0;
+      --accent: #c43030;
+      --border: rgba(0,0,0,.08);
+      --border-strong: rgba(0,0,0,.12);
+      --green: #22c55e;
+      --blue: #3b82f6;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.06);
+      --shadow-md: 0 4px 12px rgba(0,0,0,.05), 0 16px 40px rgba(0,0,0,.04);
+      --chart-grid: rgba(0,0,0,.06);
+      --chart-doughnut-border: #ffffff;
+      --font-heading: 'Cormorant Garamond', 'Georgia', serif;
+      --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, sans-serif;
+      --radius-sm: 10px;
+      --radius-xs: 8px;
+      --transition: .2s cubic-bezier(.25,.46,.45,.94);
+    }
+    /* ── Dark theme ── */
+    html.dark {
+      --bg-base: #0e0e10;
+      --bg-card: #18181b;
+      --bg-input: #111114;
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-tertiary: #52525b;
+      --accent: #c43030;
+      --border: rgba(255,255,255,.08);
+      --border-strong: rgba(255,255,255,.12);
+      --green: #4ade80;
+      --blue: #60a5fa;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+      --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+      --chart-grid: rgba(255,255,255,.06);
+      --chart-doughnut-border: #18181b;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    /* ── Theme toggle ── */
+    .theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 100;
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border-strong);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      font-size: 18px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all var(--transition);
+      box-shadow: var(--shadow-sm);
+    }
+    .theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Header ── */
+    .compare-header {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 28px 20px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .back-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+      transition: color var(--transition);
+    }
+    .back-link:hover { color: var(--text-primary); }
+    .page-title {
+      font-family: var(--font-heading);
+      font-size: 28px;
+      font-weight: 600;
+    }
+    .header-spacer { flex: 1; }
+
+    /* ── Selector bar ── */
+    .selector-bar {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 20px 24px;
+    }
+    .selector-slots {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .selector-slot {
+      position: relative;
+      min-width: 200px;
+      flex: 1;
+    }
+    .slot-input {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      padding: 9px 36px 9px 16px;
+      border-radius: var(--radius-xs);
+      outline: none;
+      transition: border-color var(--transition);
+    }
+    .slot-input:focus { border-color: var(--accent); }
+    .slot-input::placeholder { color: var(--text-tertiary); }
+    .slot-input.filled {
+      border-color: var(--accent);
+      background: var(--bg-card);
+      font-weight: 500;
+    }
+    .slot-remove {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-tertiary);
+      font-size: 18px;
+      cursor: pointer;
+      padding: 0 4px;
+      line-height: 1;
+      transition: color var(--transition);
+      display: none;
+    }
+    .slot-remove:hover { color: var(--accent); }
+    .slot-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0; right: 0;
+      background: var(--bg-card);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-xs);
+      box-shadow: var(--shadow-md);
+      max-height: 280px;
+      overflow-y: auto;
+      z-index: 50;
+    }
+    .slot-dropdown.open { display: block; }
+    .slot-dropdown-group {
+      padding: 6px 12px 2px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-tertiary);
+    }
+    .slot-dropdown-item {
+      padding: 8px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text-primary);
+      transition: background var(--transition);
+    }
+    .slot-dropdown-item:hover { background: var(--bg-input); }
+    .slot-dropdown-item .snap-count {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-left: 6px;
+    }
+    .slot-dropdown-item.taken {
+      opacity: .35;
+      pointer-events: none;
+    }
+
+    .selector-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn {
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      padding: 10px 22px;
+      border-radius: var(--radius-xs);
+      border: none;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(196,48,48,.25);
+    }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: .4; pointer-events: none; }
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-strong);
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--text-primary); }
+
+    /* ── State message ── */
+    .state-msg {
+      text-align: center;
+      padding: 80px 20px;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    .state-msg h2 {
+      font-family: var(--font-heading);
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    .state-msg p {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    /* ── Loading dots ── */
+    .loading-dots::after {
+      content: '';
+      animation: dots 1.2s steps(4, end) infinite;
+    }
+    @keyframes dots {
+      0% { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75% { content: '...'; }
+    }
+
+    /* ── Compare grid ── */
+    .compare-content {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 20px 48px;
+      display: grid;
+      gap: 20px;
+    }
+    .compare-content[data-cols="2"] { grid-template-columns: 1fr 1fr; }
+    .compare-content[data-cols="3"] { grid-template-columns: 1fr 1fr 1fr; }
+    .compare-content[data-cols="4"] { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+    /* ── Artist column ── */
+    .artist-column {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 20px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow var(--transition);
+    }
+    .artist-column:hover { box-shadow: var(--shadow-md); }
+    .col-name {
+      font-family: var(--font-heading);
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .col-snapshot-info {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    /* ── Compact metrics ── */
+    .col-metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .col-metric {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xs);
+      padding: 12px;
+      text-align: center;
+    }
+    .col-metric-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-tertiary);
+      margin-bottom: 4px;
+    }
+    .col-metric-value {
+      font-family: var(--font-heading);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    /* ── Charts ── */
+    .col-chart-section {
+      margin-bottom: 16px;
+    }
+    .col-chart-section h3 {
+      font-family: var(--font-heading);
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: var(--text-secondary);
+    }
+    .chart-empty {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    /* ── Action link ── */
+    .btn-action {
+      display: inline-block;
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      padding: 8px 14px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-xs);
+      transition: all var(--transition);
+      margin-top: 14px;
+    }
+    .btn-action:hover { border-color: var(--accent); color: var(--text-primary); }
+
+    /* ── Responsive ── */
+    @media (max-width: 1024px) {
+      .compare-content[data-cols="3"],
+      .compare-content[data-cols="4"] {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (max-width: 640px) {
+      .compare-content[data-cols="2"],
+      .compare-content[data-cols="3"],
+      .compare-content[data-cols="4"] {
+        grid-template-columns: 1fr;
+      }
+      .selector-slots { flex-direction: column; }
+      .selector-slot { min-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+  <span id="theme-icon">&#9790;</span>
+</button>
+
+<header class="compare-header">
+  <a href="/dashboard" class="back-link">&larr; Dashboard</a>
+  <h1 class="page-title">Compare Artists</h1>
+</header>
+
+<section class="selector-bar">
+  <div class="selector-slots" id="selector-slots"></div>
+  <div class="selector-actions">
+    <button class="btn btn-secondary" id="add-slot-btn" onclick="addSlot()">+ Add Artist</button>
+    <button class="btn btn-primary" id="compare-btn" onclick="runCompare()" disabled>Compare</button>
+  </div>
+</section>
+
+<div id="state-msg" class="state-msg">
+  <h2>Select 2&ndash;4 artists to compare</h2>
+  <p>Pick artists from the dropdowns above, then click Compare.</p>
+</div>
+
+<main class="compare-content" id="compare-content" style="display:none;"></main>
+
+<script>
+/* ================================================================
+   Compare Artists — DMM Tools
+   ================================================================ */
+
+let allArtists = [];
+let slots = [];
+let chartInstances = {};
+let slotCounter = 0;
+const MAX_SLOTS = 4;
+
+/* ── Theme ── */
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.getElementById('theme-icon').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+  updateChartDefaults();
+  // Re-render if comparison is showing
+  if (document.getElementById('compare-content').style.display !== 'none') {
+    const names = slots.filter(s => s.name).map(s => s.name);
+    if (names.length >= 2) runCompare();
+  }
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('dmm_theme', next);
+  applyTheme(next);
+}
+function updateChartDefaults() {
+  const s = getComputedStyle(document.documentElement);
+  Chart.defaults.color = s.getPropertyValue('--text-secondary').trim() || '#999';
+  Chart.defaults.borderColor = s.getPropertyValue('--chart-grid').trim() || '#222';
+  Chart.defaults.font.family = 'Raleway, sans-serif';
+}
+
+/* ── Init ── */
+document.addEventListener('DOMContentLoaded', async () => {
+  applyTheme(localStorage.getItem('dmm_theme') || 'light');
+  await loadArtists();
+  addSlot();
+  addSlot();
+
+  // Deep-link: ?artists=Name1,Name2,...
+  const params = new URLSearchParams(window.location.search);
+  const pre = params.get('artists');
+  if (pre) {
+    const names = pre.split(',').map(s => s.trim()).filter(Boolean).slice(0, MAX_SLOTS);
+    // Add extra slots if needed
+    while (slots.length < names.length) addSlot();
+    names.forEach((name, i) => {
+      slots[i].name = name;
+      slots[i].inputEl.value = name;
+      slots[i].inputEl.classList.add('filled');
+    });
+    updateCompareButton();
+    runCompare();
+  }
+
+  // Close dropdowns on outside click
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.selector-slot')) {
+      document.querySelectorAll('.slot-dropdown.open').forEach(d => d.classList.remove('open'));
+    }
+  });
+});
+
+/* ── Load artists ── */
+async function loadArtists() {
+  try {
+    const resp = await fetch('/api/dashboard/artists');
+    const data = await resp.json();
+    allArtists = [];
+    for (const a of (data.with_data || [])) {
+      allArtists.push({ name: a.name, snapshots: a.snapshots, group: 'data' });
+    }
+    for (const name of (data.from_schedule || [])) {
+      allArtists.push({ name, snapshots: 0, group: 'schedule' });
+    }
+  } catch (e) {
+    console.error('Failed to load artists:', e);
+  }
+}
+
+/* ── Slot management ── */
+function addSlot() {
+  if (slots.length >= MAX_SLOTS) return;
+  const id = slotCounter++;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'selector-slot';
+  wrapper.id = 'slot-' + id;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'slot-input';
+  input.placeholder = 'Search artist\u2026';
+  input.autocomplete = 'off';
+  input.oninput = () => filterSlotArtists(id);
+  input.onfocus = () => filterSlotArtists(id);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'slot-remove';
+  removeBtn.innerHTML = '&times;';
+  removeBtn.title = 'Remove';
+  removeBtn.onclick = (e) => { e.stopPropagation(); removeSlot(id); };
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'slot-dropdown';
+
+  wrapper.appendChild(input);
+  wrapper.appendChild(removeBtn);
+  wrapper.appendChild(dropdown);
+  document.getElementById('selector-slots').appendChild(wrapper);
+
+  const slot = { id, name: null, inputEl: input, dropdownEl: dropdown, removeEl: removeBtn, wrapperEl: wrapper };
+  slots.push(slot);
+
+  // Show remove buttons if >2 slots
+  updateSlotRemoveButtons();
+  updateCompareButton();
+}
+
+function removeSlot(id) {
+  if (slots.length <= 2) return;
+  const idx = slots.findIndex(s => s.id === id);
+  if (idx === -1) return;
+  slots[idx].wrapperEl.remove();
+  slots.splice(idx, 1);
+  updateSlotRemoveButtons();
+  updateCompareButton();
+}
+
+function updateSlotRemoveButtons() {
+  const show = slots.length > 2;
+  slots.forEach(s => s.removeEl.style.display = show ? '' : 'none');
+  document.getElementById('add-slot-btn').style.display = slots.length >= MAX_SLOTS ? 'none' : '';
+}
+
+function updateCompareButton() {
+  const filled = slots.filter(s => s.name).length;
+  document.getElementById('compare-btn').disabled = filled < 2;
+}
+
+/* ── Per-slot autocomplete ── */
+function getSelectedNames() {
+  return new Set(slots.filter(s => s.name).map(s => s.name));
+}
+
+function filterSlotArtists(slotId) {
+  const slot = slots.find(s => s.id === slotId);
+  if (!slot) return;
+  const q = slot.inputEl.value.trim().toLowerCase();
+  const selected = getSelectedNames();
+
+  // If user clears a filled slot
+  if (slot.name && slot.inputEl.value.trim() !== slot.name) {
+    slot.name = null;
+    slot.inputEl.classList.remove('filled');
+    updateCompareButton();
+  }
+
+  const withData = allArtists.filter(a => a.group === 'data' && a.name.toLowerCase().includes(q));
+  const fromSchedule = allArtists.filter(a => a.group === 'schedule' && a.name.toLowerCase().includes(q));
+
+  let html = '';
+  if (withData.length) {
+    html += '<div class="slot-dropdown-group">With Dashboard Data</div>';
+    for (const a of withData) {
+      const taken = selected.has(a.name) && a.name !== slot.name;
+      html += '<div class="slot-dropdown-item' + (taken ? ' taken' : '') + '" onclick="pickSlotArtist(' + slotId + ',\'' + esc(a.name).replace(/'/g, "\\'") + '\')">'
+        + esc(a.name) + '<span class="snap-count">' + a.snapshots + ' snapshot' + (a.snapshots !== 1 ? 's' : '') + '</span></div>';
+    }
+  }
+  if (fromSchedule.length) {
+    html += '<div class="slot-dropdown-group">From Release Schedule</div>';
+    for (const a of fromSchedule) {
+      const taken = selected.has(a.name) && a.name !== slot.name;
+      html += '<div class="slot-dropdown-item' + (taken ? ' taken' : '') + '" onclick="pickSlotArtist(' + slotId + ',\'' + esc(a.name).replace(/'/g, "\\'") + '\')">'
+        + esc(a.name) + '</div>';
+    }
+  }
+  if (!html) {
+    html = '<div class="slot-dropdown-item" style="color:var(--text-tertiary);pointer-events:none;">No artists found</div>';
+  }
+
+  slot.dropdownEl.innerHTML = html;
+  slot.dropdownEl.classList.add('open');
+}
+
+function pickSlotArtist(slotId, name) {
+  const slot = slots.find(s => s.id === slotId);
+  if (!slot) return;
+  slot.name = name;
+  slot.inputEl.value = name;
+  slot.inputEl.classList.add('filled');
+  slot.dropdownEl.classList.remove('open');
+  updateCompareButton();
+}
+
+/* ── Compare ── */
+async function runCompare() {
+  const names = slots.filter(s => s.name).map(s => s.name);
+  if (names.length < 2) return;
+
+  const stateMsg = document.getElementById('state-msg');
+  const content = document.getElementById('compare-content');
+  stateMsg.style.display = '';
+  stateMsg.innerHTML = '<h2>Loading comparison<span class="loading-dots"></span></h2>';
+  content.style.display = 'none';
+
+  // Update URL for shareability
+  const url = new URL(window.location);
+  url.searchParams.set('artists', names.join(','));
+  window.history.replaceState({}, '', url);
+
+  try {
+    const resp = await fetch('/api/dashboard/compare?artists=' + names.map(encodeURIComponent).join(','));
+    const data = await resp.json();
+    renderComparison(names, data);
+  } catch (e) {
+    stateMsg.innerHTML = '<h2>Failed to load data</h2><p>' + esc(e.message) + '</p>';
+  }
+}
+
+/* ── Render comparison grid ── */
+function renderComparison(names, data) {
+  // Destroy old charts
+  Object.values(chartInstances).forEach(c => c.destroy());
+  chartInstances = {};
+
+  const content = document.getElementById('compare-content');
+  content.setAttribute('data-cols', names.length);
+  content.innerHTML = '';
+
+  document.getElementById('state-msg').style.display = 'none';
+  content.style.display = '';
+
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
+    const artistData = data[name];
+    const col = buildColumn(name, artistData, i);
+    content.appendChild(col);
+  }
+}
+
+function buildColumn(name, data, index) {
+  const col = document.createElement('div');
+  col.className = 'artist-column';
+
+  if (!data || !data.snapshots || data.snapshots.length === 0) {
+    col.innerHTML = '<div class="col-name">' + esc(name) + '</div>'
+      + '<div class="col-snapshot-info">No data</div>'
+      + '<div class="chart-empty">No snapshot data available.<br>'
+      + '<a href="/dashboard?artist=' + encodeURIComponent(name) + '" class="btn-action" style="margin-top:12px;">Collect Data</a></div>';
+    return col;
+  }
+
+  const latest = data.snapshots[data.snapshots.length - 1];
+  const radioCountries = Object.keys(latest.radio_by_country || {});
+  const pressCountries = Object.keys(latest.press_by_country || {});
+  const markets = new Set([...radioCountries, ...pressCountries]).size;
+
+  // Header
+  const header = document.createElement('div');
+  header.innerHTML = '<div class="col-name">' + esc(name) + '</div>'
+    + '<div class="col-snapshot-info">'
+    + data.snapshots.length + ' snapshot' + (data.snapshots.length !== 1 ? 's' : '')
+    + ' &middot; Latest: ' + new Date(latest.timestamp).toLocaleDateString()
+    + '</div>';
+  col.appendChild(header);
+
+  // Metrics
+  const metrics = document.createElement('div');
+  metrics.className = 'col-metrics';
+  metrics.innerHTML = metricBox('Radio Plays', latest.radio_total || 0)
+    + metricBox('Press Articles', latest.press_total || 0)
+    + metricBox('Playlists', latest.dsp_total || 0)
+    + metricBox('Markets', markets);
+  col.appendChild(metrics);
+
+  // Country chart
+  const countrySection = document.createElement('div');
+  countrySection.className = 'col-chart-section';
+  countrySection.innerHTML = '<h3>Radio by Country</h3>';
+  const countryCanvas = document.createElement('canvas');
+  countrySection.appendChild(countryCanvas);
+  col.appendChild(countrySection);
+
+  // Platform doughnut
+  const platSection = document.createElement('div');
+  platSection.className = 'col-chart-section';
+  platSection.innerHTML = '<h3>DSP Platforms</h3>';
+  const platCanvas = document.createElement('canvas');
+  platSection.appendChild(platCanvas);
+  col.appendChild(platSection);
+
+  // Full dashboard link
+  const link = document.createElement('a');
+  link.href = '/dashboard?artist=' + encodeURIComponent(name);
+  link.className = 'btn-action';
+  link.textContent = 'Full Dashboard \u2192';
+  col.appendChild(link);
+
+  // Render charts after DOM attachment
+  requestAnimationFrame(() => {
+    renderCountryChart(countryCanvas, countrySection, latest, index);
+    renderPlatformChart(platCanvas, platSection, latest, index);
+  });
+
+  return col;
+}
+
+function metricBox(label, value) {
+  return '<div class="col-metric">'
+    + '<div class="col-metric-label">' + label + '</div>'
+    + '<div class="col-metric-value">' + Number(value).toLocaleString() + '</div>'
+    + '</div>';
+}
+
+/* ── Charts ── */
+function renderCountryChart(canvas, section, snapshot, idx) {
+  let entries = Object.entries(snapshot.radio_by_country || {})
+    .sort((a, b) => b[1] - a[1]).slice(0, 8);
+  let color = 'rgba(196,48,48,.55)';
+  let borderColor = '#c43030';
+
+  if (entries.length === 0) {
+    entries = Object.entries(snapshot.press_by_country || {})
+      .sort((a, b) => b[1] - a[1]).slice(0, 8);
+    color = 'rgba(59,130,246,.55)';
+    borderColor = '#3b82f6';
+    section.querySelector('h3').textContent = 'Press by Country';
+  }
+
+  if (entries.length === 0) {
+    canvas.style.display = 'none';
+    section.insertAdjacentHTML('beforeend', '<div class="chart-empty">No geographic data.</div>');
+    return;
+  }
+
+  const gc = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim() || 'rgba(0,0,0,.06)';
+  chartInstances['country-' + idx] = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: entries.map(c => c[0]),
+      datasets: [{
+        label: 'Count',
+        data: entries.map(c => c[1]),
+        backgroundColor: color,
+        borderColor: borderColor,
+        borderWidth: 1,
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: gc }, beginAtZero: true },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } },
+      },
+    },
+  });
+}
+
+function renderPlatformChart(canvas, section, snapshot, idx) {
+  const platforms = Object.entries(snapshot.dsp_by_platform || {})
+    .sort((a, b) => b[1] - a[1]);
+
+  if (platforms.length === 0) {
+    canvas.style.display = 'none';
+    section.insertAdjacentHTML('beforeend', '<div class="chart-empty">No playlist data.</div>');
+    return;
+  }
+
+  const colors = {
+    'Spotify': '#1db954',
+    'Apple Music': '#fc3c44',
+    'Deezer': '#a238ff',
+    'Amazon Music': '#25d1da',
+    'YouTube Music': '#ff0000',
+    'Claro M\u00fasica': '#e20074',
+  };
+
+  const db = getComputedStyle(document.documentElement).getPropertyValue('--chart-doughnut-border').trim() || '#fff';
+  chartInstances['platform-' + idx] = new Chart(canvas.getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: platforms.map(p => p[0]),
+      datasets: [{
+        data: platforms.map(p => p[1]),
+        backgroundColor: platforms.map(p => colors[p[0]] || '#666'),
+        borderColor: db,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { padding: 10, font: { size: 11 } },
+        },
+      },
+    },
+  });
+}
+
+/* ── Utility ── */
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

@@ -421,6 +421,190 @@ input[type="text"]:focus, input[type="date"]:focus {
   box-shadow: 0 0 0 4px rgba(196,48,48,.1), var(--shadow-sm);
 }
 
+select.form-control {
+  width: 100%;
+  padding: 10px 32px 10px 14px;
+  background: var(--bg-input);
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b6b6b' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+}
+html.dark select.form-control {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a1a1aa' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+}
+select.form-control:hover {
+  border-color: var(--border-strong);
+}
+select.form-control:focus {
+  border-color: var(--accent);
+  background-color: var(--bg-input-focus);
+  box-shadow: 0 0 0 4px rgba(196,48,48,.1), var(--shadow-sm);
+}
+
+textarea.form-control {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-input);
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+textarea.form-control::placeholder { color: var(--text-tertiary); font-weight: 400; }
+textarea.form-control:focus {
+  border-color: var(--accent);
+  background: var(--bg-input-focus);
+  box-shadow: 0 0 0 4px rgba(196,48,48,.1), var(--shadow-sm);
+}
+
+/* ============================================================
+   CUSTOM CHECKBOXES (proposal inline style)
+   ============================================================ */
+.proposal-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  position: relative;
+  padding-left: 22px;
+  user-select: none;
+}
+.proposal-check input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.proposal-check .checkmark {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 2px solid var(--border-strong);
+  background: var(--bg-card);
+  transition: all var(--transition);
+}
+.proposal-check:hover .checkmark {
+  border-color: var(--accent);
+}
+.proposal-check input:checked ~ .checkmark {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.proposal-check input:checked ~ .checkmark::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ============================================================
+   RADIO STATION ROW (proposal list)
+   ============================================================ */
+.station-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  transition: background var(--transition);
+}
+.station-row:hover {
+  background: var(--accent-light);
+}
+.station-row input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.station-row .checkmark {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 2px solid var(--border-strong);
+  background: var(--bg-card);
+  transition: all var(--transition);
+  position: relative;
+}
+.station-row:hover .checkmark {
+  border-color: var(--accent);
+}
+.station-row input:checked ~ .checkmark {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.station-row input:checked ~ .checkmark::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.station-row .station-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.station-row .station-genre {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.station-row .station-price {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.station-country-header {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  padding: 8px 10px 2px;
+}
+
 /* ============================================================
    RADIO GROUP — big pill toggles
    ============================================================ */
@@ -1353,6 +1537,63 @@ input[type="text"]:focus, input[type="date"]:focus {
   transform: translateY(-1px);
 }
 
+/* ============================================================
+   PROTOTYPE PILL BADGE
+   ============================================================ */
+.prototype-pill {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text-tertiary);
+  text-decoration: none;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  transition: all .25s ease;
+}
+.prototype-pill:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   DISCLAIMER BANNER
+   ============================================================ */
+.disclaimer-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--accent-light);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-label);
+  font-size: 13px;
+  color: var(--text-secondary);
+  position: relative;
+  transition: transform .3s ease, opacity .3s ease;
+}
+.disclaimer-banner a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.disclaimer-banner a:hover {
+  text-decoration: underline;
+}
+
 /* Dark mode glow orb adjustments */
 html.dark .bg-glow-orb { opacity: .25; }
 
@@ -1371,6 +1612,13 @@ html.dark .bg-glow-orb { opacity: .25; }
 </style>
 </head>
 <body>
+
+<div class="disclaimer-banner" id="disclaimer-banner">
+  <span>This is an early prototype — features may change or break.</span>
+  <a href="/disclaimer">Read disclaimer</a>
+</div>
+
+<a href="/disclaimer" class="prototype-pill" title="View prototype disclaimer">Prototype</a>
 
 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
   <span id="theme-icon">&#9790;</span>
@@ -1838,23 +2086,23 @@ html.dark .bg-glow-orb { opacity: .25; }
     <!-- ── Section: Markets & Radio ── -->
     <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:16px 18px 14px;margin-bottom:14px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);margin-bottom:10px;">Markets & Radio</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px 12px;margin-bottom:12px;">
-        <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;font-weight:600;color:var(--text-primary);">
-          <input type="checkbox" id="proposal-all-countries" checked onchange="toggleAllCountries(this.checked)"> All LATAM
+      <div style="display:flex;flex-wrap:wrap;gap:8px 14px;margin-bottom:12px;align-items:center;">
+        <label class="proposal-check" style="font-weight:600;color:var(--text-primary);">
+          <input type="checkbox" id="proposal-all-countries" checked onchange="toggleAllCountries(this.checked)"><span class="checkmark"></span> All LATAM
         </label>
-        <span style="color:var(--border);margin:0 2px;">|</span>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="MÉXICO" checked onchange="renderRadioStations();updateBudgetPreview()"> MX</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="BRAZIL" checked onchange="renderRadioStations();updateBudgetPreview()"> BR</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="ARGENTINA" checked onchange="renderRadioStations();updateBudgetPreview()"> AR</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="CHILE" checked onchange="renderRadioStations();updateBudgetPreview()"> CL</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="COLOMBIA" checked onchange="renderRadioStations();updateBudgetPreview()"> CO</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="ECUADOR" checked onchange="renderRadioStations();updateBudgetPreview()"> EC</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="PERU" checked onchange="renderRadioStations();updateBudgetPreview()"> PE</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="URUGUAY" checked onchange="renderRadioStations();updateBudgetPreview()"> UY</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-country" value="VENEZUELA" checked onchange="renderRadioStations();updateBudgetPreview()"> VE</label>
+        <span style="color:var(--border-strong);margin:0 2px;font-size:14px;">|</span>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="MÉXICO" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> MX</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="BRAZIL" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> BR</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="ARGENTINA" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> AR</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="CHILE" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> CL</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="COLOMBIA" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> CO</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="ECUADOR" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> EC</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="PERU" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> PE</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="URUGUAY" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> UY</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="VENEZUELA" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> VE</label>
       </div>
       <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;">Radio Stations <span id="radio-count-label" style="font-weight:400;"></span></div>
-      <div id="proposal-radio-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--bg-card);display:flex;flex-direction:column;gap:2px;font-size:12px;">
+      <div id="proposal-radio-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;background:var(--bg-card);display:flex;flex-direction:column;font-size:12px;">
         <span style="color:var(--text-tertiary);font-size:12px;">Loading stations...</span>
       </div>
     </div>
@@ -1883,14 +2131,14 @@ html.dark .bg-glow-orb { opacity: .25; }
         </div>
       </div>
       <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;">DJ & Club Servicing</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px 12px;">
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Mexico" onchange="updateBudgetPreview()"> Mexico</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Brazil" onchange="updateBudgetPreview()"> Brazil</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Argentina" onchange="updateBudgetPreview()"> Argentina</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Colombia" onchange="updateBudgetPreview()"> Colombia</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Chile" onchange="updateBudgetPreview()"> Chile</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Peru" onchange="updateBudgetPreview()"> Peru</label>
-        <label style="font-size:12px;display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" class="proposal-dj" value="Multi-LATAM" onchange="updateBudgetPreview()"> Multi-LATAM</label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 14px;">
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Mexico" onchange="updateBudgetPreview()"><span class="checkmark"></span> Mexico</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Brazil" onchange="updateBudgetPreview()"><span class="checkmark"></span> Brazil</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Argentina" onchange="updateBudgetPreview()"><span class="checkmark"></span> Argentina</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Colombia" onchange="updateBudgetPreview()"><span class="checkmark"></span> Colombia</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Chile" onchange="updateBudgetPreview()"><span class="checkmark"></span> Chile</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Peru" onchange="updateBudgetPreview()"><span class="checkmark"></span> Peru</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Multi-LATAM" onchange="updateBudgetPreview()"><span class="checkmark"></span> Multi-LATAM</label>
       </div>
     </div>
 
@@ -2946,17 +3194,17 @@ function renderRadioStations() {
 
   let total = 0;
   sorted.forEach(country => {
-    html += `<div style="font-weight:600;font-size:11px;color:var(--text-secondary);margin-top:6px;text-transform:uppercase;letter-spacing:.5px;">${country}</div>`;
+    html += `<div class="station-country-header">${country}</div>`;
     byCountry[country].forEach(s => {
       const genreLower = s.genre.toLowerCase();
       const isRelevant = keywords.length === 0 || keywords.some(kw => genreLower.includes(kw));
       const checked = isRelevant ? 'checked' : '';
       if (isRelevant) total++;
-      html += `<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0;cursor:pointer;">
-        <input type="checkbox" class="proposal-radio" value="${s.station}" ${checked} onchange="updateBudgetPreview()">
-        <span style="flex:1;">${s.station}</span>
-        <span style="color:var(--text-tertiary);font-size:11px;">${s.genre}</span>
-        <span style="color:var(--accent);font-size:11px;font-weight:600;">$${s.price}</span>
+      html += `<label class="station-row">
+        <input type="checkbox" class="proposal-radio" value="${s.station}" ${checked} onchange="updateBudgetPreview()"><span class="checkmark"></span>
+        <span class="station-name">${s.station}</span>
+        <span class="station-genre">${s.genre}</span>
+        <span class="station-price">$${s.price}</span>
       </label>`;
     });
   });

@@ -462,18 +462,21 @@ def get_amazon_music_playlist_tracks(playlist_id, domain='com.mx'):
     import html as html_module
 
     # Extract playlist cover from header image
+    # The cover is an <img> inside <a class="headerImg playlistHeader ...">
     cover_url = ''
-    cover_match = re.search(r'class="[^"]*(?:playlistHeaderImage|headerImage|playlistImage)[^"]*"[^>]*src="([^"]+)"', resp.text)
+    cover_match = re.search(r'class="[^"]*(?:headerImg|playlistHeader)[^"]*"[^>]*>\s*<img[^>]*src="([^"]+)"', resp.text)
     if not cover_match:
-        cover_match = re.search(r'class="[^"]*(?:playlistHeaderImage|headerImage|playlistImage)[^"]*"[^>]*style="[^"]*background-image:\s*url\([\'"]?([^\)\'\"]+)', resp.text)
+        # Fallback: img with alt containing "portada" or "cover"
+        cover_match = re.search(r'<img[^>]*alt="[^"]*(?:portada|cover)[^"]*"[^>]*src="([^"]+)"', resp.text, re.IGNORECASE)
     if cover_match:
         cover_url = html_module.unescape(cover_match.group(1))
 
     # Extract artwork URLs from <li> elements — background-image in style or <img> tags
     # Build a map of position -> artwork_url
+    # Each track <li> has aria-posinset="N" and contains a div.imageBackground with background-image
     artwork_map = {}
     art_matches = re.findall(
-        r'aria-posinset="(\d+)".*?(?:background-image:\s*url\([\'"]?([^\)\'\"]+)[\'"]?\)|<img[^>]*class="[^"]*(?:trackListImage|albumArt)[^"]*"[^>]*src="([^"]+)")',
+        r'aria-posinset="(\d+)".*?(?:background-image:\s*url\([\'"]?([^\)\'\"]+)[\'"]?\)|<img[^>]*class="[^"]*(?:trackListImage|albumArt|trackIndexImg)[^"]*"[^>]*src="([^"]+)")',
         resp.text, re.DOTALL
     )
     for pos, bg_url, img_url in art_matches:
@@ -907,7 +910,7 @@ def generate_proof_images(results, output_dir):
     return image_paths
 
 
-def generate_dsp_docx(results, proof_image_paths, docx_path):
+def generate_dsp_docx(results, proof_image_paths, docx_path, grouping='platform'):
     """
     Generate a formatted .docx report for DSP Pickup results.
     Matches the Dorado report style: title, then per-match entries with
@@ -944,11 +947,13 @@ def generate_dsp_docx(results, proof_image_paths, docx_path):
     title_run.font.size = Pt(14)
     title_para.paragraph_format.space_after = Pt(12)
 
-    # Collect all matches flat, grouped by platform then by playlist
+    # Collect all matches flat, tagging each with its artist/release
     all_matches = []
     for artist, releases in results.items():
         for title, matches in releases.items():
             for m in matches:
+                m['_artist'] = artist
+                m['_release'] = title
                 all_matches.append(m)
 
     if not all_matches:
@@ -957,39 +962,27 @@ def generate_dsp_docx(results, proof_image_paths, docx_path):
         doc.save(docx_path)
         return
 
-    # Sort by platform, then playlist name
     platform_order = ['Spotify', 'Apple Music', 'Deezer', 'Amazon Music', 'YouTube Music', 'Claro Música']
-    def sort_key(m):
+
+    def platform_idx(m):
         try:
-            idx = platform_order.index(m.get('platform', ''))
+            return platform_order.index(m.get('platform', ''))
         except ValueError:
-            idx = 99
-        return (idx, m.get('playlist_name', ''))
-    all_matches.sort(key=sort_key)
+            return 99
 
-    current_platform = None
+    # Helper to render a single match entry (country, playlist info, proof image)
+    import unicodedata as _ud
+    def _ascii_safe(s, maxlen):
+        s = _ud.normalize('NFKD', s).encode('ascii', 'ignore').decode()
+        return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
 
-    for m in all_matches:
+    def _render_match(m):
         platform = m.get('platform', '')
         playlist_name = m.get('playlist_name', '')
         country = m.get('playlist_country', '')
         followers = m.get('playlist_followers', '')
         track = m.get('playlist_track', '')
         artist = m.get('playlist_artist', '')
-
-        # Platform header (blue bold) — only when platform changes
-        if platform != current_platform:
-            if current_platform is not None:
-                # Add spacing between platform groups
-                doc.add_paragraph().paragraph_format.space_before = Pt(6)
-            p = doc.add_paragraph()
-            run = p.add_run(platform)
-            run.bold = True
-            run.font.color.rgb = RGBColor(0x00, 0x56, 0xD2)
-            run.font.size = Pt(12)
-            p.paragraph_format.space_before = Pt(10)
-            p.paragraph_format.space_after = Pt(2)
-            current_platform = platform
 
         # Country (underlined) if present
         if country:
@@ -1015,11 +1008,6 @@ def generate_dsp_docx(results, proof_image_paths, docx_path):
         ip.paragraph_format.space_after = Pt(4)
 
         # Embed proof image if available
-        # Find the matching proof image path
-        import unicodedata as _ud
-        def _ascii_safe(s, maxlen):
-            s = _ud.normalize('NFKD', s).encode('ascii', 'ignore').decode()
-            return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
         safe_track = _ascii_safe(track, 30)
         safe_playlist = _ascii_safe(playlist_name, 20)
         img_filename = f"proof_{safe_track}_{safe_playlist}.png"
@@ -1038,11 +1026,76 @@ def generate_dsp_docx(results, proof_image_paths, docx_path):
             fr.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
             fp.paragraph_format.space_after = Pt(8)
 
+    if grouping == 'artist':
+        # Sort by artist, then release, then platform
+        all_matches.sort(key=lambda m: (m['_artist'].lower(), m['_release'].lower(), platform_idx(m), m.get('playlist_name', '')))
+
+        current_artist = None
+        current_release = None
+        for m in all_matches:
+            # Artist header (red bold)
+            if m['_artist'] != current_artist:
+                if current_artist is not None:
+                    doc.add_paragraph().paragraph_format.space_before = Pt(6)
+                p = doc.add_paragraph()
+                run = p.add_run(m['_artist'])
+                run.bold = True
+                run.font.color.rgb = RGBColor(0xC4, 0x30, 0x30)
+                run.font.size = Pt(13)
+                p.paragraph_format.space_before = Pt(10)
+                p.paragraph_format.space_after = Pt(2)
+                current_artist = m['_artist']
+                current_release = None
+
+            # Release sub-header (dark gray bold)
+            if m['_release'] != current_release:
+                rp = doc.add_paragraph()
+                rr = rp.add_run(m['_release'])
+                rr.bold = True
+                rr.font.size = Pt(11)
+                rr.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+                rp.paragraph_format.space_before = Pt(6)
+                rp.paragraph_format.space_after = Pt(2)
+                current_release = m['_release']
+
+            # Platform label (blue, smaller)
+            pp = doc.add_paragraph()
+            pr = pp.add_run(m.get('platform', ''))
+            pr.bold = True
+            pr.font.color.rgb = RGBColor(0x00, 0x56, 0xD2)
+            pr.font.size = Pt(10)
+            pp.paragraph_format.space_before = Pt(4)
+            pp.paragraph_format.space_after = Pt(1)
+
+            _render_match(m)
+    else:
+        # Default: group by platform, then playlist name
+        all_matches.sort(key=lambda m: (platform_idx(m), m.get('playlist_name', '')))
+
+        current_platform = None
+        for m in all_matches:
+            platform = m.get('platform', '')
+
+            # Platform header (blue bold) — only when platform changes
+            if platform != current_platform:
+                if current_platform is not None:
+                    doc.add_paragraph().paragraph_format.space_before = Pt(6)
+                p = doc.add_paragraph()
+                run = p.add_run(platform)
+                run.bold = True
+                run.font.color.rgb = RGBColor(0x00, 0x56, 0xD2)
+                run.font.size = Pt(12)
+                p.paragraph_format.space_before = Pt(10)
+                p.paragraph_format.space_after = Pt(2)
+                current_platform = platform
+
+            _render_match(m)
+
     doc.save(docx_path)
     print(f"  DSP report saved: {docx_path}")
 
 
-def run_dsp_pickup(releases, playlists, output_path=None):
+def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
     """
     Main DSP pickup workflow.
     Check releases against all playlists and generate report.
@@ -1291,7 +1344,7 @@ def run_dsp_pickup(releases, playlists, output_path=None):
         # Generate .docx report with embedded proof images
         docx_path = output_path.replace('.txt', '.docx')
         print(f"Generating .docx report...")
-        generate_dsp_docx(results, proof_image_paths, docx_path)
+        generate_dsp_docx(results, proof_image_paths, docx_path, grouping=grouping)
 
     # Format output
     output_lines = ["DSP Pickup Report", "=" * 50, ""]

@@ -538,6 +538,7 @@
       <a class="btn-action" id="btn-report" href="/">Run Full Report</a>
       <a class="btn-action" id="btn-press" href="/">Run Press Search</a>
       <a class="btn-action" id="btn-dsp" href="/">Run DSP Check</a>
+      <a class="btn-action" id="btn-compare" href="/compare">Compare Artists</a>
     </div>
 
     <div class="notes-section">
@@ -982,6 +983,7 @@ function updateActionButtons(artist) {
   document.getElementById('btn-report').href = '/?tab=report&artist=' + e;
   document.getElementById('btn-press').href = '/?tab=press&artist=' + e;
   document.getElementById('btn-dsp').href = '/?tab=dsp&artist=' + e;
+  document.getElementById('btn-compare').href = '/compare?artists=' + e;
 }
 
 // ── Collect data ──
