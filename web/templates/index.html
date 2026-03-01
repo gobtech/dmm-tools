@@ -4005,6 +4005,10 @@ function formatPressReport(html) {
     else if (trimmed && /^[A-ZÁÉÍÓÚÑÜ\s\/\-]+$/.test(trimmed) && trimmed.length > 1) {
       out += `<span style="text-decoration:underline">${line}</span>\n`;
     }
+    // Source breakdown line: "Sources: 12 from RSS feeds, 3 from Google News..."
+    else if (trimmed.startsWith('Sources:')) {
+      out += `<span style="color:#9ca3af;font-size:0.9em;font-style:italic">${line}</span>\n`;
+    }
     // Media entry: "Media Name: description..."
     else if (trimmed.includes(': ')) {
       const colonIdx = line.indexOf(': ');

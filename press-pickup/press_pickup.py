@@ -104,12 +104,13 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
 
     Returns list of { title, link, snippet, domain, source }.
     Links are decoded from Google News redirects to actual article URLs.
+    Decoding is done concurrently for speed (~20 workers).
     If days is set, filters results to only include articles from the last N days.
     """
     import requests
     import xml.etree.ElementTree as ET
-    import time
     from email.utils import parsedate_to_datetime
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from googlenewsdecoder import new_decoderv1
 
     # URL path segments that indicate non-press content
@@ -129,14 +130,13 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
         print(f"    RSS fetch failed: {e}")
         return []
 
-    results = []
-    seen_urls = set()
-
     # Date cutoff for filtering
     cutoff = None
     if days:
         cutoff = datetime.now().astimezone() - timedelta(days=days)
 
+    # ── Phase 1: Parse RSS items and collect pending decodes ──────────────
+    pending = []  # (index, title, google_link, source_name, snippet)
     items = root.findall('.//item')[:max_results]
 
     for item in items:
@@ -158,29 +158,50 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
                 if pub_dt < cutoff:
                     continue
             except Exception:
-                pass  # Include if date can't be parsed
+                pass
 
-        # Strip source name suffix from title (e.g. " - Indie Rocks! Magazine")
+        # Strip source name suffix from title
         if source_name and title.endswith(f' - {source_name}'):
             title = title[: -len(f' - {source_name}')]
 
-        # Decode Google News redirect URL to actual article URL
+        pending.append((len(pending), title, google_link, source_name, snippet))
+
+    if not pending:
+        return []
+
+    # ── Phase 2: Decode all Google News URLs concurrently ─────────────────
+    def _decode(google_link):
         try:
             decoded = new_decoderv1(google_link)
             if decoded.get('status'):
-                link = decoded['decoded_url']
-            else:
-                link = google_link  # Fallback to Google URL
+                return decoded['decoded_url']
         except Exception:
-            link = google_link
+            pass
+        return google_link
 
+    decoded_urls = {}  # index → decoded_url
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        future_map = {
+            executor.submit(_decode, p[2]): p[0] for p in pending
+        }
+        for future in as_completed(future_map):
+            idx = future_map[future]
+            try:
+                decoded_urls[idx] = future.result()
+            except Exception:
+                decoded_urls[idx] = pending[idx][2]  # fallback to google link
+
+    # ── Phase 3: Build results ────────────────────────────────────────────
+    results = []
+    seen_urls = set()
+
+    for idx, title, google_link, source_name, snippet in pending:
+        link = decoded_urls.get(idx, google_link)
         domain = extract_domain(link) or ''
 
-        # Skip non-press domains
         if any(skip in domain for skip in SKIP_DOMAINS):
             continue
 
-        # Skip non-article URLs
         link_lower = link.lower()
         if any(seg in link_lower for seg in NON_PRESS_PATHS):
             continue
@@ -195,8 +216,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
                 'source': source_name,
             })
 
-        # Brief pause between URL decodings to be polite
-        time.sleep(0.1)
+    return results
 
     return results
 
@@ -368,6 +388,100 @@ Output ONLY the JSON array, nothing else."""
     return results
 
 
+def _groq_filter_relevance(all_results, artist, releases=None, log_fn=print):
+    """
+    Use Groq Llama 3.3 70B to filter out false positives from search results.
+    Returns a filtered list (articles the AI considers relevant to the artist).
+    If Groq is unavailable or fails, returns the original list unchanged (fail open).
+    """
+    import requests as _req
+
+    api_key = os.environ.get('GROQ_API_KEY')
+    if not api_key:
+        return all_results
+
+    if not all_results:
+        return all_results
+
+    # Build release context string
+    release_context = "No recent releases found."
+    if releases:
+        parts = []
+        for r in releases[:3]:  # Include up to 3 recent releases
+            parts.append(f"\"{r['title']}\" ({r['format']}, {r['date']})")
+        release_context = "Recent releases: " + ", ".join(parts)
+
+    BATCH_SIZE = 12
+    keep_flags = [True] * len(all_results)  # Default: keep everything
+
+    for batch_start in range(0, len(all_results), BATCH_SIZE):
+        batch = all_results[batch_start:batch_start + BATCH_SIZE]
+
+        article_list = []
+        for i, r in enumerate(batch):
+            title = (r.get('title') or '')[:120]
+            domain = r.get('domain', '')
+            snippet = (r.get('snippet') or '')[:150]
+            article_list.append(f'{i+1}. Title: "{title}" | Domain: {domain} | Snippet: "{snippet}"')
+
+        prompt = f"""You are filtering press search results for a Latin American music marketing report.
+Artist: {artist}
+{release_context}
+
+For each article, respond TRUE if it is actually about this musical artist (review, interview, feature, premiere, announcement, playlist mention, social media post about their music, concert/festival coverage, etc.).
+Respond FALSE if it's: about a different person/entity with the same name, not about music, not actually about this specific artist, a lyrics page, a streaming platform link, or spam/unrelated content.
+
+Articles:
+{chr(10).join(article_list)}
+
+Respond with ONLY a JSON array of booleans, e.g. [true, false, true, ...]. No other text."""
+
+        try:
+            resp = _req.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                headers={
+                    'Authorization': f'Bearer {api_key}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'model': 'llama-3.3-70b-versatile',
+                    'messages': [{'role': 'user', 'content': prompt}],
+                    'max_tokens': 256,
+                    'temperature': 0.1,
+                },
+                timeout=15,
+            )
+
+            if resp.status_code == 200:
+                content = resp.json()['choices'][0]['message']['content'].strip()
+                # Strip markdown fences if present
+                if content.startswith('```'):
+                    content = content.split('\n', 1)[1] if '\n' in content else content[3:]
+                if content.endswith('```'):
+                    content = content[:-3].strip()
+
+                verdicts = json.loads(content)
+                if isinstance(verdicts, list) and len(verdicts) == len(batch):
+                    for i, keep in enumerate(verdicts):
+                        if not keep:
+                            keep_flags[batch_start + i] = False
+                # If length mismatch, keep all (fail open)
+
+        except Exception:
+            pass  # Fail open — keep all articles in this batch
+
+    filtered = [r for r, keep in zip(all_results, keep_flags) if keep]
+    removed = len(all_results) - len(filtered)
+
+    if removed > 0:
+        log_fn(f"  AI relevance filter: kept {len(filtered)}/{len(all_results)} articles "
+               f"(removed {removed} false positives)")
+    else:
+        log_fn(f"  AI relevance filter: all {len(all_results)} articles confirmed relevant")
+
+    return filtered
+
+
 def _serper_date_within(date_str, cutoff):
     """Check if a Serper date string falls within the cutoff.
     Handles Spanish relative dates ('hace 3 días', 'hace 1 semana') and
@@ -415,6 +529,468 @@ def _serper_date_within(date_str, cutoff):
     return True  # Include if can't parse
 
 
+def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None):
+    """
+    Scan known outlet RSS feeds and WordPress APIs for artist coverage.
+    Returns results in the same format as the other search functions:
+    list of { title, link, snippet, domain, source, feed_country, feed_description, feed_media_name }
+
+    The extra feed_* fields carry the outlet metadata from the registry so that
+    the caller doesn't need to re-match against the press database.
+    """
+    import time as _time
+    import requests
+    import feedparser
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from html import unescape
+
+    registry_path = feed_registry_path or str(
+        Path(__file__).parent.parent / 'data' / 'feed_registry.json'
+    )
+
+    if not os.path.exists(registry_path):
+        print("  Feed registry not found — run discover_feeds.py for better results")
+        return []
+
+    with open(registry_path) as f:
+        registry = json.load(f)
+
+    outlets = registry.get('outlets', {})
+    rss_outlets = []
+    wp_outlets = []
+    for domain, info in outlets.items():
+        if info.get('feed_type') == 'rss' and info.get('feed_url'):
+            rss_outlets.append((domain, info))
+        elif info.get('feed_type') == 'wordpress' and info.get('wp_api_url'):
+            wp_outlets.append((domain, info))
+
+    if not rss_outlets and not wp_outlets:
+        return []
+
+    keywords_lower = [kw.lower() for kw in artist_keywords]
+    cutoff = datetime.now().astimezone() - timedelta(days=days)
+    cutoff_iso = cutoff.strftime('%Y-%m-%dT%H:%M:%S')
+
+    FEED_TIMEOUT = 8
+    FEED_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+
+    _html_tag_re = re.compile(r'<[^>]+>')
+
+    def _strip_html(text):
+        return unescape(_html_tag_re.sub('', text or ''))
+
+    results = []
+    results_lock = __import__('threading').Lock()
+    failed_count = 0
+    failed_lock = __import__('threading').Lock()
+
+    # ── RSS scanning ──────────────────────────────────────────────────────
+
+    def _scan_rss(domain_info):
+        nonlocal failed_count
+        domain, info = domain_info
+        try:
+            feed = feedparser.parse(
+                info['feed_url'],
+                agent=FEED_UA,
+                request_headers={'User-Agent': FEED_UA},
+            )
+            # feedparser doesn't natively support timeout, so we set socket default
+            if feed.bozo and not feed.entries:
+                return []
+
+            hits = []
+            for entry in feed.entries:
+                # Check publication date
+                published = entry.get('published_parsed') or entry.get('updated_parsed')
+                if published:
+                    from calendar import timegm
+                    entry_ts = timegm(published)
+                    entry_dt = datetime.fromtimestamp(entry_ts).astimezone()
+                    if entry_dt < cutoff:
+                        continue
+
+                title = entry.get('title', '')
+                summary = _strip_html(entry.get('summary', '') or entry.get('description', ''))
+                title_lower = title.lower()
+                summary_lower = summary.lower()
+
+                if not any(kw in title_lower or kw in summary_lower for kw in keywords_lower):
+                    continue
+
+                link = entry.get('link', '')
+                entry_domain = extract_domain(link) if link else domain
+
+                hits.append({
+                    'title': title,
+                    'link': link,
+                    'snippet': summary[:300],
+                    'domain': entry_domain or domain,
+                    'source': info.get('name', domain),
+                    'feed_country': info.get('country', ''),
+                    'feed_description': info.get('description', ''),
+                    'feed_media_name': info.get('name', domain),
+                })
+            return hits
+
+        except Exception:
+            with failed_lock:
+                nonlocal failed_count
+                failed_count += 1
+            return []
+
+    # ── WordPress API scanning ────────────────────────────────────────────
+
+    def _scan_wp(domain_info):
+        nonlocal failed_count
+        domain, info = domain_info
+        hits = []
+        session = requests.Session()
+        session.headers.update({'User-Agent': FEED_UA})
+
+        for kw in artist_keywords:
+            try:
+                url = info['wp_api_url']
+                params = {
+                    'search': kw,
+                    'per_page': 10,
+                    'after': cutoff_iso,
+                }
+                resp = session.get(url, params=params, timeout=FEED_TIMEOUT)
+                if resp.status_code != 200:
+                    continue
+
+                posts = resp.json()
+                if not isinstance(posts, list):
+                    continue
+
+                for post in posts:
+                    title = _strip_html(post.get('title', {}).get('rendered', ''))
+                    link = post.get('link', '')
+                    excerpt = _strip_html(post.get('excerpt', {}).get('rendered', ''))
+
+                    # Client-side keyword check — WP search can be loose
+                    title_lower = title.lower()
+                    excerpt_lower = excerpt.lower()
+                    if not any(kw in title_lower or kw in excerpt_lower for kw in keywords_lower):
+                        continue
+
+                    entry_domain = extract_domain(link) if link else domain
+
+                    hits.append({
+                        'title': title,
+                        'link': link,
+                        'snippet': excerpt[:300],
+                        'domain': entry_domain or domain,
+                        'source': info.get('name', domain),
+                        'feed_country': info.get('country', ''),
+                        'feed_description': info.get('description', ''),
+                        'feed_media_name': info.get('name', domain),
+                    })
+
+            except Exception:
+                with failed_lock:
+                    failed_count += 1
+
+        return hits
+
+    # ── Run concurrently ──────────────────────────────────────────────────
+
+    # Set socket timeout for feedparser (it doesn't have its own timeout param)
+    import socket
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(FEED_TIMEOUT)
+
+    start = _time.time()
+    all_hits = []
+
+    try:
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            futures = {}
+            for item in rss_outlets:
+                futures[executor.submit(_scan_rss, item)] = item[0]
+            for item in wp_outlets:
+                futures[executor.submit(_scan_wp, item)] = item[0]
+
+            for future in as_completed(futures):
+                try:
+                    hits = future.result()
+                    if hits:
+                        all_hits.extend(hits)
+                except Exception:
+                    pass
+    finally:
+        socket.setdefaulttimeout(old_timeout)
+
+    elapsed = _time.time() - start
+    print(f"  Scanned {len(rss_outlets)} RSS feeds + {len(wp_outlets)} WordPress APIs "
+          f"in {elapsed:.1f}s → found {len(all_hits)} articles"
+          + (f" ({failed_count} feeds failed)" if failed_count else ""))
+
+    return all_hits
+
+
+def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None):
+    """
+    Mine XML sitemaps of outlets that have no RSS feed or WordPress API.
+    Two-phase approach for speed:
+      Phase 1: Fetch all root sitemaps concurrently (107 outlets × 1 URL each)
+      Phase 2: Fetch relevant sub-sitemaps concurrently (only the handful that
+               came back as sitemap indexes with recent/news sub-sitemaps)
+    Returns results in the same format as scan_outlet_feeds().
+    """
+    import time as _time
+    import requests
+    import xml.etree.ElementTree as ET
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    registry_path = feed_registry_path or str(
+        Path(__file__).parent.parent / 'data' / 'feed_registry.json'
+    )
+
+    if not os.path.exists(registry_path):
+        return []
+
+    with open(registry_path) as f:
+        registry = json.load(f)
+
+    # Only target outlets with no feed
+    outlets = []
+    for domain, info in registry.get('outlets', {}).items():
+        if info.get('feed_type') is None:
+            outlets.append((domain, info))
+
+    if not outlets:
+        return []
+
+    keywords_lower = [kw.lower() for kw in artist_keywords]
+    # Build URL-slug variants: "Bad Bunny" → ["bad-bunny", "bad_bunny", "badbunny"]
+    slug_variants = []
+    for kw in artist_keywords:
+        kw_l = kw.lower()
+        slug_variants.append(kw_l.replace(' ', '-'))
+        slug_variants.append(kw_l.replace(' ', '_'))
+        slug_variants.append(kw_l.replace(' ', ''))
+
+    cutoff = datetime.now().astimezone() - timedelta(days=days)
+    now = datetime.now()
+
+    # Month strings to look for in sitemap index URLs (e.g. "2026-02", "2026-01")
+    relevant_months = set()
+    d = cutoff
+    while d <= now.astimezone():
+        relevant_months.add(d.strftime('%Y-%m'))
+        d += timedelta(days=28)
+    relevant_months.add(now.strftime('%Y-%m'))
+
+    TIMEOUT = 4
+    UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    WORKERS = 50
+    # XML namespaces
+    SM_NS = {'sm': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+    NEWS_NS = {'news': 'http://www.google.com/schemas/sitemap-news/0.9'}
+
+    # Shared session with connection pooling
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(pool_connections=WORKERS, pool_maxsize=WORKERS)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    session.headers.update({'User-Agent': UA})
+
+    def _fetch_xml(url):
+        """Fetch and parse an XML URL. Returns ElementTree root or None."""
+        try:
+            resp = session.get(url, timeout=TIMEOUT, allow_redirects=True)
+            if resp.status_code != 200:
+                return None
+            ct = resp.headers.get('Content-Type', '').lower()
+            if not any(x in ct for x in ('xml', 'text/html')):
+                return None
+            text = resp.text[:200].strip()
+            if not text.startswith('<?xml') and not text.startswith('<'):
+                return None
+            return ET.fromstring(resp.content)
+        except Exception:
+            return None
+
+    def _urls_from_sitemap(root):
+        """Extract <loc> URLs from a sitemap XML root."""
+        urls = []
+        for url_el in root.findall('.//sm:url', SM_NS):
+            loc = url_el.find('sm:loc', SM_NS)
+            if loc is not None and loc.text:
+                lastmod_el = url_el.find('sm:lastmod', SM_NS)
+                lastmod = lastmod_el.text if lastmod_el is not None else None
+                title = None
+                news_title = url_el.find('.//news:title', NEWS_NS)
+                if news_title is not None:
+                    title = news_title.text
+                urls.append({'loc': loc.text.strip(), 'lastmod': lastmod, 'title': title})
+        return urls
+
+    def _is_recent(lastmod_str):
+        """Check if a lastmod date is within our search range."""
+        if not lastmod_str:
+            return True
+        try:
+            date_part = lastmod_str[:10]
+            dt = datetime.strptime(date_part, '%Y-%m-%d').astimezone()
+            return dt >= cutoff
+        except Exception:
+            return True
+
+    def _url_matches_keywords(url_entry):
+        """Check if a URL or its title contains artist keywords."""
+        loc = url_entry['loc'].lower()
+        title = (url_entry.get('title') or '').lower()
+        if title and any(kw in title for kw in keywords_lower):
+            return True
+        path = loc.split('/', 3)[-1] if loc.count('/') >= 3 else loc
+        return any(slug in path for slug in slug_variants)
+
+    def _match_entries(entries):
+        """Filter sitemap entries to recent keyword matches."""
+        return [e for e in entries if _is_recent(e['lastmod']) and _url_matches_keywords(e)]
+
+    def _base_url_for(info, domain):
+        website = info.get('website', '') or f'https://{domain}'
+        if not website.startswith('http'):
+            website = f'https://{website}'
+        return website.rstrip('/')
+
+    def _is_relevant_sub(sub_url):
+        """Check if a sub-sitemap URL is worth fetching (recent month or news)."""
+        sub_lower = sub_url.lower()
+        for month in relevant_months:
+            if month in sub_lower or month.replace('-', '') in sub_lower:
+                return True
+        return any(x in sub_lower for x in
+                   ('news', 'post-sitemap', 'article', 'noticias', 'contenido'))
+
+    # ── Phase 1: Fetch root sitemaps concurrently ─────────────────────────
+    # Build all root sitemap URLs to fetch (one per outlet, prioritized)
+    # We try news-sitemap.xml first since it has titles and is usually small.
+    # If that fails we fall through to sitemap.xml then sitemap_index.xml,
+    # but we submit ALL of them upfront and short-circuit on first success.
+
+    start = _time.time()
+
+    # Build fetch tasks: (url, domain, info, priority)
+    # Lower priority number = preferred. We try all 3 concurrently per outlet
+    # and pick the first successful one.
+    fetch_tasks = []
+    for domain, info in outlets:
+        base = _base_url_for(info, domain)
+        fetch_tasks.append((f'{base}/news-sitemap.xml', domain, info, 0))
+        fetch_tasks.append((f'{base}/sitemap.xml', domain, info, 1))
+        fetch_tasks.append((f'{base}/sitemap_index.xml', domain, info, 2))
+
+    # Fetch all root sitemaps concurrently
+    # Results: domain → list of (root, priority) for successful fetches
+    outlet_roots = {}  # domain → [(root, priority, url)]
+    with ThreadPoolExecutor(max_workers=WORKERS) as executor:
+        future_map = {}
+        for url, domain, info, prio in fetch_tasks:
+            f = executor.submit(_fetch_xml, url)
+            future_map[f] = (url, domain, info, prio)
+
+        for future in as_completed(future_map):
+            url, domain, info, prio = future_map[future]
+            try:
+                root = future.result()
+                if root is not None:
+                    outlet_roots.setdefault(domain, []).append((root, prio, url, info))
+            except Exception:
+                pass
+
+    phase1_time = _time.time() - start
+
+    # ── Process roots: extract direct hits + collect sub-sitemap URLs ─────
+    all_hits = []          # final result entries
+    sub_fetch_tasks = []   # (sub_url, domain, info) for phase 2
+
+    for domain, roots in outlet_roots.items():
+        # Sort by priority — prefer news-sitemap over sitemap over index
+        roots.sort(key=lambda x: x[1])
+        found_direct = False
+
+        for root, prio, url, info in roots:
+            # Check if sitemap index (has <sitemap> children)
+            sub_sitemaps = root.findall('.//sm:sitemap', SM_NS)
+            if sub_sitemaps:
+                # Sitemap index — collect relevant sub-sitemap URLs for phase 2
+                for sm_el in sub_sitemaps:
+                    loc_el = sm_el.find('sm:loc', SM_NS)
+                    if loc_el is not None and loc_el.text:
+                        sub_url = loc_el.text.strip()
+                        if _is_relevant_sub(sub_url):
+                            sub_fetch_tasks.append((sub_url, domain, info))
+            else:
+                # Regular sitemap — scan entries directly
+                entries = _urls_from_sitemap(root)
+                hits = _match_entries(entries)
+                if hits:
+                    for h in hits:
+                        loc = h['loc']
+                        title = h.get('title') or ''
+                        if not title:
+                            path = loc.rstrip('/').rsplit('/', 1)[-1]
+                            title = path.replace('-', ' ').replace('_', ' ').title()
+                        all_hits.append({
+                            'title': title, 'link': loc, 'snippet': '',
+                            'domain': extract_domain(loc) or domain,
+                            'source': info.get('name', domain),
+                            'feed_country': info.get('country', ''),
+                            'feed_description': info.get('description', ''),
+                            'feed_media_name': info.get('name', domain),
+                        })
+                    found_direct = True
+                    break  # Got hits from this sitemap, skip lower-priority ones
+
+        # If we already got direct hits, no need for sub-sitemaps from this domain
+        if found_direct:
+            sub_fetch_tasks = [t for t in sub_fetch_tasks if t[1] != domain]
+
+    # ── Phase 2: Fetch sub-sitemaps concurrently ──────────────────────────
+    if sub_fetch_tasks:
+        with ThreadPoolExecutor(max_workers=WORKERS) as executor:
+            future_map = {}
+            for sub_url, domain, info in sub_fetch_tasks:
+                f = executor.submit(_fetch_xml, sub_url)
+                future_map[f] = (domain, info)
+
+            for future in as_completed(future_map):
+                domain, info = future_map[future]
+                try:
+                    sub_root = future.result()
+                    if sub_root is None:
+                        continue
+                    entries = _urls_from_sitemap(sub_root)
+                    hits = _match_entries(entries)
+                    for h in hits:
+                        loc = h['loc']
+                        title = h.get('title') or ''
+                        if not title:
+                            path = loc.rstrip('/').rsplit('/', 1)[-1]
+                            title = path.replace('-', ' ').replace('_', ' ').title()
+                        all_hits.append({
+                            'title': title, 'link': loc, 'snippet': '',
+                            'domain': extract_domain(loc) or domain,
+                            'source': info.get('name', domain),
+                            'feed_country': info.get('country', ''),
+                            'feed_description': info.get('description', ''),
+                            'feed_media_name': info.get('name', domain),
+                        })
+                except Exception:
+                    pass
+
+    elapsed = _time.time() - start
+    print(f"  Mined {len(outlets)} outlet sitemaps in {elapsed:.1f}s → found {len(all_hits)} articles"
+          f" (phase1: {phase1_time:.1f}s, phase2: {elapsed - phase1_time:.1f}s)")
+
+    return all_hits
+
+
 def parse_search_terms(raw_input):
     """Split free-text input into individual search keywords.
     Handles: 'PNAU, Meduza', 'PNAU ft. Meduza', 'PNAU & Meduza', 'PNAU Meduza', etc.
@@ -424,6 +1000,154 @@ def parse_search_terms(raw_input):
     terms = [t.strip() for t in terms if t.strip()]
     # If no explicit separator was found, treat the entire input as one term
     return terms if terms else [raw_input.strip()]
+
+
+def _build_enriched_queries(keywords, release_schedule_url=None):
+    """
+    Build enriched search queries using release schedule context.
+    Returns a dict with query sets for different search sources:
+    {
+      'google_news': [(query, gl, hl), ...],   # 5 region-specific queries
+      'brave_news':  [query, ...],
+      'brave_web':   [query, ...],
+      'tavily_news': query_str,
+      'tavily_web':  query_str,
+      'ddg':         [query, ...],
+    }
+    Falls back to basic artist-name queries if no release data found.
+    """
+    from shared.database import load_release_schedule
+
+    artist_base = ' OR '.join(f'"{kw}"' for kw in keywords)
+
+    # Try to load release schedule and find recent releases for this artist
+    releases = []
+    try:
+        schedule_source = release_schedule_url or RELEASE_SCHEDULE_URL
+        all_releases = load_release_schedule(schedule_source)
+
+        # Match releases to this artist (case-insensitive, check all keywords)
+        keywords_lower = [kw.lower() for kw in keywords]
+        cutoff_days = 60  # Look back 60 days for release context
+        now = datetime.now()
+
+        for rel in all_releases:
+            artist_lower = rel['artist'].lower()
+            if not any(kw in artist_lower for kw in keywords_lower):
+                continue
+
+            # Parse release date (format: "Jan 5", "Feb 14" — no year, assume current year)
+            if rel['date']:
+                try:
+                    rel_date = datetime.strptime(rel['date'] + f' {now.year}', '%b %d %Y')
+                    # Handle year boundary (e.g. Dec releases when we're in Jan)
+                    if rel_date > now + timedelta(days=30):
+                        rel_date = rel_date.replace(year=now.year - 1)
+                    days_ago = (now - rel_date).days
+                    if days_ago <= cutoff_days:
+                        releases.append({
+                            'title': rel['title'],
+                            'format': rel.get('format', 'Single'),
+                            'date': rel['date'],
+                            'days_ago': days_ago,
+                        })
+                except ValueError:
+                    pass
+    except Exception:
+        pass  # No release schedule available — fall back to basic queries
+
+    # Sort by most recent first
+    releases.sort(key=lambda r: r['days_ago'])
+
+    # ── Build query variants ──────────────────────────────────────────────
+
+    regions = [
+        ('MX', 'es-419'),  # Mexico
+        ('AR', 'es-419'),  # Argentina
+        ('BR', 'pt-BR'),   # Brazil
+        ('CL', 'es-419'),  # Chile
+        ('CO', 'es-419'),  # Colombia
+    ]
+
+    if not releases:
+        # No release context — fall back to basic queries
+        google_queries = [(artist_base, gl, hl) for gl, hl in regions]
+        brave_news = [f'"{kw}"' for kw in keywords]
+        brave_web = [f'"{kw}" música' for kw in keywords]
+        tavily_news = artist_base
+        tavily_web = f'{artist_base} música'
+        ddg = [f'{kw} música' for kw in keywords]
+
+        return {
+            'google_news': google_queries,
+            'brave_news': brave_news,
+            'brave_web': brave_web,
+            'tavily_news': tavily_news,
+            'tavily_web': tavily_web,
+            'ddg': ddg,
+            'releases': [],
+        }
+
+    # We have release context — build enriched queries
+    latest = releases[0]
+    release_title = latest['title']
+    release_format = (latest['format'] or 'Single').strip()
+
+    # Release-type keywords (Spanish / Portuguese)
+    format_kw_es = {
+        'Single': 'nuevo sencillo',
+        'Album': 'nuevo álbum',
+        'EP': 'nuevo EP',
+    }.get(release_format, 'nuevo sencillo')
+
+    format_kw_pt = {
+        'Single': 'novo single',
+        'Album': 'novo álbum',
+        'EP': 'novo EP',
+    }.get(release_format, 'novo single')
+
+    # Query variants (most specific → broadest)
+    q_release = f'{artist_base} "{release_title}"'                       # Exact release match
+    q_format_es = f'{artist_base} {format_kw_es}'                        # Spanish format keyword
+    q_format_pt = f'{artist_base} {format_kw_pt}'                        # Portuguese format keyword
+    q_broad_es = f'{artist_base} estreno OR lanzamiento OR reseña OR entrevista'
+
+    # Google News: cycle query variants across regions
+    # MX/AR get release title, CL gets Spanish format, CO gets broad, BR gets Portuguese
+    google_queries = [
+        (q_release,   'MX', 'es-419'),
+        (q_release,   'AR', 'es-419'),
+        (q_format_pt, 'BR', 'pt-BR'),
+        (q_format_es, 'CL', 'es-419'),
+        (q_broad_es,  'CO', 'es-419'),
+    ]
+
+    # Brave: release title + format keywords
+    brave_news = [f'"{kw}"' for kw in keywords]  # Keep broad for news (it's already filtered by recency)
+    brave_web = [
+        f'{artist_base} "{release_title}"',
+        f'{artist_base} {format_kw_es}',
+    ]
+
+    # Tavily: use release context
+    tavily_news = q_release
+    tavily_web = f'{artist_base} {format_kw_es}'
+
+    # DDG: release title + format
+    ddg = [
+        f'{keywords[0]} "{release_title}"',
+        f'{keywords[0]} {format_kw_es}',
+    ]
+
+    return {
+        'google_news': google_queries,
+        'brave_news': brave_news,
+        'brave_web': brave_web,
+        'tavily_news': tavily_news,
+        'tavily_web': tavily_web,
+        'ddg': ddg,
+        'releases': releases,
+    }
 
 
 def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
@@ -442,32 +1166,70 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
 
     keywords = parse_search_terms(artist)
 
-    # Search across LATAM regions via Google News RSS (free, unlimited)
-    regions = [
-        ('MX', 'es-419'),  # Mexico (Latin American Spanish)
-        ('AR', 'es-419'),  # Argentina
-        ('BR', 'pt-BR'),   # Brazil (Portuguese)
-        ('CL', 'es-419'),  # Chile
-        ('CO', 'es-419'),  # Colombia
-    ]
-
     print(f"\nSearching press for: {artist} (last {days} days)")
+
+    # Build enriched queries from release schedule context
+    queries = _build_enriched_queries(keywords)
+    if queries['releases']:
+        latest = queries['releases'][0]
+        print(f"  Release context: \"{latest['title']}\" ({latest['format']}, {latest['date']}, "
+              f"{latest['days_ago']}d ago)")
+    else:
+        print(f"  No recent releases found — using basic queries")
 
     all_results = []
     seen_urls = set()
 
-    # 1) Google News RSS — free, unlimited, best for press articles
-    for gl, hl in regions:
-        query_parts = [f'"{kw}"' for kw in keywords]
-        query = ' OR '.join(query_parts)
-        print(f"  Google News [{gl}]: {query}")
-        results = google_news_rss(query, gl=gl, hl=hl, days=days)
-        for r in results:
-            if r['link'] not in seen_urls:
-                seen_urls.add(r['link'])
-                all_results.append(r)
+    # Source tracking for breakdown summary
+    source_counts = {
+        'feeds': 0, 'sitemaps': 0, 'google_news': 0,
+        'brave': 0, 'serper': 0, 'tavily': 0, 'ddg': 0,
+    }
 
-    print(f"  Found {len(all_results)} results from Google News")
+    # 0) Feed scan — RSS feeds + WordPress APIs from known outlets (instant, free)
+    #    Uses raw keywords only — feeds are already targeted to the right outlets
+    print(f"\n  Scanning outlet feeds...")
+    feed_results = scan_outlet_feeds(keywords, days=days)
+    for r in feed_results:
+        if r['link'] not in seen_urls:
+            seen_urls.add(r['link'])
+            r['_source'] = 'feeds'
+            all_results.append(r)
+            source_counts['feeds'] += 1
+    if feed_results:
+        print(f"  Found {len(feed_results)} results from outlet feeds")
+
+    # 0b) Sitemap mining — scan outlets with no RSS/WP for URL matches
+    print(f"  Mining outlet sitemaps...")
+    sitemap_results = mine_outlet_sitemaps(keywords, days=days)
+    for r in sitemap_results:
+        if r['link'] not in seen_urls:
+            seen_urls.add(r['link'])
+            r['_source'] = 'sitemaps'
+            all_results.append(r)
+            source_counts['sitemaps'] += 1
+
+    # 1) Google News RSS — free, unlimited, enriched queries per region
+    #    Run all 5 regions concurrently (each region decodes URLs in parallel internally)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    gn_queries = queries['google_news']
+    gn_labels = [gl for _, gl, _ in gn_queries]
+    print(f"  Google News [{'/'.join(gn_labels)}]: fetching all regions concurrently...")
+
+    def _run_gn(args):
+        query, gl, hl = args
+        return gl, google_news_rss(query, gl=gl, hl=hl, days=days)
+
+    with ThreadPoolExecutor(max_workers=len(gn_queries)) as executor:
+        for gl, results in executor.map(_run_gn, gn_queries):
+            for r in results:
+                if r['link'] not in seen_urls:
+                    seen_urls.add(r['link'])
+                    r['_source'] = 'google_news'
+                    all_results.append(r)
+                    source_counts['google_news'] += 1
+
+    print(f"  Found {len(all_results)} results from feeds + Google News")
 
     # 2) Brave organic search — catches social media, blogs (free tier: 2000/month)
     brave_key = os.environ.get('BRAVE_API_KEY')
@@ -481,27 +1243,32 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
         else:
             freshness = 'py'
 
-        # Brave News — catches press articles Google News RSS might miss
-        for kw in keywords:
-            query = f'"{kw}"'
-            print(f"  Brave News: {query}")
+        # Brave News — enriched queries
+        for query in queries['brave_news']:
+            print(f"  Brave News: {query[:80]}")
             results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='news')
             for r in results:
                 if r['link'] not in seen_urls:
                     seen_urls.add(r['link'])
+                    r['_source'] = 'brave'
                     all_results.append(r)
+                    source_counts['brave'] += 1
 
-        # Brave Organic — catches blogs, smaller outlets
-        for kw in keywords:
-            query = f'"{kw}" música'
-            print(f"  Brave Web: {query}")
+        # Brave Organic — enriched queries with release context
+        for query in queries['brave_web']:
+            print(f"  Brave Web: {query[:80]}")
             results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='web')
             for r in results:
                 if r['link'] not in seen_urls:
                     seen_urls.add(r['link'])
+                    r['_source'] = 'brave'
                     all_results.append(r)
+                    source_counts['brave'] += 1
 
-    # 3) Serper — 3 credits per search: 1 news + 2 organic (social media + press keywords)
+    # 3) Serper — targeted site: queries against high-priority outlets with no results yet
+    #    Instead of broad queries (old approach), we identify which known outlets from the
+    #    feed registry haven't returned results via feeds or Google News, then use Serper's
+    #    site: operator to search them directly. ~3 credits per artist (25 domains per query).
     serper_key = os.environ.get('SERPER_API_KEY')
     if serper_key:
         import requests as _requests
@@ -515,52 +1282,157 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
         else:
             tbs = 'qdr:y'
 
-        query_parts = [f'"{kw}"' for kw in keywords]
-        base = ' OR '.join(query_parts)
+        # Load feed registry to get the outlet list with metadata
+        _registry_path = str(Path(__file__).parent.parent / 'data' / 'feed_registry.json')
+        _registry_outlets = {}
+        if os.path.exists(_registry_path):
+            with open(_registry_path) as _f:
+                _registry_outlets = json.load(_f).get('outlets', {})
 
-        serper_calls = [
-            ('news',   base),
-            ('search', f'{base} música'),
-            ('search', f'{base} lanzamiento OR álbum OR disco OR entrevista'),
-        ]
+        # Identify which outlet domains already have results
+        domains_with_results = set()
+        for r in all_results:
+            d = r.get('domain', '')
+            if d:
+                domains_with_results.add(d)
 
-        for search_type, query in serper_calls:
-            label = 'News' if search_type == 'news' else 'Web'
-            print(f"  Serper {label}: {query}")
-            try:
-                payload = {'q': query, 'gl': 'mx', 'hl': 'es', 'num': 20}
-                # Only use tbs date filter for organic search; news is already sorted by recency
-                if search_type == 'search':
-                    payload['tbs'] = tbs
-                resp = _requests.post(
-                    f'https://google.serper.dev/{search_type}',
-                    headers={'X-API-KEY': serper_key, 'Content-Type': 'application/json'},
-                    json=payload,
-                )
-                resp.raise_for_status()
-                result_key = 'news' if search_type == 'news' else 'organic'
-                cutoff = datetime.now().astimezone() - timedelta(days=days)
-                for item in resp.json().get(result_key, []):
-                    # Filter news results by date (Serper returns 'date' like "hace 3 días", "8 oct 2025")
-                    if search_type == 'news':
-                        date_str = item.get('date', '')
-                        if not _serper_date_within(date_str, cutoff):
+        # Collect high-priority outlets with no results: have a real country
+        # and were not already covered by feed scan or Google News
+        _SKIP_TERRITORIES = {'LATAM', 'PENDING', 'CANCELLED', ''}
+        no_result_outlets = []
+        for domain, info in _registry_outlets.items():
+            country = (info.get('country') or '').upper().strip()
+            # Skip outlets with no real country — check each part of multi-value territories
+            country_parts = {p.strip() for p in country.split(',')}
+            if not country_parts - _SKIP_TERRITORIES:
+                continue
+            if domain not in domains_with_results:
+                no_result_outlets.append((domain, info))
+
+        if no_result_outlets:
+            query_parts = [f'"{kw}"' for kw in keywords]
+            artist_query = ' OR '.join(query_parts)
+
+            # Batch domains into groups of 8 for site: queries
+            # (25 was too large — Serper returns 400 on very long queries)
+            BATCH_SIZE = 8
+            serper_credits_used = 0
+            MAX_CREDITS = 3
+
+            for batch_start in range(0, len(no_result_outlets), BATCH_SIZE):
+                if serper_credits_used >= MAX_CREDITS:
+                    break
+
+                batch = no_result_outlets[batch_start:batch_start + BATCH_SIZE]
+                site_parts = ' OR '.join(f'site:{d}' for d, _ in batch)
+                query = f'{artist_query} ({site_parts})'
+
+                print(f"  Serper targeted [{len(batch)} outlets]: {artist_query} + {len(batch)} site: filters")
+                try:
+                    # Note: tbs (time filter) is incompatible with multi-site OR
+                    # queries on Serper — returns 400. We omit it here; recency
+                    # is still handled by the article processing / date checks.
+                    payload = {
+                        'q': query,
+                        'gl': 'mx',
+                        'hl': 'es',
+                        'num': 20,
+                    }
+                    resp = _requests.post(
+                        'https://google.serper.dev/search',
+                        headers={'X-API-KEY': serper_key, 'Content-Type': 'application/json'},
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+                    serper_credits_used += 1
+
+                    added = 0
+                    for item in resp.json().get('organic', []):
+                        link = item.get('link', '')
+                        domain = extract_domain(link) or ''
+                        if any(skip in domain for skip in SKIP_DOMAINS):
                             continue
+                        if link not in seen_urls:
+                            seen_urls.add(link)
 
-                    link = item.get('link', '')
-                    domain = extract_domain(link) or ''
-                    if any(skip in domain for skip in SKIP_DOMAINS):
-                        continue
-                    if link not in seen_urls:
-                        seen_urls.add(link)
-                        all_results.append({
-                            'title': item.get('title', ''),
-                            'link': link,
-                            'snippet': item.get('snippet', ''),
-                            'domain': domain,
-                        })
-            except Exception as e:
-                print(f"    Serper failed: {e}")
+                            # Look up registry metadata for this domain
+                            reg_info = _registry_outlets.get(domain)
+                            result_entry = {
+                                'title': item.get('title', ''),
+                                'link': link,
+                                'snippet': item.get('snippet', ''),
+                                'domain': domain,
+                            }
+
+                            # Pre-classify with registry metadata if we have it
+                            if reg_info:
+                                result_entry['feed_media_name'] = reg_info.get('name', domain)
+                                result_entry['feed_country'] = reg_info.get('country', '')
+                                result_entry['feed_description'] = reg_info.get('description', '')
+                                result_entry['source'] = reg_info.get('name', domain)
+
+                            result_entry['_source'] = 'serper'
+                            all_results.append(result_entry)
+                            added += 1
+                            source_counts['serper'] += 1
+
+                    print(f"    → {added} new results")
+
+                except Exception as e:
+                    print(f"    Serper targeted failed: {e}")
+                    serper_credits_used += 1  # Count failed attempts too
+        else:
+            print(f"  Serper: all registry outlets already covered — skipping")
+
+    # ── Old Serper approach (broad queries) ────────────────────────────────
+    # Replaced by targeted site: queries above. The old approach used 3 broad
+    # queries per artist (1 news + 2 organic with music keywords), which burned
+    # the same ~3 credits but returned mostly results we'd already found via
+    # Google News RSS, plus lots of non-LATAM noise to filter out.
+    #
+    # if serper_key:
+    #     import requests as _requests
+    #     query_parts = [f'"{kw}"' for kw in keywords]
+    #     base = ' OR '.join(query_parts)
+    #     serper_calls = [
+    #         ('news',   base),
+    #         ('search', f'{base} música'),
+    #         ('search', f'{base} lanzamiento OR álbum OR disco OR entrevista'),
+    #     ]
+    #     for search_type, query in serper_calls:
+    #         label = 'News' if search_type == 'news' else 'Web'
+    #         print(f"  Serper {label}: {query}")
+    #         try:
+    #             payload = {'q': query, 'gl': 'mx', 'hl': 'es', 'num': 20}
+    #             if search_type == 'search':
+    #                 payload['tbs'] = tbs
+    #             resp = _requests.post(
+    #                 f'https://google.serper.dev/{search_type}',
+    #                 headers={'X-API-KEY': serper_key, 'Content-Type': 'application/json'},
+    #                 json=payload,
+    #             )
+    #             resp.raise_for_status()
+    #             result_key = 'news' if search_type == 'news' else 'organic'
+    #             cutoff = datetime.now().astimezone() - timedelta(days=days)
+    #             for item in resp.json().get(result_key, []):
+    #                 if search_type == 'news':
+    #                     date_str = item.get('date', '')
+    #                     if not _serper_date_within(date_str, cutoff):
+    #                         continue
+    #                 link = item.get('link', '')
+    #                 domain = extract_domain(link) or ''
+    #                 if any(skip in domain for skip in SKIP_DOMAINS):
+    #                     continue
+    #                 if link not in seen_urls:
+    #                     seen_urls.add(link)
+    #                     all_results.append({
+    #                         'title': item.get('title', ''),
+    #                         'link': link,
+    #                         'snippet': item.get('snippet', ''),
+    #                         'domain': domain,
+    #                     })
+    #         except Exception as e:
+    #             print(f"    Serper failed: {e}")
 
     # 4) Tavily — 2 credits per artist: 1 news + 1 general (free tier: 1000/month recurring)
     tavily_key = os.environ.get('TAVILY_API_KEY')
@@ -576,15 +1448,12 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
         else:
             time_range = 'year'
 
-        query_parts = [f'"{kw}"' for kw in keywords]
-        base = ' OR '.join(query_parts)
-
         tavily_calls = [
-            # News search — catches press articles (no country filter for news topic)
-            {'query': base, 'topic': 'news', 'time_range': time_range,
+            # News search — enriched with release context
+            {'query': queries['tavily_news'], 'topic': 'news', 'time_range': time_range,
              'max_results': 20, 'search_depth': 'basic'},
-            # General search with country=mexico — catches blogs, smaller outlets
-            {'query': f'{base} música', 'topic': 'general', 'country': 'mexico',
+            # General search with country=mexico — enriched with release keywords
+            {'query': queries['tavily_web'], 'topic': 'general', 'country': 'mexico',
              'time_range': time_range, 'max_results': 20, 'search_depth': 'basic'},
         ]
 
@@ -613,8 +1482,10 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                             'link': link,
                             'snippet': item.get('content', ''),
                             'domain': domain,
+                            '_source': 'tavily',
                         })
                         added += 1
+                        source_counts['tavily'] += 1
                 print(f"    → {added} new results")
             except Exception as e:
                 print(f"    Tavily failed: {e}")
@@ -624,9 +1495,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     try:
         from duckduckgo_search import DDGS
 
-        ddg_queries = [f'{kw} música' for kw in keywords]
-
-        for query in ddg_queries:
+        for query in queries['ddg']:
             print(f"  DuckDuckGo News: {query}")
             try:
                 ddg = DDGS()
@@ -644,8 +1513,10 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                             'link': link,
                             'snippet': item.get('body', ''),
                             'domain': domain,
+                            '_source': 'ddg',
                         })
                         added += 1
+                        source_counts['ddg'] += 1
                 print(f"    → {added} new results")
             except Exception as e:
                 print(f"    DuckDuckGo failed: {e}")
@@ -653,6 +1524,13 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
         print("  DuckDuckGo: skipped (duckduckgo_search not installed)")
 
     print(f"\nFound {len(all_results)} total unique results")
+
+    # AI relevance filter — remove false positives using Groq (free, optional)
+    all_results = _groq_filter_relevance(
+        all_results, artist,
+        releases=queries.get('releases'),
+        log_fn=print,
+    )
 
     # Match against press database and group by country
     country_results = {}
@@ -663,6 +1541,35 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     for result in all_results:
         domain = result['domain']
 
+        # ── Feed-sourced results: pre-classified, skip all matching logic ──
+        if result.get('feed_media_name'):
+            media_name = result['feed_media_name']
+            description = result.get('feed_description', '')
+            country = normalize_country(result.get('feed_country', 'LATAM').upper())
+            # Handle multi-country territories — use first real country
+            if ',' in country:
+                parts = [p.strip() for p in country.split(',')]
+                country = next(
+                    (p for p in parts if p not in ('PENDING', 'CANCELLED', '')),
+                    'LATAM'
+                )
+            if not country or country in ('PENDING', 'CANCELLED'):
+                country = 'LATAM'
+
+            country = normalize_country(country)
+            if country not in country_results:
+                country_results[country] = []
+            country_results[country].append({
+                'media_name': media_name,
+                'description': description,
+                'url': result['link'],
+                'title': result['title'],
+                'snippet': result['snippet'],
+                'in_database': True,  # Feed outlets are from our registry
+            })
+            continue
+
+        # ── Standard results: keyword check + DB matching ──
         # Check if article is actually about any of the search keywords
         # Require at least one keyword in the title (snippet alone is too loose —
         # e.g. "Meduza" the Russian news outlet can appear in unrelated articles)
@@ -742,7 +1649,25 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
 
     if skipped:
         print(f"  Filtered out {skipped} non-LATAM or irrelevant results")
-    
+
+    # Source breakdown summary
+    source_labels = {
+        'feeds': 'Outlet Feeds (RSS/WP)',
+        'sitemaps': 'Sitemap Mining',
+        'google_news': 'Google News',
+        'brave': 'Brave Search',
+        'serper': 'Serper (targeted)',
+        'tavily': 'Tavily',
+        'ddg': 'DuckDuckGo',
+    }
+    active_sources = [(source_labels[k], v) for k, v in source_counts.items() if v > 0]
+    if active_sources:
+        parts = [f"{count} from {label}" for label, count in active_sources]
+        source_summary = "Sources: " + ", ".join(parts)
+        print(f"\n  {source_summary}")
+    else:
+        source_summary = ""
+
     # Format output
     output_lines = [f"Press Pickup — {artist}\n"]
     
@@ -761,7 +1686,11 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             output_lines.append(f"{entry['media_name']}: {entry['description']}{db_flag}")
             output_lines.append(entry['url'])
             output_lines.append("")
-    
+
+    if source_summary:
+        output_lines.append("")
+        output_lines.append(source_summary)
+
     output_text = '\n'.join(output_lines)
     
     # Save or print
