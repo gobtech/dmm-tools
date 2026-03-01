@@ -91,6 +91,22 @@ SOCIAL_MEDIA_DOMAINS = {
     'twitter.com': 'X (Twitter)',
 }
 
+# Map social media domains to url_type keys for grouping
+_SOCIAL_DOMAIN_TYPE = {
+    'instagram.com': 'instagram',
+    'facebook.com': 'facebook',
+    'x.com': 'x',
+    'twitter.com': 'x',
+}
+
+# Display labels for URL types (None = no prefix)
+_URL_TYPE_LABELS = {
+    'article': None,
+    'instagram': 'Instagram',
+    'facebook': 'Facebook',
+    'x': 'X',
+}
+
 # Domains to skip (streaming platforms, ticket sales, lyrics, etc.)
 SKIP_DOMAINS = {
     'spotify.com', 'apple.com', 'music.apple.com', 'youtube.com',
@@ -144,6 +160,35 @@ def _is_generic_com_domain(domain: str) -> bool:
 def _has_latam_url_indicators(url: str) -> bool:
     """Check if a URL contains LATAM language/region indicators in its path."""
     return bool(LATAM_URL_INDICATORS.search(url) or LATAM_SLUG_WORDS.search(url))
+
+
+# Tracking query params to strip during URL normalization
+_TRACKING_PARAMS = re.compile(
+    r'[?&](?:utm_\w+|ref|fbclid|gclid|source|mc_cid|mc_eid|__twitter_impression'
+    r'|_ga|ncid|ocid|dicbo|cmpid|cmp)=[^&#]*',
+    re.IGNORECASE,
+)
+
+
+def _normalize_url(url: str) -> str:
+    """Normalize a URL for deduplication: strip tracking params, amp, www, etc."""
+    u = url.strip()
+    # http → https
+    if u.startswith('http://'):
+        u = 'https://' + u[7:]
+    # Strip www.
+    u = re.sub(r'^(https://)www\.', r'\1', u)
+    # Strip trailing /amp/ or /amp
+    u = re.sub(r'/amp/?$', '', u)
+    # Strip query-string tracking params
+    u = _TRACKING_PARAMS.sub('', u)
+    # Clean up orphaned ? or & at end
+    u = re.sub(r'[?&]+$', '', u)
+    # If query string starts with & instead of ? after stripping, fix it
+    u = re.sub(r'\?&', '?', u)
+    # Strip trailing slash
+    u = u.rstrip('/')
+    return u
 
 
 # Instagram paths that are content, not profile handles
@@ -292,8 +337,9 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
         if any(seg in link_lower for seg in NON_PRESS_PATHS):
             continue
 
-        if link not in seen_urls:
-            seen_urls.add(link)
+        norm = _normalize_url(link)
+        if norm not in seen_urls:
+            seen_urls.add(norm)
             results.append({
                 'title': title,
                 'link': link,
@@ -301,8 +347,6 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
                 'domain': domain,
                 'source': source_name,
             })
-
-    return results
 
     return results
 
@@ -1303,6 +1347,33 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
     }
 
 
+def _group_entries_by_outlet(entries):
+    """Group results by outlet name, merging multiple URLs per outlet."""
+    grouped = {}
+    for entry in entries:
+        name = entry['media_name']
+        if name not in grouped:
+            grouped[name] = {
+                'media_name': name,
+                'description': entry['description'],
+                'urls': [],
+                'in_database': entry['in_database'],
+            }
+        # Don't add duplicate URLs (normalize to catch amp/trailing slash variants)
+        existing_normalized = {_normalize_url(u['url']) for u in grouped[name]['urls']}
+        if _normalize_url(entry['url']) not in existing_normalized:
+            grouped[name]['urls'].append({
+                'url': entry['url'],
+                'type': entry.get('url_type', 'article'),
+                'title': entry.get('title', ''),
+            })
+        # Prefer DB info over placeholder
+        if entry['in_database'] and not grouped[name]['in_database']:
+            grouped[name]['in_database'] = True
+            grouped[name]['description'] = entry['description']
+    return list(grouped.values())
+
+
 def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     """
     Main press pickup workflow for a single artist.
@@ -1358,8 +1429,8 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     print(f"\n  Scanning outlet feeds...")
     feed_results = scan_outlet_feeds(keywords, days=days)
     for r in feed_results:
-        if r['link'] not in seen_urls:
-            seen_urls.add(r['link'])
+        if _normalize_url(r['link']) not in seen_urls:
+            seen_urls.add(_normalize_url(r['link']))
             r['_source'] = 'feeds'
             all_results.append(r)
             source_counts['feeds'] += 1
@@ -1370,8 +1441,8 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     print(f"  Mining outlet sitemaps...")
     sitemap_results = mine_outlet_sitemaps(keywords, days=days)
     for r in sitemap_results:
-        if r['link'] not in seen_urls:
-            seen_urls.add(r['link'])
+        if _normalize_url(r['link']) not in seen_urls:
+            seen_urls.add(_normalize_url(r['link']))
             r['_source'] = 'sitemaps'
             all_results.append(r)
             source_counts['sitemaps'] += 1
@@ -1519,8 +1590,8 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                         domain = extract_domain(link) or ''
                         if any(skip in domain for skip in SKIP_DOMAINS):
                             continue
-                        if link not in seen_urls:
-                            seen_urls.add(link)
+                        if _normalize_url(link) not in seen_urls:
+                            seen_urls.add(_normalize_url(link))
 
                             # Look up registry metadata for this domain
                             reg_info = _registry_outlets.get(domain)
@@ -1642,8 +1713,8 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                     domain = extract_domain(link) or ''
                     if any(skip in domain for skip in SKIP_DOMAINS):
                         continue
-                    if link not in seen_urls:
-                        seen_urls.add(link)
+                    if _normalize_url(link) not in seen_urls:
+                        seen_urls.add(_normalize_url(link))
                         all_results.append({
                             'title': item.get('title', ''),
                             'link': link,
@@ -1673,8 +1744,8 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                     domain = extract_domain(link) or ''
                     if any(skip in domain for skip in SKIP_DOMAINS):
                         continue
-                    if link not in seen_urls:
-                        seen_urls.add(link)
+                    if _normalize_url(link) not in seen_urls:
+                        seen_urls.add(_normalize_url(link))
                         all_results.append({
                             'title': item.get('title', ''),
                             'link': link,
@@ -1750,6 +1821,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                 'title': result['title'],
                 'snippet': result['snippet'],
                 'in_database': True,  # Feed outlets are from our registry
+                'url_type': 'article',
             })
             continue
 
@@ -1803,7 +1875,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                 platform_handles = social_handle_lookup.get(platform_key, {})
                 outlet_info = platform_handles.get(handle)
                 if outlet_info:
-                    media_name = f"{outlet_info['name']} ({platform_label})"
+                    media_name = outlet_info['name']
                     # Look up full description from press DB
                     outlet_entry = press_index.get(outlet_info['name'].lower().strip())
                     if not outlet_entry:
@@ -1858,6 +1930,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             'title': result['title'],
             'snippet': result['snippet'],
             'in_database': media_entry is not None,
+            'url_type': _SOCIAL_DOMAIN_TYPE.get(domain, 'article'),
         })
 
     # Batch-enrich new outlet descriptions with Groq AI (free)
@@ -1877,6 +1950,10 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                 for entry in country_entries:
                     if not entry['in_database'] and entry['media_name'] in enriched:
                         entry['description'] = enriched[entry['media_name']]
+
+    # Group results by outlet within each country (merges multiple URLs per outlet)
+    for country in country_results:
+        country_results[country] = _group_entries_by_outlet(country_results[country])
 
     if skipped:
         print(f"  Filtered out {skipped} non-LATAM or irrelevant results")
@@ -1912,21 +1989,29 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
 
     # Format output
     output_lines = [f"Press Pickup — {artist}\n"]
-    
+
     for country in sorted(country_results.keys()):
         entries = country_results[country]
         output_lines.append(f"\n{country}")
-        
-        # Deduplicate by media name
-        seen_media = set()
+
         for entry in entries:
-            if entry['media_name'] in seen_media:
-                continue
-            seen_media.add(entry['media_name'])
-            
             db_flag = "" if entry['in_database'] else " [NEW — not in DB]"
             output_lines.append(f"{entry['media_name']}: {entry['description']}{db_flag}")
-            output_lines.append(entry['url'])
+            urls = entry['urls']
+            if len(urls) == 1:
+                u = urls[0]
+                label = _URL_TYPE_LABELS.get(u['type'])
+                if label:
+                    output_lines.append(f"{label}: {u['url']}")
+                else:
+                    output_lines.append(u['url'])
+            else:
+                for u in urls:
+                    label = _URL_TYPE_LABELS.get(u['type'])
+                    if label:
+                        output_lines.append(f"• {label}: {u['url']}")
+                    else:
+                        output_lines.append(f"• {u['url']}")
             output_lines.append("")
 
     if source_summary:
@@ -1990,13 +2075,7 @@ def _generate_press_docx(artist, country_results, docx_path):
         country_para.paragraph_format.space_before = Pt(12)
         country_para.paragraph_format.space_after = Pt(2)
 
-        # Deduplicate by media name
-        seen_media = set()
         for entry in entries:
-            if entry['media_name'] in seen_media:
-                continue
-            seen_media.add(entry['media_name'])
-
             db_flag = "" if entry['in_database'] else " [NEW — not in DB]"
 
             # Media entry: bold name + normal description
@@ -2010,9 +2089,26 @@ def _generate_press_docx(artist, country_results, docx_path):
             desc_run.font.size = Pt(10)
             media_para.paragraph_format.space_before = Pt(6)
 
-            # URL as a clickable hyperlink on its own paragraph
-            url_para = doc.add_paragraph()
-            _add_hyperlink(url_para, entry['url'], entry['url'])
+            # URLs — single or multiple
+            urls = entry.get('urls', [])
+            if len(urls) == 1:
+                u = urls[0]
+                url_para = doc.add_paragraph()
+                label = _URL_TYPE_LABELS.get(u['type'])
+                if label:
+                    prefix_run = url_para.add_run(f"{label}: ")
+                    prefix_run.font.size = Pt(10)
+                _add_hyperlink(url_para, u['url'], u['url'])
+            else:
+                for u in urls:
+                    url_para = doc.add_paragraph()
+                    label = _URL_TYPE_LABELS.get(u['type'])
+                    if label:
+                        prefix_run = url_para.add_run(f"• {label}: ")
+                    else:
+                        prefix_run = url_para.add_run("• ")
+                    prefix_run.font.size = Pt(10)
+                    _add_hyperlink(url_para, u['url'], u['url'])
 
     doc.save(docx_path)
 

@@ -6,7 +6,7 @@ DMM (Dorado Music Marketing) is a LATAM-focused music marketing company managing
 
 Three reporting workflows have already been automated in `dmm-tools`:
 1. **Radio Report** — Soundcharts airplay data → formatted .docx
-2. **Press Pickup** — 5-source search (Google News RSS + Brave + Serper + Tavily + DuckDuckGo News) → DB matching → grouped .docx
+2. **Press Pickup** — 7-source pipeline (RSS feeds + sitemaps + Google News RSS + Brave + Serper + Tavily + DuckDuckGo News) → AI relevance filter → social handle classification → DB matching → grouped .docx
 3. **DSP Pickup** — 6-platform playlist checker → proof images → .docx
 
 This document identifies the next wave of automation opportunities based on analysis of:

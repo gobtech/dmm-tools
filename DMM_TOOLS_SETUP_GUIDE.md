@@ -10,7 +10,7 @@ This toolkit replaces that manual work with three tools:
 
 - **Radio Report Generator** — Auto-fetches airplay data directly from Soundcharts (using your existing paid account session) and produces formatted Word documents with radio play data grouped by country and station. Defaults to LATAM-only data, with an option for all countries. What used to involve manual CSV downloads and copy-pasting into Google Docs now runs in seconds with zero transcription errors.
 
-- **Press Pickup Tool** — Searches for Spanish and Portuguese-language press coverage using a 5-source hybrid approach: Google News RSS (free, unlimited — primary press source across 5 LATAM regions), Brave Search (free, 2,000/month — supplementary press), Serper.dev (3 credits/search — actual Google results including social media posts from Instagram, Facebook, and X), Tavily (free 1,000/month — AI-optimized search), and DuckDuckGo News (free, unlimited via `duckduckgo_search` library). Results are matched against DMM's internal media database (1,500+ outlets with descriptions and reach metrics from Notion) and formatted into reports sorted by country. Social media posts are displayed with platform labels. New outlet descriptions are auto-generated via Groq AI. Reports are downloadable as formatted .docx files.
+- **Press Pickup Tool** — Searches for Spanish and Portuguese-language press coverage using a 7-source pipeline: RSS/WordPress feed scanning (430 feeds), XML sitemap mining (333 outlets), Google News RSS (free, unlimited — 5 LATAM regions concurrent), Brave Search (free, 2,000/month), Serper.dev (targeted site: queries against known outlets), Tavily (free 1,000/month — AI-optimized search), and DuckDuckGo News (free, unlimited). A Groq AI relevance filter removes false positives. Results are matched against DMM's internal media database (1,500+ outlets) and formatted into reports sorted by country. Social media posts are intelligently classified using a handle registry (536 outlets with discovered handles): posts from known press outlets are included with the outlet's name and description, artist's own accounts are excluded, and unknown accounts are filtered out. Multi-regional outlet detection prevents US editions (e.g. rollingstone.com) from being misclassified under LATAM countries. New outlet descriptions are auto-generated via Groq AI. Reports are downloadable as formatted .docx files.
 
 - **DSP Pickup Tool** — Checks 99 LATAM editorial playlists across Spotify, Deezer, Apple Music, Amazon Music, Claro Música, and YouTube Music against DMM's release schedule (pulled live from a shared Google Sheet) to find artist placements. All 6 platforms are fully automated with no API keys required: Spotify uses public embed page scraping (50 playlists), Deezer uses its public API (6 playlists), Apple Music uses public page scraping (16 playlists), Amazon Music uses public embed page scraping (6 playlists), Claro Música uses anonymous login with server-side rendered state parsing (4 playlists), and YouTube Music uses the innertube API for clean song titles (16 playlists). Each match includes the playlist link for quick verification. The tool generates composite proof images (showing playlist cover art, track position, and platform badge) and a formatted .docx report with platform headers, country labels, playlist metadata, and embedded proof images — ready to share with clients.
 
@@ -220,7 +220,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 |--------|--------------|
 | Soundcharts airplay | Automatic — fetched live via API on each Radio Report run |
 | Soundcharts auth | Automatic — token refreshes programmatically via login |
-| Press database | Re-export from Notion, replace `data/press_database.csv` |
+| Press database | Re-export from Notion, replace `data/press_database.csv`, then regenerate registries: `python press-pickup/discover_feeds.py` and `python press-pickup/discover_social_handles.py` |
 | Playlist database | Re-export from Notion, replace `data/playlist_database.csv` |
 | Release schedule | Automatic — pulls live from Google Sheets on every run |
 
@@ -229,7 +229,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 | Task | Status |
 |------|--------|
 | Radio play reports (Soundcharts auto-fetch) | Fully automated (LATAM default, all countries optional) |
-| Press pickup (Google News RSS + Brave + Serper + Tavily + DuckDuckGo) | Fully automated (5-source hybrid: free RSS + Brave + Serper + Tavily + DDG News, includes social media posts, .docx download) |
+| Press pickup (7-source pipeline) | Fully automated (RSS feeds + sitemaps + Google News + Brave + Serper + Tavily + DDG News, smart social media classification via handle registry, .docx download) |
 | DSP pickup — Spotify playlists (50) | Fully automated (embed scraping, no API key) |
 | DSP pickup — Deezer playlists (6) | Fully automated (public API, no key) |
 | DSP pickup — Apple Music playlists (16) | Fully automated (page scraping, no API key) |
