@@ -45,6 +45,10 @@ PRESS_DB_PATH = os.environ.get(
     str(Path(__file__).parent.parent / 'data' / 'press_database.csv')
 )
 
+SOCIAL_HANDLE_REGISTRY_PATH = str(
+    Path(__file__).parent.parent / 'data' / 'social_handle_registry.json'
+)
+
 RELEASE_SCHEDULE_URL = os.environ.get(
     'RELEASE_SCHEDULE_URL',
     'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
@@ -140,6 +144,48 @@ def _is_generic_com_domain(domain: str) -> bool:
 def _has_latam_url_indicators(url: str) -> bool:
     """Check if a URL contains LATAM language/region indicators in its path."""
     return bool(LATAM_URL_INDICATORS.search(url) or LATAM_SLUG_WORDS.search(url))
+
+
+# Instagram paths that are content, not profile handles
+_INSTAGRAM_NON_HANDLE = {'p', 'reel', 'reels', 'stories', 'tv', 'explore', 'accounts', 'direct'}
+# Facebook paths that are not page names
+_FACEBOOK_NON_HANDLE = {
+    'sharer', 'sharer.php', 'share', 'dialog', 'plugins', 'login',
+    'watch', 'groups', 'events', 'marketplace', 'gaming', 'help',
+    'permalink.php', 'story.php', 'photo.php', 'video', 'pg',
+    'profile.php', 'pages', 'policies', 'privacy',
+}
+# X/Twitter paths that are not handles
+_TWITTER_NON_HANDLE = {'intent', 'share', 'search', 'explore', 'home', 'hashtag', 'i', 'settings'}
+
+
+def _extract_social_handle(url: str) -> tuple[str, str] | None:
+    """Extract (platform, handle) from a social media URL.
+
+    Returns None if the handle can't be determined (e.g. instagram.com/p/... posts).
+    """
+    match = re.match(r'https?://(?:www\.)?([\w.]+)/([^/?&#]+)', url)
+    if not match:
+        return None
+    host, first_segment = match.group(1).lower(), match.group(2).lower()
+    # Strip @ prefix if present
+    first_segment = first_segment.lstrip('@')
+    if not first_segment or len(first_segment) < 2:
+        return None
+
+    if 'instagram.com' in host:
+        if first_segment in _INSTAGRAM_NON_HANDLE:
+            return None  # Post/reel URL — handle not determinable
+        return ('instagram', first_segment)
+    elif 'facebook.com' in host:
+        if first_segment in _FACEBOOK_NON_HANDLE:
+            return None
+        return ('facebook', first_segment)
+    elif 'twitter.com' in host or host == 'x.com':
+        if first_segment in _TWITTER_NON_HANDLE:
+            return None
+        return ('twitter', first_segment)
+    return None
 
 
 def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
@@ -1271,6 +1317,20 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
         print(f"Warning: Press database not found at {db_path}")
         press_index, press_entries = {}, []
 
+    # Load social handle registry for social media classification
+    social_handle_lookup = None  # None = registry not available
+    if os.path.exists(SOCIAL_HANDLE_REGISTRY_PATH):
+        try:
+            with open(SOCIAL_HANDLE_REGISTRY_PATH) as f:
+                _social_data = json.load(f)
+            social_handle_lookup = _social_data.get('handle_to_outlet', {})
+            _social_outlets = _social_data.get('stats', {}).get('with_any_social', '?')
+            print(f"  Loaded social handle registry ({_social_outlets} outlets with handles)")
+        except Exception:
+            social_handle_lookup = None
+    if social_handle_lookup is None:
+        print("  Social handle registry not found — run discover_social_handles.py for better social media classification.")
+
     keywords = parse_search_terms(artist)
 
     print(f"\nSearching press for: {artist} (last {days} days)")
@@ -1644,6 +1704,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     skipped = 0
     keywords_lower = [k.lower() for k in keywords]
     new_outlets_to_enrich = []  # Collect new outlets for batch AI enrichment
+    social_stats = {'known_outlet': 0, 'artist_account': 0, 'unknown': 0}
 
     for result in all_results:
         domain = result['domain']
@@ -1725,11 +1786,49 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                 country = 'LATAM'
                 media_name = f"{media_name} (US edition)"
         elif domain in SOCIAL_MEDIA_DOMAINS:
-            # Social media post — include under LATAM with platform name
-            media_name = SOCIAL_MEDIA_DOMAINS[domain]
-            description = result['title']
-            if not country:
-                country = 'LATAM'
+            # ── Social media classification ──
+            platform_label = SOCIAL_MEDIA_DOMAINS[domain]
+            handle_info = _extract_social_handle(result['link'])
+
+            if social_handle_lookup is not None and handle_info:
+                platform_key, handle = handle_info
+
+                # Check if it's the artist's own account
+                if any(kw in handle for kw in keywords_lower):
+                    social_stats['artist_account'] += 1
+                    skipped += 1
+                    continue
+
+                # Check if handle belongs to a known outlet
+                platform_handles = social_handle_lookup.get(platform_key, {})
+                outlet_info = platform_handles.get(handle)
+                if outlet_info:
+                    media_name = f"{outlet_info['name']} ({platform_label})"
+                    # Look up full description from press DB
+                    outlet_entry = press_index.get(outlet_info['name'].lower().strip())
+                    if not outlet_entry:
+                        outlet_entry = press_index.get(outlet_info.get('domain', ''))
+                    description = (outlet_entry or {}).get('description', '') or result['title']
+                    country = normalize_country(outlet_info.get('country', 'LATAM').upper())
+                    if not country or country in ('PENDING', 'CANCELLED'):
+                        country = 'LATAM'
+                    social_stats['known_outlet'] += 1
+                else:
+                    # Unknown handle — exclude
+                    social_stats['unknown'] += 1
+                    skipped += 1
+                    continue
+            elif social_handle_lookup is not None:
+                # URL pattern not parseable (e.g. instagram.com/p/...) — exclude
+                social_stats['unknown'] += 1
+                skipped += 1
+                continue
+            else:
+                # No registry — fall back to old behavior
+                media_name = platform_label
+                description = result['title']
+                if not country:
+                    country = 'LATAM'
         elif is_latam_domain(domain):
             # New outlet with LATAM TLD — placeholder description, enrich later
             media_name = domain.split('.')[0].title() if domain else 'Unknown'
@@ -1781,6 +1880,17 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
 
     if skipped:
         print(f"  Filtered out {skipped} non-LATAM or irrelevant results")
+
+    # Social media classification summary
+    if any(social_stats.values()):
+        parts = []
+        if social_stats['known_outlet']:
+            parts.append(f"{social_stats['known_outlet']} from known outlets")
+        if social_stats['artist_account']:
+            parts.append(f"{social_stats['artist_account']} artist accounts (excluded)")
+        if social_stats['unknown']:
+            parts.append(f"{social_stats['unknown']} unknown (excluded)")
+        print(f"  Social media: {', '.join(parts)}")
 
     # Source breakdown summary
     source_labels = {
