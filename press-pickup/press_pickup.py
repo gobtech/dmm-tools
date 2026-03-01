@@ -390,53 +390,84 @@ Output ONLY the JSON array, nothing else."""
     return results
 
 
-def _groq_filter_relevance(all_results, artist, releases=None, log_fn=print):
+def _groq_filter_relevance(all_results, artist, keywords, releases=None, log_fn=print):
     """
     Use Groq Llama 3.3 70B to filter out false positives from search results.
-    Returns a filtered list (articles the AI considers relevant to the artist).
-    If Groq is unavailable or fails, returns the original list unchanged (fail open).
+
+    Two-tier approach:
+    - Articles with the artist keyword in the TITLE are auto-confirmed (high confidence).
+    - Articles where the keyword only appears in the snippet (not the title) are sent
+      to Groq for AI review — these are often false positives from sidebar mentions,
+      related-article widgets, or tag clouds.
+
+    Returns a filtered list. If Groq is unavailable, snippet-only articles are dropped
+    (fail closed for low-confidence matches).
     """
     import requests as _req
 
-    api_key = os.environ.get('GROQ_API_KEY')
-    if not api_key:
-        return all_results
-
     if not all_results:
         return all_results
+
+    keywords_lower = [kw.lower() for kw in keywords]
+
+    # Split into title-confirmed vs snippet-only
+    title_confirmed = []
+    snippet_only = []
+    for r in all_results:
+        title_lower = (r.get('title') or '').lower()
+        if any(kw in title_lower for kw in keywords_lower):
+            title_confirmed.append(r)
+        else:
+            snippet_only.append(r)
+
+    if not snippet_only:
+        log_fn(f"  AI relevance filter: all {len(all_results)} articles have keyword in title")
+        return all_results
+
+    log_fn(f"  AI relevance filter: {len(title_confirmed)} title-confirmed, "
+           f"{len(snippet_only)} snippet-only → sending to Groq...")
+
+    api_key = os.environ.get('GROQ_API_KEY')
+    if not api_key:
+        # No API key — drop snippet-only articles (fail closed)
+        log_fn(f"  No GROQ_API_KEY — dropping {len(snippet_only)} snippet-only articles")
+        return title_confirmed
 
     # Build release context string
     release_context = "No recent releases found."
     if releases:
         parts = []
-        for r in releases[:3]:  # Include up to 3 recent releases
+        for r in releases[:3]:
             parts.append(f"\"{r['title']}\" ({r['format']}, {r['date']})")
         release_context = "Recent releases: " + ", ".join(parts)
 
-    BATCH_SIZE = 12
-    keep_flags = [True] * len(all_results)  # Default: keep everything
+    BATCH_SIZE = 15
+    keep_flags = [False] * len(snippet_only)  # Default: reject snippet-only
 
-    for batch_start in range(0, len(all_results), BATCH_SIZE):
-        batch = all_results[batch_start:batch_start + BATCH_SIZE]
+    for batch_start in range(0, len(snippet_only), BATCH_SIZE):
+        batch = snippet_only[batch_start:batch_start + BATCH_SIZE]
 
         article_list = []
         for i, r in enumerate(batch):
             title = (r.get('title') or '')[:120]
             domain = r.get('domain', '')
-            snippet = (r.get('snippet') or '')[:150]
-            article_list.append(f'{i+1}. Title: "{title}" | Domain: {domain} | Snippet: "{snippet}"')
+            article_list.append(f'{i+1}. Title: "{title}" | Domain: {domain}')
 
         prompt = f"""You are filtering press search results for a Latin American music marketing report.
 Artist: {artist}
 {release_context}
 
-For each article, respond TRUE if the article is primarily about this musical artist (review, interview, feature, premiere, announcement, concert/festival coverage, social media post about their music, etc.).
+IMPORTANT: Judge ONLY on the article title. The article snippet is not shown because it may contain the artist name from unrelated page elements like sidebars, related articles, or tag clouds.
 
-Respond FALSE if:
-- The article TITLE is clearly about a different artist, even if the snippet mentions the target artist
-- The artist is only mentioned in a list, lineup announcement, playlist roundup, or "artists like X" context — not the focus of the article
-- It's a tag index page, category page, search results page, or artist profile page rather than an actual article
-- It's about a different person/entity with the same name, not about music, a lyrics page, a streaming link, or spam
+Based ONLY on the article title, is this article actually about {artist}?
+
+An article IS about the artist if the title mentions them by name in a meaningful way (review, interview, feature, tour announcement, album release, concert coverage, etc.).
+
+An article is NOT about the artist if:
+- The title is about a different artist entirely
+- The title is a generic lineup/playlist listing many artists and {artist} isn't the focus
+- The title is about an event from more than 1 year ago
+- The title doesn't mention {artist} at all (it appeared only in page metadata)
 
 Articles:
 {chr(10).join(article_list)}
@@ -461,7 +492,6 @@ Respond with ONLY a JSON array of booleans, e.g. [true, false, true, ...]. No ot
 
             if resp.status_code == 200:
                 content = resp.json()['choices'][0]['message']['content'].strip()
-                # Strip markdown fences if present
                 if content.startswith('```'):
                     content = content.split('\n', 1)[1] if '\n' in content else content[3:]
                 if content.endswith('```'):
@@ -470,19 +500,22 @@ Respond with ONLY a JSON array of booleans, e.g. [true, false, true, ...]. No ot
                 verdicts = json.loads(content)
                 if isinstance(verdicts, list) and len(verdicts) == len(batch):
                     for i, keep in enumerate(verdicts):
-                        if not keep:
-                            keep_flags[batch_start + i] = False
-                # If length mismatch, keep all (fail open)
+                        if keep:
+                            keep_flags[batch_start + i] = True
+                # If length mismatch, keep none from this batch (fail closed)
 
         except Exception:
-            pass  # Fail open — keep all articles in this batch
+            pass  # Fail closed — reject snippet-only articles in this batch
 
-    filtered = [r for r, keep in zip(all_results, keep_flags) if keep]
-    removed = len(all_results) - len(filtered)
+    groq_kept = [r for r, keep in zip(snippet_only, keep_flags) if keep]
+    groq_removed = len(snippet_only) - len(groq_kept)
 
-    if removed > 0:
+    filtered = title_confirmed + groq_kept
+    total_removed = len(all_results) - len(filtered)
+
+    if total_removed > 0:
         log_fn(f"  AI relevance filter: kept {len(filtered)}/{len(all_results)} articles "
-               f"(removed {removed} false positives)")
+               f"(removed {total_removed}: {groq_removed} snippet-only rejected by Groq)")
     else:
         log_fn(f"  AI relevance filter: all {len(all_results)} articles confirmed relevant")
 
@@ -1566,7 +1599,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
 
     # AI relevance filter — remove false positives using Groq (free, optional)
     all_results = _groq_filter_relevance(
-        all_results, artist,
+        all_results, artist, keywords,
         releases=queries.get('releases'),
         log_fn=print,
     )
@@ -1625,11 +1658,11 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             continue
 
         # ── Standard results: keyword check + DB matching ──
-        # Check if article is actually about any of the search keywords
-        # Require at least one keyword in the title (snippet alone is too loose —
-        # e.g. "Meduza" the Russian news outlet can appear in unrelated articles)
+        # The Groq filter upstream already split title-confirmed vs snippet-only
+        # and rejected irrelevant snippet-only articles. Here we just verify at
+        # least one keyword appears somewhere (title or snippet) as a safety net.
         title_lower = result['title'].lower()
-        snippet_lower = result['snippet'].lower()
+        snippet_lower = (result.get('snippet') or '').lower()
         if not any(kw in title_lower or kw in snippet_lower for kw in keywords_lower):
             skipped += 1
             continue
