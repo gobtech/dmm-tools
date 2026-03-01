@@ -97,6 +97,15 @@ SKIP_DOMAINS = {
     'ticketmaster.com', 'stubhub.com', 'seatgeek.com',
 }
 
+# URL path segments that indicate non-article content
+NON_PRESS_PATHS = (
+    '/product/', '/shop/', '/cart/', '/store/', '/merch/',
+    '/buy/', '/order/', '/checkout/', '/tienda/',
+    '/tag/', '/tags/', '/categoria/', '/category/', '/categories/',
+    '/autor/', '/author/', '/etiqueta/', '/label/',
+    '/search/', '/buscar/', '/page/', '/perfil/',
+)
+
 
 def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
     """
@@ -112,10 +121,6 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
     from email.utils import parsedate_to_datetime
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from googlenewsdecoder import new_decoderv1
-
-    # URL path segments that indicate non-press content
-    NON_PRESS_PATHS = ('/product/', '/shop/', '/cart/', '/store/', '/merch/',
-                       '/buy/', '/order/', '/checkout/', '/tienda/')
 
     ceid = f'{gl}:{hl.split("-")[0]}'
     rss_url = f'https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl={hl}&gl={gl}&ceid={ceid}'
@@ -228,9 +233,6 @@ def brave_search(query, api_key, num_results=20, freshness=None, search_type='we
     Returns list of { title, link, snippet, domain }.
     """
     import requests
-
-    NON_PRESS_PATHS = ('/product/', '/shop/', '/cart/', '/store/', '/merch/',
-                       '/buy/', '/order/', '/checkout/', '/tienda/')
 
     endpoint = f'https://api.search.brave.com/res/v1/{search_type}/search'
     params = {
@@ -428,8 +430,13 @@ def _groq_filter_relevance(all_results, artist, releases=None, log_fn=print):
 Artist: {artist}
 {release_context}
 
-For each article, respond TRUE if it is actually about this musical artist (review, interview, feature, premiere, announcement, playlist mention, social media post about their music, concert/festival coverage, etc.).
-Respond FALSE if it's: about a different person/entity with the same name, not about music, not actually about this specific artist, a lyrics page, a streaming platform link, or spam/unrelated content.
+For each article, respond TRUE if the article is primarily about this musical artist (review, interview, feature, premiere, announcement, concert/festival coverage, social media post about their music, etc.).
+
+Respond FALSE if:
+- The article TITLE is clearly about a different artist, even if the snippet mentions the target artist
+- The artist is only mentioned in a list, lineup announcement, playlist roundup, or "artists like X" context — not the focus of the article
+- It's a tag index page, category page, search results page, or artist profile page rather than an actual article
+- It's about a different person/entity with the same name, not about music, a lyrics page, a streaming link, or spam
 
 Articles:
 {chr(10).join(article_list)}
@@ -601,7 +608,7 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None):
 
             hits = []
             for entry in feed.entries:
-                # Check publication date
+                # Check publication date — skip entries with no parseable date
                 published = entry.get('published_parsed') or entry.get('updated_parsed')
                 if published:
                     from calendar import timegm
@@ -609,13 +616,17 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None):
                     entry_dt = datetime.fromtimestamp(entry_ts).astimezone()
                     if entry_dt < cutoff:
                         continue
+                else:
+                    # No date available — skip rather than risk old articles
+                    continue
 
                 title = entry.get('title', '')
                 summary = _strip_html(entry.get('summary', '') or entry.get('description', ''))
                 title_lower = title.lower()
-                summary_lower = summary.lower()
 
-                if not any(kw in title_lower or kw in summary_lower for kw in keywords_lower):
+                # Require keyword in TITLE — snippet/summary matches from RSS
+                # are almost always sidebar mentions, tag clouds, related articles
+                if not any(kw in title_lower for kw in keywords_lower):
                     continue
 
                 link = entry.get('link', '')
@@ -669,10 +680,10 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None):
                     link = post.get('link', '')
                     excerpt = _strip_html(post.get('excerpt', {}).get('rendered', ''))
 
-                    # Client-side keyword check — WP search can be loose
+                    # Client-side keyword check — require in TITLE (WP search is loose,
+                    # excerpt matches catch sidebar/widget mentions)
                     title_lower = title.lower()
-                    excerpt_lower = excerpt.lower()
-                    if not any(kw in title_lower or kw in excerpt_lower for kw in keywords_lower):
+                    if not any(kw in title_lower for kw in keywords_lower):
                         continue
 
                     entry_domain = extract_domain(link) if link else domain
@@ -828,29 +839,57 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None):
                 urls.append({'loc': loc.text.strip(), 'lastmod': lastmod, 'title': title})
         return urls
 
-    def _is_recent(lastmod_str):
-        """Check if a lastmod date is within our search range."""
-        if not lastmod_str:
-            return True
-        try:
-            date_part = lastmod_str[:10]
-            dt = datetime.strptime(date_part, '%Y-%m-%d').astimezone()
-            return dt >= cutoff
-        except Exception:
-            return True
+    # Year/month patterns to check in URLs when lastmod is missing
+    _current_year = str(now.year)
+    _recent_year_months = set()
+    _d = cutoff
+    while _d <= now.astimezone():
+        _recent_year_months.add(_d.strftime('%Y/%m'))
+        _recent_year_months.add(_d.strftime('%Y-%m'))
+        _recent_year_months.add(str(_d.year))
+        _d += timedelta(days=28)
+    _recent_year_months.add(now.strftime('%Y/%m'))
+    _recent_year_months.add(now.strftime('%Y-%m'))
+    _recent_year_months.add(_current_year)
+
+    def _is_recent(lastmod_str, url=None):
+        """Check if a lastmod date is within our search range.
+        If no lastmod, check URL for recent year/month patterns.
+        Skip undated entries that don't have a recent date in the URL."""
+        if lastmod_str:
+            try:
+                date_part = lastmod_str[:10]
+                dt = datetime.strptime(date_part, '%Y-%m-%d').astimezone()
+                return dt >= cutoff
+            except Exception:
+                pass  # Fall through to URL check
+
+        # No parseable date — check URL for recent year/month patterns
+        if url:
+            url_lower = url.lower()
+            for pattern in _recent_year_months:
+                if pattern in url_lower:
+                    return True
+
+        return False  # Skip undated content without recent URL patterns
 
     def _url_matches_keywords(url_entry):
-        """Check if a URL or its title contains artist keywords."""
-        loc = url_entry['loc'].lower()
+        """Check if a URL TITLE contains artist keywords.
+        For sitemap results, only match on title or news:title — not URL slug alone,
+        as slug matches without title confirmation catch tag/category pages."""
         title = (url_entry.get('title') or '').lower()
         if title and any(kw in title for kw in keywords_lower):
             return True
-        path = loc.split('/', 3)[-1] if loc.count('/') >= 3 else loc
-        return any(slug in path for slug in slug_variants)
+        # Fall back to URL slug matching only if there's no title to check
+        if not title:
+            loc = url_entry['loc'].lower()
+            path = loc.split('/', 3)[-1] if loc.count('/') >= 3 else loc
+            return any(slug in path for slug in slug_variants)
+        return False
 
     def _match_entries(entries):
         """Filter sitemap entries to recent keyword matches."""
-        return [e for e in entries if _is_recent(e['lastmod']) and _url_matches_keywords(e)]
+        return [e for e in entries if _is_recent(e['lastmod'], e['loc']) and _url_matches_keywords(e)]
 
     def _base_url_for(info, domain):
         website = info.get('website', '') or f'https://{domain}'
@@ -1541,8 +1580,24 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     for result in all_results:
         domain = result['domain']
 
-        # ── Feed-sourced results: pre-classified, skip all matching logic ──
+        # ── Filter tag/category/index pages (all sources) ──
+        link_lower = result.get('link', '').lower()
+        if any(seg in link_lower for seg in NON_PRESS_PATHS):
+            skipped += 1
+            continue
+
+        # ── Feed-sourced results: pre-classified, skip DB matching logic ──
         if result.get('feed_media_name'):
+            # For feed/sitemap sources, require keyword in TITLE specifically.
+            # Snippet-only matches from these sources are almost always false
+            # positives (sidebar mentions, related articles, tag clouds).
+            source = result.get('_source', '')
+            if source in ('feeds', 'sitemaps'):
+                title_lower = result['title'].lower()
+                if not any(kw in title_lower for kw in keywords_lower):
+                    skipped += 1
+                    continue
+
             media_name = result['feed_media_name']
             description = result.get('feed_description', '')
             country = normalize_country(result.get('feed_country', 'LATAM').upper())
