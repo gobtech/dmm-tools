@@ -96,12 +96,15 @@ def match_url_to_media(url, press_index):
     if domain in press_index:
         return press_index[domain]
     
-    # Try partial domain match (e.g., 'clarin.com' matches 'www.clarin.com')
+    # Try partial domain match (e.g., 'espectaculos.clarin.com' matches 'clarin.com')
+    # Require proper subdomain boundary (dot-separated) to avoid false matches
+    # like 'rollingstone.com' matching 'rollingstone.com.mx'
     for key, entry in press_index.items():
         if entry.get('website'):
             entry_domain = extract_domain(entry['website'])
-            if entry_domain and (domain.endswith(entry_domain) or entry_domain.endswith(domain)):
-                return entry
+            if entry_domain and entry_domain != domain:
+                if domain.endswith('.' + entry_domain) or entry_domain.endswith('.' + domain):
+                    return entry
     
     # Try matching domain core against media names (require meaningful match)
     # Strip TLD extensions to get core domain name

@@ -106,6 +106,41 @@ NON_PRESS_PATHS = (
     '/search/', '/buscar/', '/page/', '/perfil/',
 )
 
+# URL patterns that confirm LATAM relevance for .com domain articles
+# Used to disambiguate multi-regional outlets (e.g. Rolling Stone US vs Mexico)
+LATAM_URL_INDICATORS = re.compile(
+    r'/(?:es|mx|ar|br|cl|co|pe|ec|uy|ve|pt|latam|latin|latino|latina|'
+    r'en-espanol|espanol|spanish|america-latina|latinoamerica|musica)/'
+    , re.IGNORECASE
+)
+# Spanish/Portuguese URL slug words that suggest LATAM content
+LATAM_SLUG_WORDS = re.compile(
+    r'[-/](?:musica|artista|cantante|banda|disco|album|cancion|estreno|lanzamiento|'
+    r'concierto|gira|entrevista|noticias|cultura|espectaculos|entretenimiento|'
+    r'música|canción|espectáculos)[-/]'
+    , re.IGNORECASE
+)
+
+
+def _is_generic_com_domain(domain: str) -> bool:
+    """Check if domain is a generic .com (not a country-specific TLD like .com.mx)."""
+    if not domain:
+        return False
+    # Country-specific TLDs: .com.mx, .com.ar, .com.br, .co, .cl, etc.
+    for suffix in LATAM_TLD_SUFFIXES:
+        if domain.endswith(suffix):
+            return False
+    # Also check compound TLDs like .com.ar
+    for tld in DOMAIN_TO_COUNTRY:
+        if domain.endswith(tld):
+            return False
+    return domain.endswith('.com') or domain.endswith('.org') or domain.endswith('.net')
+
+
+def _has_latam_url_indicators(url: str) -> bool:
+    """Check if a URL contains LATAM language/region indicators in its path."""
+    return bool(LATAM_URL_INDICATORS.search(url) or LATAM_SLUG_WORDS.search(url))
+
 
 def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
     """
@@ -1680,6 +1715,15 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
                     country = normalize_country(territory.upper())
             if not country:
                 country = 'LATAM'
+            # Multi-regional outlet check: article is on generic .com but
+            # DB entry has a country-specific domain (.com.mx, .com.ar, etc.)
+            # → likely the US/international edition, not the LATAM one.
+            db_domain = extract_domain(media_entry.get('website', ''))
+            if (country != 'LATAM'
+                    and _is_generic_com_domain(domain)
+                    and db_domain and not _is_generic_com_domain(db_domain)):
+                country = 'LATAM'
+                media_name = f"{media_name} (US edition)"
         elif domain in SOCIAL_MEDIA_DOMAINS:
             # Social media post — include under LATAM with platform name
             media_name = SOCIAL_MEDIA_DOMAINS[domain]
