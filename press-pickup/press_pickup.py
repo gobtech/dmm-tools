@@ -134,10 +134,12 @@ LATAM_URL_INDICATORS = re.compile(
     , re.IGNORECASE
 )
 # Spanish/Portuguese URL slug words that suggest LATAM content
+# Only words that are unambiguously Spanish/Portuguese (not shared with English)
+# Excluded: album, cultura, noticias — these appear in English URLs too
 LATAM_SLUG_WORDS = re.compile(
-    r'[-/](?:musica|artista|cantante|banda|disco|album|cancion|estreno|lanzamiento|'
-    r'concierto|gira|entrevista|noticias|cultura|espectaculos|entretenimiento|'
-    r'música|canción|espectáculos)[-/]'
+    r'[-/](?:musica|música|artista|cantante|banda|disco|cancion|canción|estreno|lanzamiento|'
+    r'concierto|gira|entrevista|espectaculos|espectáculos|entretenimiento|'
+    r'reseña|resena|lançamento|lancamento)[-/]'
     , re.IGNORECASE
 )
 
@@ -438,6 +440,55 @@ def normalize_country(name):
     return mapping.get(name, name)
 
 
+def _extract_json_array(text: str):
+    """Robustly extract a JSON array from LLM output.
+
+    Handles markdown fences, leading prose, trailing commentary, etc.
+    Returns the parsed list or None if no valid array is found.
+    """
+    # Strip markdown code fences
+    cleaned = text.strip()
+    if cleaned.startswith('```'):
+        cleaned = cleaned.split('\n', 1)[1] if '\n' in cleaned else cleaned[3:]
+    if cleaned.endswith('```'):
+        cleaned = cleaned[:-3].strip()
+
+    # Try direct parse first (fast path)
+    try:
+        result = json.loads(cleaned)
+        if isinstance(result, list):
+            return result
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Find the outermost [...] boundaries
+    start = cleaned.find('[')
+    if start == -1:
+        return None
+    # Find matching closing bracket (handle nested arrays/objects)
+    depth = 0
+    end = None
+    for i in range(start, len(cleaned)):
+        if cleaned[i] == '[':
+            depth += 1
+        elif cleaned[i] == ']':
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end is None:
+        return None
+
+    try:
+        result = json.loads(cleaned[start:end + 1])
+        if isinstance(result, list):
+            return result
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    return None
+
+
 def _groq_enrich_descriptions(outlets_to_enrich, log_fn=print):
     """
     Batch-enrich new outlet descriptions using Groq Llama 3.3 70B (free).
@@ -496,16 +547,14 @@ Output ONLY the JSON array, nothing else."""
 
             if resp.status_code == 200:
                 content = resp.json()['choices'][0]['message']['content'].strip()
-                if content.startswith('```'):
-                    content = content.split('\n', 1)[1] if '\n' in content else content[3:]
-                if content.endswith('```'):
-                    content = content[:-3].strip()
-
-                enrichments = json.loads(content)
-                for item in enrichments:
-                    idx = item.get('index', 0) - 1
-                    if 0 <= idx < len(batch) and item.get('description'):
-                        results[batch[idx]['media_name']] = item['description']
+                enrichments = _extract_json_array(content)
+                if enrichments is not None:
+                    for item in enrichments:
+                        idx = item.get('index', 0) - 1
+                        if 0 <= idx < len(batch) and item.get('description'):
+                            results[batch[idx]['media_name']] = item['description']
+                else:
+                    log_fn(f"  AI description: could not parse JSON from response")
             else:
                 log_fn(f"  Groq API error: {resp.status_code}")
 
@@ -617,20 +666,15 @@ Respond with ONLY a JSON array of booleans, e.g. [true, false, true, ...]. No ot
 
             if resp.status_code == 200:
                 content = resp.json()['choices'][0]['message']['content'].strip()
-                if content.startswith('```'):
-                    content = content.split('\n', 1)[1] if '\n' in content else content[3:]
-                if content.endswith('```'):
-                    content = content[:-3].strip()
-
-                verdicts = json.loads(content)
+                verdicts = _extract_json_array(content)
                 if isinstance(verdicts, list) and len(verdicts) == len(batch):
                     for i, keep in enumerate(verdicts):
                         if keep:
                             keep_flags[batch_start + i] = True
-                # If length mismatch, keep none from this batch (fail closed)
+                # If length mismatch or parse failure, keep none (fail closed)
 
-        except Exception:
-            pass  # Fail closed — reject snippet-only articles in this batch
+        except Exception as e:
+            log_fn(f"  AI relevance filter batch failed: {e}")  # Fail closed
 
     groq_kept = [r for r, keep in zip(snippet_only, keep_flags) if keep]
     groq_removed = len(snippet_only) - len(groq_kept)
@@ -1461,8 +1505,9 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     with ThreadPoolExecutor(max_workers=len(gn_queries)) as executor:
         for gl, results in executor.map(_run_gn, gn_queries):
             for r in results:
-                if r['link'] not in seen_urls:
-                    seen_urls.add(r['link'])
+                norm = _normalize_url(r['link'])
+                if norm not in seen_urls:
+                    seen_urls.add(norm)
                     r['_source'] = 'google_news'
                     all_results.append(r)
                     source_counts['google_news'] += 1
@@ -1486,8 +1531,9 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             print(f"  Brave News: {query[:80]}")
             results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='news')
             for r in results:
-                if r['link'] not in seen_urls:
-                    seen_urls.add(r['link'])
+                norm = _normalize_url(r['link'])
+                if norm not in seen_urls:
+                    seen_urls.add(norm)
                     r['_source'] = 'brave'
                     all_results.append(r)
                     source_counts['brave'] += 1
@@ -1497,8 +1543,9 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             print(f"  Brave Web: {query[:80]}")
             results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='web')
             for r in results:
-                if r['link'] not in seen_urls:
-                    seen_urls.add(r['link'])
+                norm = _normalize_url(r['link'])
+                if norm not in seen_urls:
+                    seen_urls.add(norm)
                     r['_source'] = 'brave'
                     all_results.append(r)
                     source_counts['brave'] += 1
@@ -1851,12 +1898,14 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             # Multi-regional outlet check: article is on generic .com but
             # DB entry has a country-specific domain (.com.mx, .com.ar, etc.)
             # → likely the US/international edition, not the LATAM one.
+            # Exclude entirely unless the URL contains LATAM language indicators.
             db_domain = extract_domain(media_entry.get('website', ''))
             if (country != 'LATAM'
                     and _is_generic_com_domain(domain)
-                    and db_domain and not _is_generic_com_domain(db_domain)):
-                country = 'LATAM'
-                media_name = f"{media_name} (US edition)"
+                    and db_domain and not _is_generic_com_domain(db_domain)
+                    and not _has_latam_url_indicators(result['link'])):
+                print(f"  Skipped: {media_name} (US edition) — no LATAM indicators in URL")
+                continue
         elif domain in SOCIAL_MEDIA_DOMAINS:
             # ── Social media classification ──
             platform_label = SOCIAL_MEDIA_DOMAINS[domain]
@@ -2001,17 +2050,28 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
             if len(urls) == 1:
                 u = urls[0]
                 label = _URL_TYPE_LABELS.get(u['type'])
+                title = u.get('title', '').strip()
                 if label:
-                    output_lines.append(f"{label}: {u['url']}")
+                    line = f"{label}: "
                 else:
-                    output_lines.append(u['url'])
+                    line = ""
+                if title:
+                    line += f"{title} — {u['url']}"
+                else:
+                    line += u['url']
+                output_lines.append(line)
             else:
                 for u in urls:
                     label = _URL_TYPE_LABELS.get(u['type'])
+                    title = u.get('title', '').strip()
                     if label:
-                        output_lines.append(f"• {label}: {u['url']}")
+                        prefix = f"• {label}: "
                     else:
-                        output_lines.append(f"• {u['url']}")
+                        prefix = "• "
+                    if title:
+                        output_lines.append(f"{prefix}{title} — {u['url']}")
+                    else:
+                        output_lines.append(f"{prefix}{u['url']}")
             output_lines.append("")
 
     if source_summary:
@@ -2098,7 +2158,9 @@ def _generate_press_docx(artist, country_results, docx_path):
                 if label:
                     prefix_run = url_para.add_run(f"{label}: ")
                     prefix_run.font.size = Pt(10)
-                _add_hyperlink(url_para, u['url'], u['url'])
+                title = u.get('title', '').strip()
+                display = title if title else u['url']
+                _add_hyperlink(url_para, u['url'], display)
             else:
                 for u in urls:
                     url_para = doc.add_paragraph()
@@ -2108,7 +2170,9 @@ def _generate_press_docx(artist, country_results, docx_path):
                     else:
                         prefix_run = url_para.add_run("• ")
                     prefix_run.font.size = Pt(10)
-                    _add_hyperlink(url_para, u['url'], u['url'])
+                    title = u.get('title', '').strip()
+                    display = title if title else u['url']
+                    _add_hyperlink(url_para, u['url'], display)
 
     doc.save(docx_path)
 
