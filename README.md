@@ -7,7 +7,7 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | Tool | What it does | Manual time saved |
 |------|-------------|-------------------|
 | **Radio Report** | Auto-fetches airplay data from Soundcharts and generates formatted Word reports (LATAM-focused) | ~1-2 hrs/artist |
-| **Press Pickup** | 7-source pipeline (RSS feeds, sitemaps, Google News, Brave, Serper, Tavily, DuckDuckGo) for Spanish/Portuguese press coverage. Smart social media classification via handle registry (known outlet posts included, artist/unknown excluded). Multi-regional outlet detection prevents US edition misclassification. Downloadable .docx | ~2-3 hrs/artist |
+| **Press Pickup** | 7-source pipeline (RSS feeds, sitemaps, Google News, Brave, Serper, Tavily, DuckDuckGo) for Spanish/Portuguese press coverage. Smart social media classification via handle registry (known outlet posts included, artist/unknown excluded). US edition exclusion for multi-regional outlets. Results grouped by outlet with article titles and title-based dedup. Downloadable .docx | ~2-3 hrs/artist |
 | **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
 | **Full Report** | Compiles Radio + DSP + Press into a single client-facing .docx with release timeline, proof images, and optional efforts summary | ~2-3 hrs/artist |
 | **Weekly Digest** | Generates lightweight email-ready summaries (HTML + plain text) with AI campaign analysis (Groq) and copy-to-clipboard for pasting into Gmail/Outlook. Batch mode runs multiple artists in one click with snapshot-only option for fast dashboard updates | ~30-60 min/artist/week |

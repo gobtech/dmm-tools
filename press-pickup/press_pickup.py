@@ -1391,6 +1391,20 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
     }
 
 
+# Unicode quote variants to normalize for title comparison
+_QUOTE_MAP = str.maketrans({
+    '\u2018': "'", '\u2019': "'",  # curly single quotes
+    '\u201c': '"', '\u201d': '"',  # curly double quotes
+    '\u00ab': '"', '\u00bb': '"',  # guillemets
+    '\u2013': '-', '\u2014': '-',  # en/em dashes
+})
+
+
+def _normalize_title(title: str) -> str:
+    """Normalize a title for dedup: lowercase, strip, normalize quotes."""
+    return title.lower().strip().translate(_QUOTE_MAP)
+
+
 def _group_entries_by_outlet(entries):
     """Group results by outlet name, merging multiple URLs per outlet."""
     grouped = {}
@@ -1403,9 +1417,12 @@ def _group_entries_by_outlet(entries):
                 'urls': [],
                 'in_database': entry['in_database'],
             }
-        # Don't add duplicate URLs (normalize to catch amp/trailing slash variants)
+        # Don't add duplicate URLs or duplicate titles within the same outlet
         existing_normalized = {_normalize_url(u['url']) for u in grouped[name]['urls']}
-        if _normalize_url(entry['url']) not in existing_normalized:
+        existing_titles = {_normalize_title(u['title']) for u in grouped[name]['urls'] if u.get('title', '').strip()}
+        entry_title = entry.get('title', '').strip()
+        if (_normalize_url(entry['url']) not in existing_normalized
+                and (not entry_title or _normalize_title(entry_title) not in existing_titles)):
             grouped[name]['urls'].append({
                 'url': entry['url'],
                 'type': entry.get('url_type', 'article'),
