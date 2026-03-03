@@ -472,12 +472,7 @@ def _generate_full_docx(
             cp.paragraph_format.space_before = Pt(12)
             cp.paragraph_format.space_after = Pt(2)
 
-            seen_media = set()
             for entry in entries:
-                if entry['media_name'] in seen_media:
-                    continue
-                seen_media.add(entry['media_name'])
-
                 mp = doc.add_paragraph()
                 nr = mp.add_run(f"{entry['media_name']}: ")
                 nr.bold = True
@@ -487,8 +482,33 @@ def _generate_full_docx(
                 dr.font.size = Pt(10)
                 mp.paragraph_format.space_before = Pt(6)
 
-                url_para = doc.add_paragraph()
-                _add_hyperlink(url_para, entry['url'], entry['url'])
+                # Entries are grouped by outlet — each has a 'urls' list
+                urls = entry.get('urls', [])
+                if urls:
+                    if len(urls) == 1:
+                        u = urls[0]
+                        url_para = doc.add_paragraph()
+                        title = u.get('title', '').strip()
+                        display = title if title else u['url']
+                        _add_hyperlink(url_para, u['url'], display)
+                    else:
+                        for u in urls:
+                            url_para = doc.add_paragraph()
+                            title = u.get('title', '').strip()
+                            if title:
+                                bullet_run = url_para.add_run('\u2022 ')
+                                bullet_run.font.size = Pt(10)
+                                _add_hyperlink(url_para, u['url'], title)
+                            else:
+                                bullet_run = url_para.add_run('\u2022 ')
+                                bullet_run.font.size = Pt(10)
+                                _add_hyperlink(url_para, u['url'], u['url'])
+                elif entry.get('url'):
+                    # Fallback for ungrouped entries
+                    url_para = doc.add_paragraph()
+                    title = entry.get('title', '').strip()
+                    display = title if title else entry['url']
+                    _add_hyperlink(url_para, entry['url'], display)
 
     doc.save(output_path)
 
