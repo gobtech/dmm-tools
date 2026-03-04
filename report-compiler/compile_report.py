@@ -447,7 +447,7 @@ def _generate_full_docx(
                     img_para = doc.add_paragraph()
                     img_para.paragraph_format.space_after = Pt(8)
                     run = img_para.add_run()
-                    run.add_picture(str(img_path), width=Inches(5.5))
+                    run.add_picture(str(img_path), width=Inches(6.2))
                 else:
                     fp = doc.add_paragraph()
                     track = m.get('playlist_track', '')

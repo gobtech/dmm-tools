@@ -745,14 +745,15 @@ def generate_proof_image(match, output_dir):
     }
     accent = platform_colors.get(platform, (196, 48, 48))
 
-    # Dimensions
-    W = 640
-    HEADER_H = 120    # Playlist header section
-    TRACK_H = 60      # Track row section
+    # Dimensions — render at 3× for sharp output in .docx
+    S = 3
+    W = 640 * S
+    HEADER_H = 120 * S
+    TRACK_H = 60 * S
     H = HEADER_H + TRACK_H
-    PAD = 16
-    PL_COVER_SIZE = 88
-    TRACK_ART_SIZE = 40
+    PAD = 16 * S
+    PL_COVER_SIZE = 88 * S
+    TRACK_ART_SIZE = 40 * S
 
     # Create image
     img = Image.new('RGB', (W, H), (18, 18, 18))
@@ -760,12 +761,12 @@ def generate_proof_image(match, output_dir):
 
     # Fonts
     try:
-        font_pl_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
-        font_pl_meta = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-        font_track = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        font_artist = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-        font_pos = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 10)
+        font_pl_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16 * S)
+        font_pl_meta = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12 * S)
+        font_track = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14 * S)
+        font_artist = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12 * S)
+        font_pos = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12 * S)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 10 * S)
     except (IOError, OSError):
         font_pl_name = ImageFont.load_default()
         font_pl_meta = font_pl_name
@@ -802,11 +803,11 @@ def generate_proof_image(match, output_dir):
     draw.rectangle([0, 0, W, HEADER_H], fill=(28, 28, 28))
 
     # Accent stripe on top
-    draw.rectangle([0, 0, W, 3], fill=accent)
+    draw.rectangle([0, 0, W, 3 * S], fill=accent)
 
     # Playlist cover art
     pl_x = PAD
-    pl_y = PAD + 4
+    pl_y = PAD + 4 * S
     if playlist_cover_url:
         pl_img = _fetch_image(playlist_cover_url, (PL_COVER_SIZE, PL_COVER_SIZE))
         if pl_img:
@@ -823,18 +824,18 @@ def generate_proof_image(match, output_dir):
     # Platform badge (top right of header)
     badge_text = platform
     badge_bbox = draw.textbbox((0, 0), badge_text, font=font_badge)
-    badge_w = badge_bbox[2] - badge_bbox[0] + 14
-    badge_h = badge_bbox[3] - badge_bbox[1] + 8
+    badge_w = badge_bbox[2] - badge_bbox[0] + 14 * S
+    badge_h = badge_bbox[3] - badge_bbox[1] + 8 * S
     badge_x = W - PAD - badge_w
-    badge_y = pl_y + 2
-    draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=4, fill=accent)
-    draw.text((badge_x + 7, badge_y + 3), badge_text, fill=(255, 255, 255), font=font_badge)
+    badge_y = pl_y + 2 * S
+    draw.rounded_rectangle([badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], radius=4 * S, fill=accent)
+    draw.text((badge_x + 7 * S, badge_y + 3 * S), badge_text, fill=(255, 255, 255), font=font_badge)
 
     # Playlist name
-    pl_name_max = txt_max_w - badge_w - 12
-    y = pl_y + 6
+    pl_name_max = txt_max_w - badge_w - 12 * S
+    y = pl_y + 6 * S
     draw.text((txt_x, y), truncate(playlist_name, font_pl_name, pl_name_max), fill=(255, 255, 255), font=font_pl_name)
-    y += 24
+    y += 24 * S
 
     # Country + followers
     meta_parts = [country]
@@ -842,7 +843,7 @@ def generate_proof_image(match, output_dir):
         meta_parts.append(f"{followers} followers")
     meta_text = ' • '.join(meta_parts)
     draw.text((txt_x, y), truncate(meta_text, font_pl_meta, txt_max_w), fill=(160, 160, 160), font=font_pl_meta)
-    y += 20
+    y += 20 * S
 
     # Playlist link hint
     link = match.get('playlist_link', '')
@@ -854,16 +855,16 @@ def generate_proof_image(match, output_dir):
     # Highlight background
     draw.rectangle([0, row_y, W, H], fill=(40, 40, 40))
     # Left accent bar on the track row
-    draw.rectangle([0, row_y, 3, H], fill=accent)
+    draw.rectangle([0, row_y, 3 * S, H], fill=accent)
 
     # Position number
     pos_text = f"#{position}"
     pos_bbox = draw.textbbox((0, 0), pos_text, font=font_pos)
     pos_w = pos_bbox[2] - pos_bbox[0]
-    draw.text((PAD + 4, row_y + (TRACK_H - 14) // 2), pos_text, fill=accent, font=font_pos)
+    draw.text((PAD + 4 * S, row_y + (TRACK_H - 14 * S) // 2), pos_text, fill=accent, font=font_pos)
 
     # Track album art (small thumbnail)
-    art_x = PAD + max(pos_w, 24) + 12
+    art_x = PAD + max(pos_w, 24 * S) + 12 * S
     art_y = row_y + (TRACK_H - TRACK_ART_SIZE) // 2
     if track_artwork_url:
         t_img = _fetch_image(track_artwork_url, (TRACK_ART_SIZE, TRACK_ART_SIZE))
@@ -875,10 +876,10 @@ def generate_proof_image(match, output_dir):
         draw.rectangle([art_x, art_y, art_x + TRACK_ART_SIZE, art_y + TRACK_ART_SIZE], fill=(60, 60, 60))
 
     # Track name + artist
-    track_txt_x = art_x + TRACK_ART_SIZE + 12
+    track_txt_x = art_x + TRACK_ART_SIZE + 12 * S
     track_max_w = W - track_txt_x - PAD
-    draw.text((track_txt_x, row_y + 10), truncate(track_name, font_track, track_max_w), fill=(255, 255, 255), font=font_track)
-    draw.text((track_txt_x, row_y + 30), truncate(artist_name, font_artist, track_max_w), fill=(180, 180, 180), font=font_artist)
+    draw.text((track_txt_x, row_y + 10 * S), truncate(track_name, font_track, track_max_w), fill=(255, 255, 255), font=font_track)
+    draw.text((track_txt_x, row_y + 30 * S), truncate(artist_name, font_artist, track_max_w), fill=(180, 180, 180), font=font_artist)
 
     # ─── Save ──────────────────────────────────────────────────────
     def _ascii_safe(s, maxlen):
@@ -889,7 +890,7 @@ def generate_proof_image(match, output_dir):
     filename = f"proof_{safe_track}_{safe_playlist}.png"
     os.makedirs(output_dir, exist_ok=True)
     filepath = os.path.join(output_dir, filename)
-    img.save(filepath, 'PNG')
+    img.save(filepath, 'PNG', dpi=(300, 300))
     return filepath
 
 
@@ -1017,7 +1018,7 @@ def generate_dsp_docx(results, proof_image_paths, docx_path, grouping='platform'
             img_para = doc.add_paragraph()
             img_para.paragraph_format.space_after = Pt(8)
             run = img_para.add_run()
-            run.add_picture(img_path, width=Inches(5.5))
+            run.add_picture(img_path, width=Inches(6.2))
         else:
             # Fallback: show text description
             fp = doc.add_paragraph()
@@ -1125,6 +1126,8 @@ def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
 
     # Results: { artist: { release_title: [playlist_matches] } }
     results = {}
+    # Dedup: skip if same artist+track already matched in same playlist
+    _seen_matches = set()
 
     # Check Spotify playlists
     for pl in spotify_playlists:
@@ -1143,6 +1146,10 @@ def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
             if match:
                 artist = release['artist']
                 title = release['title']
+                dedup_key = (artist, pl['name'], match.get('playlist_track', ''))
+                if dedup_key in _seen_matches:
+                    continue
+                _seen_matches.add(dedup_key)
 
                 if artist not in results:
                     results[artist] = {}
@@ -1159,7 +1166,7 @@ def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
                     **match,
                 })
                 print(f"    ✓ MATCH: {artist} — {title} (position #{match['position']})")
-    
+
     # Check Deezer playlists
     for pl in deezer_playlists:
         pl_id = pl['deezer_id']
@@ -1173,6 +1180,10 @@ def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
             if match:
                 artist = release['artist']
                 title = release['title']
+                dedup_key = (artist, pl['name'], match.get('playlist_track', ''))
+                if dedup_key in _seen_matches:
+                    continue
+                _seen_matches.add(dedup_key)
 
                 if artist not in results:
                     results[artist] = {}
@@ -1208,6 +1219,10 @@ def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
             if match:
                 artist = release['artist']
                 title = release['title']
+                dedup_key = (artist, pl['name'], match.get('playlist_track', ''))
+                if dedup_key in _seen_matches:
+                    continue
+                _seen_matches.add(dedup_key)
 
                 if artist not in results:
                     results[artist] = {}
@@ -1244,6 +1259,10 @@ def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
             if match:
                 artist = release['artist']
                 title = release['title']
+                dedup_key = (artist, pl['name'], match.get('playlist_track', ''))
+                if dedup_key in _seen_matches:
+                    continue
+                _seen_matches.add(dedup_key)
 
                 if artist not in results:
                     results[artist] = {}
@@ -1280,6 +1299,10 @@ def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
             if match:
                 artist = release['artist']
                 title = release['title']
+                dedup_key = (artist, pl['name'], match.get('playlist_track', ''))
+                if dedup_key in _seen_matches:
+                    continue
+                _seen_matches.add(dedup_key)
 
                 if artist not in results:
                     results[artist] = {}
@@ -1315,6 +1338,10 @@ def run_dsp_pickup(releases, playlists, output_path=None, grouping='platform'):
             if match:
                 artist = release['artist']
                 title = release['title']
+                dedup_key = (artist, pl['name'], match.get('playlist_track', ''))
+                if dedup_key in _seen_matches:
+                    continue
+                _seen_matches.add(dedup_key)
 
                 if artist not in results:
                     results[artist] = {}
