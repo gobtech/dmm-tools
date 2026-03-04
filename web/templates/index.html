@@ -141,7 +141,7 @@ body {
 .container {
   position: relative;
   z-index: 1;
-  max-width: 920px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 52px 24px 80px;
 }
@@ -1699,6 +1699,12 @@ html.dark .bg-glow-orb { opacity: .25; }
       <span class="tool-card-desc">Translate press releases from labels into Spanish and Portuguese. Preserves all .docx formatting</span>
       <span class="tool-card-badge">WIP</span>
     </button>
+    <button class="tool-card" onclick="goToTool('schedules')">
+      <span class="tool-card-icon">&#128339;</span>
+      <span class="tool-card-title">Schedules</span>
+      <span class="tool-card-desc">Automate digest and snapshot runs on a cron schedule — daily, weekly, or custom</span>
+      <span class="tool-card-badge" style="background:#4a9eff;color:#fff;">NEW</span>
+    </button>
     <button class="tool-card" onclick="window.location.href='/dashboard'" style="border-color:#4a9eff;">
       <span class="tool-card-icon">&#128202;</span>
       <span class="tool-card-title" style="color:#4a9eff;">Artist Dashboard</span>
@@ -1730,6 +1736,7 @@ html.dark .bg-glow-orb { opacity: .25; }
       <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
       <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
       <button class="tab-btn" onclick="switchTab('pr')">PR Translator</button>
+      <button class="tab-btn" onclick="switchTab('schedules')">Schedules</button>
       <button class="tab-btn" onclick="window.location.href='/dashboard'" style="color:#4a9eff">Dashboard</button>
       <button class="tab-btn" onclick="window.location.href='/oracle'" style="color:var(--accent)">O.R.A.C.L.E.</button>
     </div>
@@ -2448,6 +2455,122 @@ html.dark .bg-glow-orb { opacity: .25; }
     <div class="result-area" id="pr-result"></div>
   </div>
 
+  <!-- ================================================================== -->
+  <!-- TAB 9: Schedules -->
+  <!-- ================================================================== -->
+  <div id="tab-schedules" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Create <strong>automated cron schedules</strong> to run digest/snapshot jobs without manual clicks.</li>
+              <li>Choose artists manually or auto-resolve from <strong>Dashboard data</strong> or <strong>Release Schedule</strong>.</li>
+              <li>Schedules run in the background via APScheduler — the server must be running.</li>
+              <li>Use <strong>"Run Now"</strong> to trigger a schedule immediately and watch live logs.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Schedules -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <label style="margin:0;">Active Schedules</label>
+      <button class="btn btn-small" onclick="showScheduleForm()">+ New Schedule</button>
+    </div>
+    <div id="schedules-list" style="border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); min-height:60px; padding:12px;">
+      <div style="color:var(--text-tertiary); font-size:13px;">Loading...</div>
+    </div>
+
+    <!-- Create/Edit Form (hidden by default) -->
+    <div id="schedule-form" style="display:none; margin-top:20px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); padding:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <label style="margin:0; font-size:16px;" id="schedule-form-title">New Schedule</label>
+        <button class="btn btn-small" onclick="hideScheduleForm()" style="opacity:.6;">Cancel</button>
+      </div>
+      <input type="hidden" id="schedule-edit-id" value="">
+
+      <label for="schedule-name">Name</label>
+      <input type="text" id="schedule-name" placeholder="e.g. Weekly Monday Snapshots">
+
+      <label>Artist Source</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-artist-source" value="manual" checked onchange="toggleScheduleArtistSource()"><span>Select Artists</span></label>
+        <label><input type="radio" name="schedule-artist-source" value="all_with_data" onchange="toggleScheduleArtistSource()"><span>All Dashboard</span></label>
+        <label><input type="radio" name="schedule-artist-source" value="all_schedule" onchange="toggleScheduleArtistSource()"><span>All Release Schedule</span></label>
+        <label><input type="radio" name="schedule-artist-source" value="all" onchange="toggleScheduleArtistSource()"><span>All</span></label>
+      </div>
+
+      <div id="schedule-artist-picker" style="margin-top:8px;">
+        <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">
+          <input type="text" id="schedule-artist-filter" placeholder="Filter artists..." style="flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-card); color:var(--text-primary); font-family:var(--font-body); font-size:13px;">
+          <button class="btn btn-small" onclick="scheduleArtistSelectAll(true)" style="white-space:nowrap;">Select All</button>
+          <button class="btn btn-small" onclick="scheduleArtistSelectAll(false)" style="white-space:nowrap;">Deselect All</button>
+        </div>
+        <div id="schedule-artist-list" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-card); padding:8px 12px;">
+          <div style="color:var(--text-tertiary); font-size:13px;">Loading artists...</div>
+        </div>
+        <div id="schedule-artist-count" style="font-size:12px; color:var(--text-tertiary); margin-top:6px;">0 artists selected</div>
+      </div>
+
+      <label>Mode</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-mode" value="snapshot" checked><span>Snapshot Only</span></label>
+        <label><input type="radio" name="schedule-mode" value="digest"><span>Full Digest</span></label>
+      </div>
+
+      <label>Cadence</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-cadence" value="0 18 * * *" checked onchange="toggleScheduleCron()"><span>Daily 6 PM</span></label>
+        <label><input type="radio" name="schedule-cadence" value="0 9 * * 1" onchange="toggleScheduleCron()"><span>Weekly Mon 9 AM</span></label>
+        <label><input type="radio" name="schedule-cadence" value="0 18 * * 5" onchange="toggleScheduleCron()"><span>Weekly Fri 6 PM</span></label>
+        <label><input type="radio" name="schedule-cadence" value="custom" onchange="toggleScheduleCron()"><span>Custom Cron</span></label>
+      </div>
+      <div id="schedule-custom-cron" style="display:none; margin-top:8px;">
+        <input type="text" id="schedule-cron-input" placeholder="e.g. */30 * * * * (every 30 min)" style="font-family:monospace;">
+        <div style="font-size:11px; color:var(--text-tertiary); margin-top:4px;">Format: minute hour day-of-month month day-of-week</div>
+      </div>
+
+      <label>Region (Radio)</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-region" value="latam" checked><span>LATAM</span></label>
+        <label><input type="radio" name="schedule-region" value="all"><span>All Countries</span></label>
+      </div>
+
+      <label>Search Period</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-time-range" value="7d" checked><span>7 Days</span></label>
+        <label><input type="radio" name="schedule-time-range" value="28d"><span>28 Days</span></label>
+      </div>
+
+      <label>Sections to Include</label>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+        <div class="checkbox-row"><input type="checkbox" id="schedule-inc-radio" checked><label for="schedule-inc-radio">Radio Plays</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="schedule-inc-dsp" checked><label for="schedule-inc-dsp">Playlist Placements</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="schedule-inc-press" checked><label for="schedule-inc-press">Press Coverage</label></div>
+      </div>
+
+      <button class="btn" onclick="saveSchedule()" style="margin-top:16px;">Save Schedule</button>
+    </div>
+
+    <!-- Run Now progress -->
+    <div class="progress-area" id="schedule-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <pre class="log-output" id="schedule-log"></pre>
+    </div>
+    <div class="result-area" id="schedule-result"></div>
+
+    <!-- Run History -->
+    <label style="margin-top:24px; display:block;">Run History</label>
+    <div id="schedule-history" style="border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); min-height:40px; padding:12px; font-size:13px;">
+      <div style="color:var(--text-tertiary);">Loading...</div>
+    </div>
+  </div>
+
   </div><!-- /tool-view -->
 
   <div class="footer-note">
@@ -2509,7 +2632,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('tab-' + name);
   panel.classList.add('active');
-  const tabs = ['radio', 'press', 'dsp', 'report', 'proposal', 'digest', 'discovery', 'pr'];
+  const tabs = ['radio', 'press', 'dsp', 'report', 'proposal', 'digest', 'discovery', 'pr', 'schedules'];
   const idx = tabs.indexOf(name);
   document.querySelectorAll('.tab-btn')[idx].classList.add('active');
   // Re-trigger entrance animation
@@ -2520,6 +2643,12 @@ function switchTab(name) {
   if (name === 'proposal' && !proposalDataLoaded) {
     proposalDataLoaded = true;
     loadProposalData();
+  }
+  // Load schedules data on first visit
+  if (name === 'schedules' && !schedulesLoaded) {
+    schedulesLoaded = true;
+    loadSchedules();
+    loadScheduleHistory();
   }
 }
 
@@ -4397,6 +4526,334 @@ function endWalkthrough() {
 if (!localStorage.getItem('dmm_walkthrough_done')) {
   // Small delay so page renders first
   setTimeout(startWalkthrough, 600);
+}
+
+// =====================================================================
+// Schedules
+// =====================================================================
+let schedulesLoaded = false;
+let _schedulesCache = [];
+let _schedArtistsWithData = [];
+let _schedArtistsFromSchedule = [];
+let _schedArtistsLoaded = false;
+
+async function loadSchedules() {
+  const container = document.getElementById('schedules-list');
+  try {
+    const resp = await fetch('/api/schedules');
+    const data = await resp.json();
+    _schedulesCache = data;
+    if (!data.length) {
+      container.innerHTML = '<div style="color:var(--text-tertiary); font-size:13px;">No schedules yet. Click "+ New Schedule" to create one.</div>';
+      return;
+    }
+    let html = '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
+    html += '<tr style="text-align:left; color:var(--text-tertiary); font-size:11px; text-transform:uppercase; letter-spacing:.05em;">';
+    html += '<th style="padding:6px 8px;">Name</th><th style="padding:6px 8px;">Cadence</th><th style="padding:6px 8px;">Artists</th>';
+    html += '<th style="padding:6px 8px;">Last Run</th><th style="padding:6px 8px;">Next Run</th><th style="padding:6px 8px;">Status</th><th style="padding:6px 8px; text-align:right;">Actions</th></tr>';
+    data.forEach(s => {
+      const statusBadge = s.enabled
+        ? '<span style="color:#4ade80; font-size:11px;">● Enabled</span>'
+        : '<span style="color:var(--text-tertiary); font-size:11px;">○ Disabled</span>';
+      const artistLabel = s.artist_source === 'manual'
+        ? (s.artists.length + ' artist' + (s.artists.length !== 1 ? 's' : ''))
+        : ({all_with_data: 'All Dashboard', all_schedule: 'All Schedule', all: 'All'}[s.artist_source] || s.artist_source);
+      const lastRun = s.last_run_at ? new Date(s.last_run_at + 'Z').toLocaleDateString('en-US', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '—';
+      const nextRun = s.next_run_time ? new Date(s.next_run_time).toLocaleDateString('en-US', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '—';
+      const lastStatus = s.last_run_status ? _schedStatusBadge(s.last_run_status) : '';
+      html += `<tr style="border-top:1px solid var(--border);">`;
+      html += `<td style="padding:8px;">${escapeHtml(s.name)}<div style="font-size:11px;color:var(--text-tertiary);">${s.mode}</div></td>`;
+      html += `<td style="padding:8px; font-family:monospace; font-size:12px;">${cronToHuman(s.cron_expression)}</td>`;
+      html += `<td style="padding:8px;">${artistLabel}</td>`;
+      html += `<td style="padding:8px;">${lastRun} ${lastStatus}</td>`;
+      html += `<td style="padding:8px;">${nextRun}</td>`;
+      html += `<td style="padding:8px;">${statusBadge}</td>`;
+      html += `<td style="padding:8px; text-align:right; white-space:nowrap;">`;
+      html += `<button class="btn btn-small" onclick="triggerSchedule(${s.id})" title="Run Now" style="margin-right:4px;">▶</button>`;
+      html += `<button class="btn btn-small" onclick="showScheduleForm(${s.id})" title="Edit" style="margin-right:4px;">✎</button>`;
+      html += `<button class="btn btn-small" onclick="toggleSchedule(${s.id}, ${!s.enabled})" title="${s.enabled ? 'Disable' : 'Enable'}" style="margin-right:4px;">${s.enabled ? '⏸' : '▶'}</button>`;
+      html += `<button class="btn btn-small" onclick="deleteSchedule(${s.id})" title="Delete" style="color:var(--accent);">✕</button>`;
+      html += `</td></tr>`;
+    });
+    html += '</table>';
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--accent); font-size:13px;">Failed to load schedules.</div>';
+  }
+}
+
+function _schedStatusBadge(status) {
+  const colors = {success:'#4ade80', partial:'#facc15', error:'#f87171', interrupted:'#a78bfa', running:'#60a5fa'};
+  const c = colors[status] || 'var(--text-tertiary)';
+  return `<span style="font-size:10px; padding:1px 6px; border-radius:8px; background:${c}22; color:${c}; font-weight:600;">${status}</span>`;
+}
+
+async function loadScheduleHistory() {
+  const container = document.getElementById('schedule-history');
+  try {
+    const resp = await fetch('/api/schedules/history');
+    const runs = await resp.json();
+    if (!runs.length) {
+      container.innerHTML = '<div style="color:var(--text-tertiary);">No runs yet.</div>';
+      return;
+    }
+    let html = '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
+    html += '<tr style="text-align:left; color:var(--text-tertiary); font-size:11px; text-transform:uppercase; letter-spacing:.05em;">';
+    html += '<th style="padding:6px 8px;">Schedule</th><th style="padding:6px 8px;">Started</th><th style="padding:6px 8px;">Duration</th>';
+    html += '<th style="padding:6px 8px;">Status</th><th style="padding:6px 8px;">Artists</th><th style="padding:6px 8px;">Details</th></tr>';
+    runs.forEach(r => {
+      const schedName = (_schedulesCache.find(s => s.id === r.schedule_id) || {}).name || `#${r.schedule_id}`;
+      const started = new Date(r.started_at + 'Z').toLocaleDateString('en-US', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+      const duration = r.duration_seconds ? r.duration_seconds.toFixed(0) + 's' : '—';
+      const detailParts = [];
+      if (r.artists_with_data) detailParts.push(`${r.artists_with_data} with data`);
+      if (r.artists_failed) detailParts.push(`${r.artists_failed} failed`);
+      const detailStr = detailParts.join(', ') || '—';
+      html += `<tr style="border-top:1px solid var(--border);">`;
+      html += `<td style="padding:8px;">${escapeHtml(schedName)}</td>`;
+      html += `<td style="padding:8px;">${started}</td>`;
+      html += `<td style="padding:8px;">${duration}</td>`;
+      html += `<td style="padding:8px;">${_schedStatusBadge(r.status)}</td>`;
+      html += `<td style="padding:8px;">${r.total_artists}</td>`;
+      html += `<td style="padding:8px;">${detailStr}</td>`;
+      html += `</tr>`;
+    });
+    html += '</table>';
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--accent); font-size:13px;">Failed to load history.</div>';
+  }
+}
+
+async function _loadScheduleArtists() {
+  if (_schedArtistsLoaded) return;
+  _schedArtistsLoaded = true;
+  try {
+    const resp = await fetch('/api/dashboard/artists');
+    const data = await resp.json();
+    _schedArtistsWithData = (data.with_data || []).map(a => a.name);
+    _schedArtistsFromSchedule = data.from_schedule || [];
+  } catch (e) { /* ignore */ }
+  _renderScheduleArtists();
+}
+
+function _renderScheduleArtists() {
+  const container = document.getElementById('schedule-artist-list');
+  const filter = (document.getElementById('schedule-artist-filter').value || '').toLowerCase();
+  let html = '';
+  const makeCheckbox = (name) => {
+    if (filter && !name.toLowerCase().includes(filter)) return '';
+    const id = 'sched-a-' + name.replace(/[^a-zA-Z0-9]/g, '_');
+    return `<div class="checkbox-row" style="padding:3px 0;"><input type="checkbox" id="${id}" class="sched-artist-cb" value="${escapeHtml(name)}"><label for="${id}" style="font-size:13px;">${escapeHtml(name)}</label></div>`;
+  };
+  if (_schedArtistsWithData.length) {
+    html += '<div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-tertiary); margin:4px 0 6px; font-weight:600;">With Dashboard Data</div>';
+    _schedArtistsWithData.forEach(n => { html += makeCheckbox(n); });
+  }
+  if (_schedArtistsFromSchedule.length) {
+    html += '<div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-tertiary); margin:10px 0 6px; font-weight:600;">From Release Schedule</div>';
+    _schedArtistsFromSchedule.forEach(n => { html += makeCheckbox(n); });
+  }
+  if (!html) html = '<div style="color:var(--text-tertiary); font-size:13px;">No artists found.</div>';
+  container.innerHTML = html;
+  _updateScheduleArtistCount();
+}
+
+function scheduleArtistSelectAll(select) {
+  const filter = (document.getElementById('schedule-artist-filter').value || '').toLowerCase();
+  document.querySelectorAll('.sched-artist-cb').forEach(cb => {
+    if (!filter || cb.value.toLowerCase().includes(filter)) cb.checked = select;
+  });
+  _updateScheduleArtistCount();
+}
+
+function _updateScheduleArtistCount() {
+  const count = document.querySelectorAll('.sched-artist-cb:checked').length;
+  document.getElementById('schedule-artist-count').textContent = count + ' artist' + (count !== 1 ? 's' : '') + ' selected';
+}
+
+document.getElementById('schedule-artist-filter').addEventListener('input', function() {
+  const checked = new Set();
+  document.querySelectorAll('.sched-artist-cb:checked').forEach(cb => checked.add(cb.value));
+  _renderScheduleArtists();
+  document.querySelectorAll('.sched-artist-cb').forEach(cb => {
+    if (checked.has(cb.value)) cb.checked = true;
+  });
+  _updateScheduleArtistCount();
+});
+
+function toggleScheduleArtistSource() {
+  const source = document.querySelector('input[name="schedule-artist-source"]:checked').value;
+  document.getElementById('schedule-artist-picker').style.display = source === 'manual' ? '' : 'none';
+  if (source === 'manual') _loadScheduleArtists();
+}
+
+function toggleScheduleCron() {
+  const val = document.querySelector('input[name="schedule-cadence"]:checked').value;
+  document.getElementById('schedule-custom-cron').style.display = val === 'custom' ? '' : 'none';
+}
+
+function showScheduleForm(editId) {
+  const form = document.getElementById('schedule-form');
+  form.style.display = '';
+  document.getElementById('schedule-edit-id').value = editId || '';
+  document.getElementById('schedule-form-title').textContent = editId ? 'Edit Schedule' : 'New Schedule';
+
+  if (editId) {
+    const s = _schedulesCache.find(x => x.id === editId);
+    if (!s) return;
+    document.getElementById('schedule-name').value = s.name;
+    document.querySelector(`input[name="schedule-artist-source"][value="${s.artist_source}"]`).checked = true;
+    document.querySelector(`input[name="schedule-mode"][value="${s.mode}"]`).checked = true;
+    document.querySelector(`input[name="schedule-region"][value="${s.radio_region}"]`).checked = true;
+    document.querySelector(`input[name="schedule-time-range"][value="${s.radio_time_range}"]`).checked = true;
+    document.getElementById('schedule-inc-radio').checked = s.include_radio;
+    document.getElementById('schedule-inc-dsp').checked = s.include_dsp;
+    document.getElementById('schedule-inc-press').checked = s.include_press;
+    // Set cadence
+    const presets = ['0 18 * * *', '0 9 * * 1', '0 18 * * 5'];
+    if (presets.includes(s.cron_expression)) {
+      document.querySelector(`input[name="schedule-cadence"][value="${s.cron_expression}"]`).checked = true;
+    } else {
+      document.querySelector('input[name="schedule-cadence"][value="custom"]').checked = true;
+      document.getElementById('schedule-cron-input').value = s.cron_expression;
+    }
+    toggleScheduleCron();
+    toggleScheduleArtistSource();
+    // Pre-check artists if manual
+    if (s.artist_source === 'manual') {
+      _loadScheduleArtists().then(() => {
+        const set = new Set(s.artists);
+        document.querySelectorAll('.sched-artist-cb').forEach(cb => { cb.checked = set.has(cb.value); });
+        _updateScheduleArtistCount();
+      });
+    }
+  } else {
+    document.getElementById('schedule-name').value = '';
+    document.querySelector('input[name="schedule-artist-source"][value="manual"]').checked = true;
+    document.querySelector('input[name="schedule-mode"][value="snapshot"]').checked = true;
+    document.querySelector('input[name="schedule-cadence"][value="0 18 * * *"]').checked = true;
+    document.querySelector('input[name="schedule-region"][value="latam"]').checked = true;
+    document.querySelector('input[name="schedule-time-range"][value="7d"]').checked = true;
+    document.getElementById('schedule-inc-radio').checked = true;
+    document.getElementById('schedule-inc-dsp').checked = true;
+    document.getElementById('schedule-inc-press').checked = true;
+    document.getElementById('schedule-cron-input').value = '';
+    toggleScheduleCron();
+    toggleScheduleArtistSource();
+    _loadScheduleArtists();
+  }
+}
+
+function hideScheduleForm() {
+  document.getElementById('schedule-form').style.display = 'none';
+}
+
+async function saveSchedule() {
+  const editId = document.getElementById('schedule-edit-id').value;
+  const name = document.getElementById('schedule-name').value.trim();
+  if (!name) return showToast('Please enter a schedule name.');
+
+  const artistSource = document.querySelector('input[name="schedule-artist-source"]:checked').value;
+  let artists = [];
+  if (artistSource === 'manual') {
+    document.querySelectorAll('.sched-artist-cb:checked').forEach(cb => artists.push(cb.value));
+    if (!artists.length) return showToast('Please select at least one artist.');
+  }
+
+  const cadenceVal = document.querySelector('input[name="schedule-cadence"]:checked').value;
+  const cronExpression = cadenceVal === 'custom' ? document.getElementById('schedule-cron-input').value.trim() : cadenceVal;
+  if (!cronExpression) return showToast('Please enter a cron expression.');
+
+  const payload = {
+    name,
+    artist_source: artistSource,
+    artists,
+    mode: document.querySelector('input[name="schedule-mode"]:checked').value,
+    cron_expression: cronExpression,
+    radio_region: document.querySelector('input[name="schedule-region"]:checked').value,
+    radio_time_range: document.querySelector('input[name="schedule-time-range"]:checked').value,
+    include_radio: document.getElementById('schedule-inc-radio').checked,
+    include_dsp: document.getElementById('schedule-inc-dsp').checked,
+    include_press: document.getElementById('schedule-inc-press').checked,
+  };
+
+  try {
+    const url = editId ? `/api/schedules/${editId}` : '/api/schedules';
+    const method = editId ? 'PUT' : 'POST';
+    const resp = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    const data = await resp.json();
+    if (!resp.ok) return showToast(data.error || 'Failed to save schedule.');
+    hideScheduleForm();
+    await loadSchedules();
+    showToast(editId ? 'Schedule updated.' : 'Schedule created.');
+  } catch (e) {
+    showToast('Failed to save schedule.');
+  }
+}
+
+async function deleteSchedule(id) {
+  if (!confirm('Delete this schedule and all its run history?')) return;
+  try {
+    await fetch(`/api/schedules/${id}`, {method:'DELETE'});
+    await loadSchedules();
+    await loadScheduleHistory();
+    showToast('Schedule deleted.');
+  } catch (e) {
+    showToast('Failed to delete schedule.');
+  }
+}
+
+async function toggleSchedule(id, enabled) {
+  try {
+    await fetch(`/api/schedules/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled})});
+    await loadSchedules();
+  } catch (e) {
+    showToast('Failed to update schedule.');
+  }
+}
+
+async function triggerSchedule(id) {
+  const logEl = document.getElementById('schedule-log');
+  const progressEl = document.getElementById('schedule-progress');
+  const resultEl = document.getElementById('schedule-result');
+  logEl.textContent = '';
+  resultEl.innerHTML = '';
+
+  try {
+    const resp = await fetch(`/api/schedules/${id}/run`, {method:'POST'});
+    const data = await resp.json();
+    if (!resp.ok) return showToast(data.error || 'Failed to trigger run.');
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      if (result.status === 'done') {
+        resultEl.classList.add('visible');
+        resultEl.innerHTML = `<div class="result-success">${escapeHtml(result.result || 'Complete')}</div>`;
+      } else {
+        resultEl.classList.add('visible');
+        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error || 'Failed')}</div>`;
+      }
+      loadSchedules();
+      loadScheduleHistory();
+    });
+  } catch (e) {
+    showToast('Failed to trigger schedule.');
+  }
+}
+
+function cronToHuman(expr) {
+  const map = {
+    '0 18 * * *': 'Daily 6 PM',
+    '0 9 * * 1': 'Mon 9 AM',
+    '0 18 * * 5': 'Fri 6 PM',
+    '*/5 * * * *': 'Every 5 min',
+    '*/10 * * * *': 'Every 10 min',
+    '*/30 * * * *': 'Every 30 min',
+    '0 * * * *': 'Hourly',
+    '0 0 * * *': 'Daily midnight',
+    '0 12 * * *': 'Daily noon',
+  };
+  return map[expr] || expr;
 }
 </script>
 </body>

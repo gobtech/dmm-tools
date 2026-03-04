@@ -4,7 +4,9 @@ DMM Tools — Web Frontend
 Flask app serving a local UI for Radio Report, Press Pickup, and DSP Pickup.
 """
 
+import atexit
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -53,6 +55,150 @@ jobs = {}  # { job_id: { status, log, result, output_path, error, ... } }
 UPLOAD_DIR = Path(__file__).parent / 'uploads'
 REPORT_DIR = ROOT_DIR / 'reports'
 REPORT_DIR.mkdir(exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# APScheduler — background cron scheduler
+# ---------------------------------------------------------------------------
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.start()
+atexit.register(lambda: scheduler.shutdown(wait=False))
+
+
+def _register_scheduler_job(schedule_id, cron_expression):
+    """Register (or re-register) a cron job in APScheduler for a schedule."""
+    job_name = f'schedule_{schedule_id}'
+    if scheduler.get_job(job_name):
+        scheduler.remove_job(job_name)
+    trigger = CronTrigger.from_crontab(cron_expression)
+    scheduler.add_job(
+        _execute_schedule, trigger,
+        args=[schedule_id],
+        id=job_name,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+
+
+def _execute_schedule(schedule_id, job_id=None):
+    """Run a scheduled digest/snapshot job. Called by APScheduler or manual trigger."""
+    from shared.history import (get_schedule, save_schedule_run, update_schedule_run,
+                                update_schedule_last_run)
+    from shared.database import load_release_schedule
+
+    schedule = get_schedule(schedule_id)
+    if not schedule:
+        return
+
+    # Resolve artist list
+    artist_source = schedule['artist_source']
+    if artist_source == 'manual':
+        artists = list(schedule['artists'])
+    else:
+        from shared.history import get_artists
+        data_names = [a['artist'] for a in get_artists()]
+        schedule_names = []
+        try:
+            releases = load_release_schedule(RELEASE_SCHEDULE_URL)
+            schedule_names = sorted({r['artist'] for r in releases})
+        except Exception:
+            pass
+
+        if artist_source == 'all_with_data':
+            artists = data_names
+        elif artist_source == 'all_schedule':
+            artists = schedule_names
+        else:  # 'all'
+            seen = set()
+            artists = []
+            for n in data_names + schedule_names:
+                if n not in seen:
+                    seen.add(n)
+                    artists.append(n)
+
+    if not artists:
+        return
+
+    run_id = save_schedule_run(schedule_id, len(artists))
+
+    try:
+        spec_path = ROOT_DIR / 'digest-generator' / 'generate_digest.py'
+        spec = importlib.util.spec_from_file_location('generate_digest_sched', str(spec_path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        days_map = {'7d': 7, '28d': 28}
+        days = days_map.get(schedule['radio_time_range'], 7)
+
+        with_data = 0
+        failed = 0
+        details = {}
+        start_time = time.time()
+
+        for i, artist in enumerate(artists, 1):
+            if job_id:
+                log_line(job_id, f"[{i}/{len(artists)}] Running {schedule['mode']} for {artist}...")
+            try:
+                result = mod.generate_digest(
+                    artist=artist,
+                    days=days,
+                    radio_region=schedule['radio_region'],
+                    radio_time_range=schedule['radio_time_range'],
+                    next_steps='',
+                    sender_name='',
+                    contact_name='',
+                    include_radio=schedule['include_radio'],
+                    include_dsp=schedule['include_dsp'],
+                    include_press=schedule['include_press'],
+                    log_fn=lambda msg, _jid=job_id: log_line(_jid, f"  {msg}") if _jid else None,
+                )
+                entry = {
+                    'radio_count': result.get('radio_count', 0),
+                    'dsp_count': result.get('dsp_count', 0),
+                    'press_count': result.get('press_count', 0),
+                }
+                has_activity = entry['radio_count'] or entry['dsp_count'] or entry['press_count']
+                if has_activity:
+                    with_data += 1
+                details[artist] = entry
+                if job_id:
+                    counts = []
+                    if entry['radio_count']: counts.append(f"Radio: {entry['radio_count']}")
+                    if entry['dsp_count']: counts.append(f"DSP: {entry['dsp_count']}")
+                    if entry['press_count']: counts.append(f"Press: {entry['press_count']}")
+                    log_line(job_id, f"  => {artist}: {' | '.join(counts) if counts else 'No activity'}")
+            except Exception as e:
+                failed += 1
+                details[artist] = {'error': str(e)}
+                if job_id:
+                    log_line(job_id, f"  => {artist}: Error — {e}")
+
+        duration = round(time.time() - start_time, 1)
+        status = 'error' if failed == len(artists) else ('partial' if failed else 'success')
+        update_schedule_run(run_id,
+                            finished_at=__import__('datetime').datetime.utcnow().isoformat(),
+                            status=status,
+                            artists_with_data=with_data,
+                            artists_failed=failed,
+                            duration_seconds=duration,
+                            details=details)
+        update_schedule_last_run(schedule_id, status)
+
+        if job_id:
+            summary = f"{len(artists)} artists: {with_data} with data, {failed} failed ({duration}s)"
+            finish_job(job_id, result=summary)
+
+    except Exception as e:
+        update_schedule_run(run_id,
+                            finished_at=__import__('datetime').datetime.utcnow().isoformat(),
+                            status='error',
+                            error=str(e))
+        update_schedule_last_run(schedule_id, 'error')
+        if job_id:
+            finish_job(job_id, error=str(e))
 
 
 def new_job():
@@ -1744,10 +1890,104 @@ def dashboard_delete_note(note_id):
 
 
 # ---------------------------------------------------------------------------
+# Schedules API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/schedules', methods=['GET'])
+def list_schedules():
+    from shared.history import get_all_schedules
+    schedules = get_all_schedules()
+    for s in schedules:
+        job = scheduler.get_job(f"schedule_{s['id']}")
+        s['next_run_time'] = job.next_run_time.isoformat() if job and job.next_run_time else None
+    return jsonify(schedules)
+
+
+@app.route('/api/schedules', methods=['POST'])
+def create_schedule():
+    from shared.history import save_schedule
+    data = request.get_json(silent=True) or {}
+    if not data.get('name', '').strip():
+        return jsonify({'error': 'Name is required'}), 400
+    cron = data.get('cron_expression', '').strip()
+    if not cron:
+        return jsonify({'error': 'Cron expression is required'}), 400
+    try:
+        CronTrigger.from_crontab(cron)
+    except Exception as e:
+        return jsonify({'error': f'Invalid cron expression: {e}'}), 400
+    new_id = save_schedule(data)
+    if data.get('enabled', True):
+        _register_scheduler_job(new_id, cron)
+    return jsonify({'id': new_id})
+
+
+@app.route('/api/schedules/<int:schedule_id>', methods=['PUT'])
+def edit_schedule(schedule_id):
+    from shared.history import update_schedule, get_schedule
+    data = request.get_json(silent=True) or {}
+    cron = data.get('cron_expression', '').strip() if 'cron_expression' in data else None
+    if cron:
+        try:
+            CronTrigger.from_crontab(cron)
+        except Exception as e:
+            return jsonify({'error': f'Invalid cron expression: {e}'}), 400
+    update_schedule(schedule_id, data)
+    sched = get_schedule(schedule_id)
+    if not sched:
+        return jsonify({'error': 'Schedule not found'}), 404
+    job_name = f'schedule_{schedule_id}'
+    if sched['enabled']:
+        _register_scheduler_job(schedule_id, sched['cron_expression'])
+    elif scheduler.get_job(job_name):
+        scheduler.remove_job(job_name)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/schedules/<int:schedule_id>', methods=['DELETE'])
+def remove_schedule(schedule_id):
+    from shared.history import delete_schedule
+    job_name = f'schedule_{schedule_id}'
+    if scheduler.get_job(job_name):
+        scheduler.remove_job(job_name)
+    delete_schedule(schedule_id)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/schedules/<int:schedule_id>/run', methods=['POST'])
+def trigger_schedule(schedule_id):
+    from shared.history import get_schedule
+    sched = get_schedule(schedule_id)
+    if not sched:
+        return jsonify({'error': 'Schedule not found'}), 404
+    job_id = new_job()
+    threading.Thread(target=_execute_schedule, args=(schedule_id, job_id), daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+@app.route('/api/schedules/history')
+def schedule_history():
+    from shared.history import get_schedule_runs
+    schedule_id = request.args.get('schedule_id', type=int)
+    runs = get_schedule_runs(schedule_id=schedule_id)
+    return jsonify(runs)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    # Reconcile scheduled jobs on startup
+    from shared.history import get_all_schedules, mark_stale_runs
+    mark_stale_runs()
+    for _sched in get_all_schedules():
+        if _sched['enabled']:
+            try:
+                _register_scheduler_job(_sched['id'], _sched['cron_expression'])
+            except Exception:
+                pass
+
     # Open browser after short delay
     def open_browser():
         time.sleep(1.5)

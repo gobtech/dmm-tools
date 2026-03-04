@@ -7,3 +7,4 @@ reports/
 web/uploads/
 __pycache__/
 *.pyc
+data/history.db

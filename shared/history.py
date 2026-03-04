@@ -56,6 +56,42 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_notes_artist
             ON notes(artist, timestamp);
+
+        CREATE TABLE IF NOT EXISTS schedules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            artist_source TEXT DEFAULT 'manual',
+            artists TEXT DEFAULT '[]',
+            mode TEXT DEFAULT 'snapshot',
+            radio_region TEXT DEFAULT 'latam',
+            radio_time_range TEXT DEFAULT '7d',
+            include_radio INTEGER DEFAULT 1,
+            include_dsp INTEGER DEFAULT 1,
+            include_press INTEGER DEFAULT 1,
+            cron_expression TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_run_at TEXT,
+            last_run_status TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS schedule_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            schedule_id INTEGER NOT NULL,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            status TEXT DEFAULT 'running',
+            total_artists INTEGER DEFAULT 0,
+            artists_with_data INTEGER DEFAULT 0,
+            artists_failed INTEGER DEFAULT 0,
+            duration_seconds REAL,
+            details TEXT DEFAULT '{}',
+            error TEXT,
+            FOREIGN KEY (schedule_id) REFERENCES schedules(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_schedule_runs
+            ON schedule_runs(schedule_id, started_at);
     """)
     conn.commit()
     conn.close()
@@ -257,5 +293,183 @@ def delete_note(note_id):
     init_db()
     conn = _get_conn()
     conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+    conn.commit()
+    conn.close()
+
+
+# ── Schedules ──
+
+def get_all_schedules():
+    init_db()
+    conn = _get_conn()
+    rows = conn.execute("SELECT * FROM schedules ORDER BY name").fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['artists'] = json.loads(d['artists'])
+        d['enabled'] = bool(d['enabled'])
+        d['include_radio'] = bool(d['include_radio'])
+        d['include_dsp'] = bool(d['include_dsp'])
+        d['include_press'] = bool(d['include_press'])
+        result.append(d)
+    return result
+
+
+def get_schedule(schedule_id):
+    init_db()
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    d['artists'] = json.loads(d['artists'])
+    d['enabled'] = bool(d['enabled'])
+    d['include_radio'] = bool(d['include_radio'])
+    d['include_dsp'] = bool(d['include_dsp'])
+    d['include_press'] = bool(d['include_press'])
+    return d
+
+
+def save_schedule(data):
+    init_db()
+    now = datetime.utcnow().isoformat()
+    conn = _get_conn()
+    cur = conn.execute("""
+        INSERT INTO schedules (name, artist_source, artists, mode,
+            radio_region, radio_time_range, include_radio, include_dsp, include_press,
+            cron_expression, enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data.get('name', 'Untitled'),
+        data.get('artist_source', 'manual'),
+        json.dumps(data.get('artists', [])),
+        data.get('mode', 'snapshot'),
+        data.get('radio_region', 'latam'),
+        data.get('radio_time_range', '7d'),
+        int(data.get('include_radio', True)),
+        int(data.get('include_dsp', True)),
+        int(data.get('include_press', True)),
+        data['cron_expression'],
+        int(data.get('enabled', True)),
+        now, now,
+    ))
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return new_id
+
+
+def update_schedule(schedule_id, data):
+    init_db()
+    allowed = {
+        'name', 'artist_source', 'artists', 'mode',
+        'radio_region', 'radio_time_range',
+        'include_radio', 'include_dsp', 'include_press',
+        'cron_expression', 'enabled',
+    }
+    sets = []
+    vals = []
+    for k, v in data.items():
+        if k not in allowed:
+            continue
+        if k == 'artists':
+            v = json.dumps(v)
+        elif k in ('include_radio', 'include_dsp', 'include_press', 'enabled'):
+            v = int(v)
+        sets.append(f"{k} = ?")
+        vals.append(v)
+    if not sets:
+        return
+    sets.append("updated_at = ?")
+    vals.append(datetime.utcnow().isoformat())
+    vals.append(schedule_id)
+    conn = _get_conn()
+    conn.execute(f"UPDATE schedules SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+    conn.close()
+
+
+def delete_schedule(schedule_id):
+    init_db()
+    conn = _get_conn()
+    conn.execute("DELETE FROM schedule_runs WHERE schedule_id = ?", (schedule_id,))
+    conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+    conn.commit()
+    conn.close()
+
+
+def save_schedule_run(schedule_id, total_artists):
+    init_db()
+    conn = _get_conn()
+    cur = conn.execute("""
+        INSERT INTO schedule_runs (schedule_id, started_at, total_artists)
+        VALUES (?, ?, ?)
+    """, (schedule_id, datetime.utcnow().isoformat(), total_artists))
+    run_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return run_id
+
+
+def update_schedule_run(run_id, **kwargs):
+    init_db()
+    sets = []
+    vals = []
+    for k, v in kwargs.items():
+        if k == 'details':
+            v = json.dumps(v)
+        sets.append(f"{k} = ?")
+        vals.append(v)
+    if not sets:
+        return
+    vals.append(run_id)
+    conn = _get_conn()
+    conn.execute(f"UPDATE schedule_runs SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+    conn.close()
+
+
+def get_schedule_runs(schedule_id=None, limit=50):
+    init_db()
+    conn = _get_conn()
+    if schedule_id:
+        rows = conn.execute(
+            "SELECT * FROM schedule_runs WHERE schedule_id = ? ORDER BY started_at DESC LIMIT ?",
+            (schedule_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM schedule_runs ORDER BY started_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['details'] = json.loads(d['details'])
+        result.append(d)
+    return result
+
+
+def mark_stale_runs():
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE schedule_runs SET status = 'interrupted', finished_at = ? WHERE status = 'running'",
+        (datetime.utcnow().isoformat(),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_schedule_last_run(schedule_id, status):
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE schedules SET last_run_at = ?, last_run_status = ? WHERE id = ?",
+        (datetime.utcnow().isoformat(), status, schedule_id),
+    )
     conn.commit()
     conn.close()
