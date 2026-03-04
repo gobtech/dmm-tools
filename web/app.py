@@ -742,14 +742,24 @@ def radio_soundcharts_generate():
 def press_run():
     data = request.get_json(silent=True) or {}
     artist = data.get('artist', '').strip()
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
     days = data.get('days', 28)
 
     if not artist:
         return jsonify({'error': 'Please enter an artist name.'}), 400
-    try:
-        days = int(days)
-    except (TypeError, ValueError):
-        days = 28
+
+    # Custom date range or preset days
+    if start_date and end_date:
+        log_label = f'{start_date} to {end_date}'
+    else:
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            days = 28
+        start_date = None
+        end_date = None
+        log_label = f'last {days} days'
 
     job_id = new_job()
     safe_artist = artist.lower().replace(' ', '_')
@@ -760,7 +770,7 @@ def press_run():
             from importlib import import_module
             # Capture stdout from the press pickup module
             buf = io.StringIO()
-            log_line(job_id, f'Searching for press coverage of {artist} (last {days} days)...')
+            log_line(job_id, f'Searching for press coverage of {artist} ({log_label})...')
 
             # Import and run
             spec_path = ROOT_DIR / 'press-pickup' / 'press_pickup.py'
@@ -774,7 +784,11 @@ def press_run():
 
             try:
                 spec.loader.exec_module(mod)
-                country_results = mod.run_press_pickup(artist, days, str(output_path))
+                kwargs = {}
+                if start_date and end_date:
+                    kwargs['start_date'] = start_date
+                    kwargs['end_date'] = end_date
+                country_results = mod.run_press_pickup(artist, days, str(output_path), **kwargs)
             finally:
                 sys.stdout = old_stdout
 
@@ -1194,9 +1208,13 @@ def api_releases():
 def report_compile():
     data = request.get_json(silent=True) or {}
     artist = data.get('artist', '').strip()
-    days = data.get('days', 28)
+    press_days = data.get('press_days', data.get('days', 28))
+    press_start_date = data.get('press_start_date')
+    press_end_date = data.get('press_end_date')
     radio_region = data.get('radio_region', 'latam')
     radio_time_range = data.get('radio_time_range', '28d')
+    radio_start_date = data.get('radio_start_date')
+    radio_end_date = data.get('radio_end_date')
     efforts_text = data.get('efforts_text', '')
     include_radio = data.get('include_radio', True)
     include_dsp = data.get('include_dsp', True)
@@ -1206,9 +1224,9 @@ def report_compile():
         return jsonify({'error': 'Please enter an artist name.'}), 400
 
     try:
-        days = int(days)
+        press_days = int(press_days)
     except (TypeError, ValueError):
-        days = 28
+        press_days = 28
 
     job_id = new_job()
     safe_artist = artist.lower().replace(' ', '_')
@@ -1224,9 +1242,13 @@ def report_compile():
 
             result = mod.compile_report(
                 artist=artist,
-                days=days,
+                press_days=press_days,
+                press_start_date=press_start_date,
+                press_end_date=press_end_date,
                 radio_region=radio_region,
                 radio_time_range=radio_time_range,
+                radio_start_date=radio_start_date,
+                radio_end_date=radio_end_date,
                 efforts_text=efforts_text,
                 output_path=str(output_path),
                 log_fn=lambda msg: log_line(job_id, msg),

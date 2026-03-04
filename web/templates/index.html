@@ -1872,9 +1872,16 @@ html.dark .bg-glow-orb { opacity: .25; }
 
     <label>Search Period</label>
     <div class="radio-group">
-      <label><input type="radio" name="press-days" value="7"><span>Last 7 days</span></label>
-      <label><input type="radio" name="press-days" value="14"><span>Last 14 days</span></label>
-      <label><input type="radio" name="press-days" value="28" checked><span>Last 28 days</span></label>
+      <label><input type="radio" name="press-days" value="7" onchange="togglePressCustomDates()"><span>Last 7 days</span></label>
+      <label><input type="radio" name="press-days" value="14" onchange="togglePressCustomDates()"><span>Last 14 days</span></label>
+      <label><input type="radio" name="press-days" value="28" checked onchange="togglePressCustomDates()"><span>Last 28 days</span></label>
+      <label><input type="radio" name="press-days" value="custom" onchange="togglePressCustomDates()"><span>Custom</span></label>
+    </div>
+    <div id="press-custom-dates" style="display:none; margin-top:0.5rem;">
+      <div style="display:flex; gap:1rem; align-items:center;">
+        <label style="margin:0;">From <input type="date" id="press-date-from" style="margin-left:0.3rem;"></label>
+        <label style="margin:0;">To <input type="date" id="press-date-to" style="margin-left:0.3rem;"></label>
+      </div>
     </div>
 
     <button class="btn" id="press-btn" onclick="runPress()">Search for Press Coverage</button>
@@ -1980,11 +1987,32 @@ html.dark .bg-glow-orb { opacity: .25; }
     <label for="report-artist">Artist Name</label>
     <input type="text" id="report-artist" placeholder="e.g. PNAU">
 
-    <label>Search Period (Press &amp; Radio)</label>
+    <label>Radio Time Range</label>
     <div class="radio-group">
-      <label><input type="radio" name="report-range" value="7d"><span>7 Days</span></label>
-      <label><input type="radio" name="report-range" value="28d" checked><span>28 Days</span></label>
-      <label><input type="radio" name="report-range" value="1y"><span>1 Year</span></label>
+      <label><input type="radio" name="report-radio-range" value="7d" onchange="toggleReportRadioCustomDates()"><span>7 Days</span></label>
+      <label><input type="radio" name="report-radio-range" value="28d" checked onchange="toggleReportRadioCustomDates()"><span>28 Days</span></label>
+      <label><input type="radio" name="report-radio-range" value="1y" onchange="toggleReportRadioCustomDates()"><span>1 Year</span></label>
+      <label><input type="radio" name="report-radio-range" value="custom" onchange="toggleReportRadioCustomDates()"><span>Custom Range</span></label>
+    </div>
+    <div id="report-radio-custom-dates" style="display:none; margin-top:0.5rem;">
+      <div style="display:flex; gap:1rem; align-items:center;">
+        <label style="margin:0;">From <input type="date" id="report-radio-date-from" style="margin-left:0.3rem;"></label>
+        <label style="margin:0;">To <input type="date" id="report-radio-date-to" style="margin-left:0.3rem;"></label>
+      </div>
+    </div>
+
+    <label>Press Search Period</label>
+    <div class="radio-group">
+      <label><input type="radio" name="report-press-range" value="7" onchange="toggleReportPressCustomDates()"><span>7 Days</span></label>
+      <label><input type="radio" name="report-press-range" value="14" onchange="toggleReportPressCustomDates()"><span>14 Days</span></label>
+      <label><input type="radio" name="report-press-range" value="28" checked onchange="toggleReportPressCustomDates()"><span>28 Days</span></label>
+      <label><input type="radio" name="report-press-range" value="custom" onchange="toggleReportPressCustomDates()"><span>Custom</span></label>
+    </div>
+    <div id="report-press-custom-dates" style="display:none; margin-top:0.5rem;">
+      <div style="display:flex; gap:1rem; align-items:center;">
+        <label style="margin:0;">From <input type="date" id="report-press-date-from" style="margin-left:0.3rem;"></label>
+        <label style="margin:0;">To <input type="date" id="report-press-date-to" style="margin-left:0.3rem;"></label>
+      </div>
     </div>
 
     <label>Region (Radio)</label>
@@ -3012,6 +3040,21 @@ async function runRadioCsv(btn, logEl, progressEl, resultEl) {
 // =====================================================================
 // Press Pickup
 // =====================================================================
+function togglePressCustomDates() {
+  const sel = document.querySelector('input[name="press-days"]:checked').value;
+  const wrap = document.getElementById('press-custom-dates');
+  wrap.style.display = sel === 'custom' ? '' : 'none';
+  if (sel === 'custom') {
+    const toEl = document.getElementById('press-date-to');
+    const fromEl = document.getElementById('press-date-from');
+    if (!toEl.value) toEl.value = new Date().toISOString().slice(0, 10);
+    if (!fromEl.value) {
+      const d = new Date(); d.setDate(d.getDate() - 28);
+      fromEl.value = d.toISOString().slice(0, 10);
+    }
+  }
+}
+
 async function runPress() {
   const artist = document.getElementById('press-artist').value.trim();
   if (!artist) return showToast('Please enter an artist name.');
@@ -3022,6 +3065,17 @@ async function runPress() {
   const progressEl = document.getElementById('press-progress');
   const resultEl = document.getElementById('press-result');
 
+  let body;
+  if (days === 'custom') {
+    const startDate = document.getElementById('press-date-from').value;
+    const endDate = document.getElementById('press-date-to').value;
+    if (!startDate || !endDate) return showToast('Please select both From and To dates.');
+    if (startDate > endDate) return showToast('From date must be before To date.');
+    body = { artist, start_date: startDate, end_date: endDate };
+  } else {
+    body = { artist, days: parseInt(days) };
+  }
+
   setLoading(btn, true);
   logEl.textContent = '';
 
@@ -3029,7 +3083,7 @@ async function runPress() {
     const resp = await fetch('/api/press/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ artist, days: parseInt(days) }),
+      body: JSON.stringify(body),
     });
     const data = await resp.json();
     if (data.error) {
@@ -3135,8 +3189,9 @@ async function runDsp() {
         const proofImages = result.proof_images || [];
         if (proofImages.length > 0) {
           html += `<div class="proof-gallery">`;
-          html += `<div class="proof-gallery-header">`;
-          html += `<strong>Proof Images</strong> <span style="color:var(--text-tertiary)">(${proofImages.length})</span>`;
+          html += `<div class="proof-gallery-header" style="display:flex; align-items:center; justify-content:space-between;">`;
+          html += `<span><strong>Proof Images</strong> <span style="color:var(--text-tertiary)">(${proofImages.length})</span></span>`;
+          html += `<button class="btn btn-small" onclick="toggleProofGrid(this)" style="font-size:12px;">Hide</button>`;
           html += `</div>`;
           html += `<div class="proof-grid">`;
           for (const img of proofImages) {
@@ -3173,11 +3228,42 @@ async function runDsp() {
 // =====================================================================
 // Report Compiler
 // =====================================================================
+function toggleReportRadioCustomDates() {
+  const sel = document.querySelector('input[name="report-radio-range"]:checked').value;
+  const wrap = document.getElementById('report-radio-custom-dates');
+  wrap.style.display = sel === 'custom' ? '' : 'none';
+  if (sel === 'custom') {
+    const toEl = document.getElementById('report-radio-date-to');
+    const fromEl = document.getElementById('report-radio-date-from');
+    if (!toEl.value) toEl.value = new Date().toISOString().slice(0, 10);
+    if (!fromEl.value) {
+      const d = new Date(); d.setDate(d.getDate() - 28);
+      fromEl.value = d.toISOString().slice(0, 10);
+    }
+  }
+}
+
+function toggleReportPressCustomDates() {
+  const sel = document.querySelector('input[name="report-press-range"]:checked').value;
+  const wrap = document.getElementById('report-press-custom-dates');
+  wrap.style.display = sel === 'custom' ? '' : 'none';
+  if (sel === 'custom') {
+    const toEl = document.getElementById('report-press-date-to');
+    const fromEl = document.getElementById('report-press-date-from');
+    if (!toEl.value) toEl.value = new Date().toISOString().slice(0, 10);
+    if (!fromEl.value) {
+      const d = new Date(); d.setDate(d.getDate() - 28);
+      fromEl.value = d.toISOString().slice(0, 10);
+    }
+  }
+}
+
 async function runReport() {
   const artist = document.getElementById('report-artist').value.trim();
   if (!artist) return showToast('Please enter an artist name.');
 
-  const timeRange = document.querySelector('input[name="report-range"]:checked').value;
+  const radioRange = document.querySelector('input[name="report-radio-range"]:checked').value;
+  const pressRange = document.querySelector('input[name="report-press-range"]:checked').value;
   const region = document.querySelector('input[name="report-region"]:checked').value;
   const includeRadio = document.getElementById('report-inc-radio').checked;
   const includeDsp = document.getElementById('report-inc-dsp').checked;
@@ -3188,7 +3274,26 @@ async function runReport() {
     return showToast('Please select at least one section to include.');
   }
 
-  const daysMap = { '7d': 7, '28d': 28, '1y': 365 };
+  // Radio: custom date range validation
+  let radioStartDate, radioEndDate;
+  if (radioRange === 'custom') {
+    radioStartDate = document.getElementById('report-radio-date-from').value;
+    radioEndDate = document.getElementById('report-radio-date-to').value;
+    if (!radioStartDate || !radioEndDate) return showToast('Please select both From and To dates for Radio.');
+    if (radioStartDate > radioEndDate) return showToast('Radio From date must be before To date.');
+  }
+
+  // Press: custom date range or preset days
+  let pressDays, pressStartDate, pressEndDate;
+  if (pressRange === 'custom') {
+    pressStartDate = document.getElementById('report-press-date-from').value;
+    pressEndDate = document.getElementById('report-press-date-to').value;
+    if (!pressStartDate || !pressEndDate) return showToast('Please select both From and To dates for Press.');
+    if (pressStartDate > pressEndDate) return showToast('Press From date must be before To date.');
+    pressDays = 28; // fallback, backend will use dates
+  } else {
+    pressDays = parseInt(pressRange);
+  }
 
   const btn = document.getElementById('report-btn');
   const logEl = document.getElementById('report-log');
@@ -3198,20 +3303,30 @@ async function runReport() {
   setLoading(btn, true);
   logEl.textContent = '';
 
+  const body = {
+    artist,
+    press_days: pressDays,
+    radio_region: region,
+    radio_time_range: radioRange,
+    efforts_text: efforts,
+    include_radio: includeRadio,
+    include_dsp: includeDsp,
+    include_press: includePress,
+  };
+  if (pressStartDate) {
+    body.press_start_date = pressStartDate;
+    body.press_end_date = pressEndDate;
+  }
+  if (radioStartDate) {
+    body.radio_start_date = radioStartDate;
+    body.radio_end_date = radioEndDate;
+  }
+
   try {
     const resp = await fetch('/api/report/compile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        artist,
-        days: daysMap[timeRange] || 28,
-        radio_region: region,
-        radio_time_range: timeRange,
-        efforts_text: efforts,
-        include_radio: includeRadio,
-        include_dsp: includeDsp,
-        include_press: includePress,
-      }),
+      body: JSON.stringify(body),
     });
     const data = await resp.json();
     if (data.error) {
@@ -3238,8 +3353,9 @@ async function runReport() {
         const proofImages = result.proof_images || [];
         if (proofImages.length > 0) {
           html += `<div class="proof-gallery">`;
-          html += `<div class="proof-gallery-header">`;
-          html += `<strong>DSP Proof Images</strong> <span style="color:var(--text-tertiary)">(${proofImages.length})</span>`;
+          html += `<div class="proof-gallery-header" style="display:flex; align-items:center; justify-content:space-between;">`;
+          html += `<span><strong>DSP Proof Images</strong> <span style="color:var(--text-tertiary)">(${proofImages.length})</span></span>`;
+          html += `<button class="btn btn-small" onclick="toggleProofGrid(this)" style="font-size:12px;">Hide</button>`;
           html += `</div>`;
           html += `<div class="proof-grid">`;
           for (const img of proofImages) {
@@ -4083,6 +4199,13 @@ function escapeAttr(s) {
 function copyText(btn) {
   const text = btn.getAttribute('data-text');
   navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!'));
+}
+
+function toggleProofGrid(btn) {
+  const grid = btn.closest('.proof-gallery').querySelector('.proof-grid');
+  const hidden = grid.style.display === 'none';
+  grid.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? 'Hide' : 'Show';
 }
 
 function parsePlatformCounts(reportText) {

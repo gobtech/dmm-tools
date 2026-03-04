@@ -235,7 +235,7 @@ def _extract_social_handle(url: str) -> tuple[str, str] | None:
     return None
 
 
-def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
+def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cutoff=None):
     """
     Search Google News via free RSS feed. No API key required.
 
@@ -264,8 +264,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None):
         return []
 
     # Date cutoff for filtering
-    cutoff = None
-    if days:
+    if cutoff is None and days:
         cutoff = datetime.now().astimezone() - timedelta(days=days)
 
     # ── Phase 1: Parse RSS items and collect pending decodes ──────────────
@@ -738,7 +737,7 @@ def _serper_date_within(date_str, cutoff):
     return True  # Include if can't parse
 
 
-def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None):
+def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=None):
     """
     Scan known outlet RSS feeds and WordPress APIs for artist coverage.
     Returns results in the same format as the other search functions:
@@ -777,7 +776,8 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None):
         return []
 
     keywords_lower = [kw.lower() for kw in artist_keywords]
-    cutoff = datetime.now().astimezone() - timedelta(days=days)
+    if cutoff is None:
+        cutoff = datetime.now().astimezone() - timedelta(days=days)
     cutoff_iso = cutoff.strftime('%Y-%m-%dT%H:%M:%S')
 
     FEED_TIMEOUT = 8
@@ -943,7 +943,7 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None):
     return all_hits
 
 
-def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None):
+def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cutoff=None, end_date_dt=None):
     """
     Mine XML sitemaps of outlets that have no RSS feed or WordPress API.
     Two-phase approach for speed:
@@ -985,16 +985,17 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None):
         slug_variants.append(kw_l.replace(' ', '_'))
         slug_variants.append(kw_l.replace(' ', ''))
 
-    cutoff = datetime.now().astimezone() - timedelta(days=days)
-    now = datetime.now()
+    if cutoff is None:
+        cutoff = datetime.now().astimezone() - timedelta(days=days)
+    end_dt = end_date_dt if end_date_dt is not None else datetime.now().astimezone()
 
     # Month strings to look for in sitemap index URLs (e.g. "2026-02", "2026-01")
     relevant_months = set()
     d = cutoff
-    while d <= now.astimezone():
+    while d <= end_dt:
         relevant_months.add(d.strftime('%Y-%m'))
         d += timedelta(days=28)
-    relevant_months.add(now.strftime('%Y-%m'))
+    relevant_months.add(end_dt.strftime('%Y-%m'))
 
     TIMEOUT = 4
     UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -1435,7 +1436,7 @@ def _group_entries_by_outlet(entries):
     return list(grouped.values())
 
 
-def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
+def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, start_date=None, end_date=None):
     """
     Main press pickup workflow for a single artist.
     """
@@ -1465,7 +1466,18 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
 
     keywords = parse_search_terms(artist)
 
-    print(f"\nSearching press for: {artist} (last {days} days)")
+    # Compute cutoff datetime — either from explicit dates or days preset
+    cutoff = None
+    end_date_dt = None
+    if start_date and end_date:
+        from datetime import timezone
+        cutoff = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+        end_date_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        days = (end_date_dt - cutoff).days or 1
+        print(f"\nSearching press for: {artist} ({start_date} to {end_date})")
+    else:
+        cutoff = datetime.now().astimezone() - timedelta(days=days)
+        print(f"\nSearching press for: {artist} (last {days} days)")
 
     # Build enriched queries from release schedule context
     queries = _build_enriched_queries(keywords)
@@ -1488,7 +1500,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
     # 0) Feed scan — RSS feeds + WordPress APIs from known outlets (instant, free)
     #    Uses raw keywords only — feeds are already targeted to the right outlets
     print(f"\n  Scanning outlet feeds...")
-    feed_results = scan_outlet_feeds(keywords, days=days)
+    feed_results = scan_outlet_feeds(keywords, days=days, cutoff=cutoff)
     for r in feed_results:
         if _normalize_url(r['link']) not in seen_urls:
             seen_urls.add(_normalize_url(r['link']))
@@ -1500,7 +1512,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
 
     # 0b) Sitemap mining — scan outlets with no RSS/WP for URL matches
     print(f"  Mining outlet sitemaps...")
-    sitemap_results = mine_outlet_sitemaps(keywords, days=days)
+    sitemap_results = mine_outlet_sitemaps(keywords, days=days, cutoff=cutoff, end_date_dt=end_date_dt)
     for r in sitemap_results:
         if _normalize_url(r['link']) not in seen_urls:
             seen_urls.add(_normalize_url(r['link']))
@@ -1517,7 +1529,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None):
 
     def _run_gn(args):
         query, gl, hl = args
-        return gl, google_news_rss(query, gl=gl, hl=hl, days=days)
+        return gl, google_news_rss(query, gl=gl, hl=hl, days=days, cutoff=cutoff)
 
     with ThreadPoolExecutor(max_workers=len(gn_queries)) as executor:
         for gl, results in executor.map(_run_gn, gn_queries):

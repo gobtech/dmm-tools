@@ -44,8 +44,13 @@ SORT_COL_MAP = {
 def compile_report(
     artist,
     days=28,
+    press_days=None,
+    press_start_date=None,
+    press_end_date=None,
     radio_region='latam',
     radio_time_range='28d',
+    radio_start_date=None,
+    radio_end_date=None,
     efforts_text='',
     output_path=None,
     log_fn=None,
@@ -107,6 +112,55 @@ def compile_report(
                 match = search_artist(artist, token=token)
                 if not match:
                     log_fn(f'  Artist "{artist}" not found on Soundcharts.')
+                elif radio_time_range == 'custom' and radio_start_date and radio_end_date:
+                    # Custom date range — fetch per-song via SongBroadcastTopBroadcastPlayList
+                    from shared.soundcharts import fetch_song_custom_range, LATAM_CODES
+                    log_fn(f'  Found: {match["name"]} (UUID: {match["uuid"]})')
+                    log_fn(f'  Fetching airplay data ({radio_start_date} to {radio_end_date})...')
+
+                    # First get songs via standard fetch to discover song UUIDs
+                    airplay_preview = fetch_airplay_data(
+                        match['uuid'], token,
+                        sort_by='monthlyPlaysCount',
+                        region=radio_region if radio_region != 'all' else None,
+                        log_fn=log_fn,
+                    )
+                    # Collect unique song UUIDs
+                    song_uuids = {}
+                    for entry in (airplay_preview or []):
+                        sname = entry.get('song', '')
+                        suuid = entry.get('song_uuid')
+                        if sname and suuid and sname not in song_uuids:
+                            song_uuids[sname] = suuid
+
+                    if not song_uuids:
+                        log_fn('  No songs found for this artist.')
+                    else:
+                        country_filter = LATAM_CODES if radio_region == 'latam' else None
+                        all_custom = []
+                        for song_name, song_uuid in song_uuids.items():
+                            log_fn(f'  Custom range: "{song_name}" ({radio_start_date} to {radio_end_date})...')
+                            items = fetch_song_custom_range(
+                                song_uuid, token, radio_start_date, radio_end_date,
+                                country_codes=country_filter, log_fn=log_fn,
+                            )
+                            if items:
+                                total_plays = sum(i['plays'] for i in items)
+                                log_fn(f'    → {len(items)} stations, {total_plays} total plays')
+                                for item in items:
+                                    all_custom.append({
+                                        'song': song_name,
+                                        'station': item['station'],
+                                        'plays_28d': item['plays'],
+                                        'country': item['country'],
+                                    })
+
+                        if all_custom:
+                            radio_data = all_custom
+                            result['radio_data'] = radio_data
+                            log_fn(f'  Total: {len(radio_data)} station entries')
+                        else:
+                            log_fn('  No airplay data found in custom range.')
                 else:
                     log_fn(f'  Found: {match["name"]} (UUID: {match["uuid"]})')
                     log_fn(f'  Fetching airplay data...')
@@ -144,7 +198,12 @@ def compile_report(
             try:
                 spec.loader.exec_module(mod)
                 press_output = str(REPORT_DIR / f'{safe_artist}_press.txt')
-                press_data = mod.run_press_pickup(artist, days, press_output)
+                _press_days = press_days if press_days is not None else days
+                _press_kwargs = {}
+                if press_start_date and press_end_date:
+                    _press_kwargs['start_date'] = press_start_date
+                    _press_kwargs['end_date'] = press_end_date
+                press_data = mod.run_press_pickup(artist, _press_days, press_output, **_press_kwargs)
                 result['press_data'] = press_data
             finally:
                 sys.stdout = old_stdout
@@ -221,6 +280,8 @@ def compile_report(
         artist=artist,
         days=days,
         radio_time_range=radio_time_range,
+        radio_start_date=radio_start_date,
+        radio_end_date=radio_end_date,
         play_key=play_key,
         releases=artist_releases,
         radio_data=radio_data,
@@ -242,6 +303,7 @@ def _generate_full_docx(
     artist, days, radio_time_range, play_key,
     releases, radio_data, press_data, dsp_data,
     efforts_text, output_path,
+    radio_start_date=None, radio_end_date=None,
 ):
     """Generate the combined client report .docx."""
     from docx import Document
@@ -267,7 +329,10 @@ def _generate_full_docx(
         '28d': 'Last 28 Days',
         '1y': 'Last Year',
     }
-    period_label = RANGE_LABELS.get(radio_time_range, f'Last {days} days')
+    if radio_time_range == 'custom' and radio_start_date and radio_end_date:
+        period_label = f'{radio_start_date} — {radio_end_date}'
+    else:
+        period_label = RANGE_LABELS.get(radio_time_range, f'Last {days} days')
 
     # ─── Title ────────────────────────────────────────────────
     title_para = doc.add_paragraph()

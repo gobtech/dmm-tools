@@ -129,7 +129,7 @@ python web/app.py
 Open http://localhost:5000 and test each tool:
 
 1. **Radio Report** — Select "Fetch from Soundcharts", enter an artist name, pick LATAM region and time range (7D/28D/1Y/Custom Range), click Fetch Songs, select songs, click Generate
-2. **Press Pickup** — Enter an artist name, pick a date range, click Search → download .docx report
+2. **Press Pickup** — Enter an artist name, pick a date range (7/14/28 days or Custom with From/To date pickers), click Search → download .docx report
 3. **DSP Pickup** — Enter an artist name, click Check Playlists → view proof images → download .docx report
 
 If all three produce results, the setup is done.
