@@ -187,15 +187,12 @@ def compile_report(
     if include_press:
         log_fn('\n── Press Pickup ──')
         try:
+            from shared.capture import capture_stdout
             spec_path = ROOT_DIR / 'press-pickup' / 'press_pickup.py'
             spec = importlib.util.spec_from_file_location('press_pickup', str(spec_path))
             mod = importlib.util.module_from_spec(spec)
 
-            # Capture stdout
-            old_stdout = sys.stdout
-            buf = io.StringIO()
-            sys.stdout = buf
-            try:
+            with capture_stdout() as buf:
                 spec.loader.exec_module(mod)
                 press_output = str(REPORT_DIR / f'{safe_artist}_press.txt')
                 _press_days = press_days if press_days is not None else days
@@ -205,8 +202,6 @@ def compile_report(
                     _press_kwargs['end_date'] = press_end_date
                 press_data = mod.run_press_pickup(artist, _press_days, press_output, **_press_kwargs)
                 result['press_data'] = press_data
-            finally:
-                sys.stdout = old_stdout
 
             for line in buf.getvalue().splitlines():
                 log_fn(line)
@@ -235,19 +230,13 @@ def compile_report(
 
             dsp_output = str(REPORT_DIR / f'{safe_artist}_dsp.txt')
 
-            # Capture stdout
-            old_stdout = sys.stdout
-            buf = io.StringIO()
-            sys.stdout = buf
-            try:
+            with capture_stdout() as buf:
                 spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
                 spec = importlib.util.spec_from_file_location('dsp_pickup_run', str(spec_path))
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 dsp_data = mod.run_dsp_pickup(artist_releases, playlists, dsp_output)
                 result['dsp_data'] = dsp_data
-            finally:
-                sys.stdout = old_stdout
 
             for line in buf.getvalue().splitlines():
                 log_fn(line)

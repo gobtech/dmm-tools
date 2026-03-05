@@ -48,6 +48,13 @@ app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 # ---------------------------------------------------------------------------
+# Thread-safe stdout capture
+# ---------------------------------------------------------------------------
+from shared.capture import capture_stdout, install_proxy
+install_proxy()
+
+
+# ---------------------------------------------------------------------------
 # Job store
 # ---------------------------------------------------------------------------
 jobs = {}  # { job_id: { status, log, result, output_path, error, ... } }
@@ -201,6 +208,25 @@ def _execute_schedule(schedule_id, job_id=None):
             finish_job(job_id, error=str(e))
 
 
+JOB_TIMEOUT_SECONDS = 600  # 10 minutes max per job
+MAX_CONCURRENT_JOBS = 3
+_job_semaphore = threading.Semaphore(MAX_CONCURRENT_JOBS)
+
+
+def run_with_limit(job_id, fn):
+    """Wrap a job function with concurrency limiting."""
+    def wrapper():
+        acquired = _job_semaphore.acquire(blocking=False)
+        if not acquired:
+            log_line(job_id, 'Queued — waiting for other jobs to finish...')
+            _job_semaphore.acquire()
+        try:
+            fn()
+        finally:
+            _job_semaphore.release()
+    return wrapper
+
+
 def new_job():
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
@@ -209,6 +235,7 @@ def new_job():
         'result': None,
         'output_path': None,
         'error': None,
+        'started_at': time.time(),
     }
     return job_id
 
@@ -229,6 +256,33 @@ def finish_job(job_id, result=None, output_path=None, error=None):
     upload_dir = UPLOAD_DIR / job_id
     if upload_dir.exists():
         shutil.rmtree(upload_dir, ignore_errors=True)
+
+
+JOB_EXPIRE_SECONDS = 3600  # remove finished jobs after 1 hour
+
+
+def _reap_stale_jobs():
+    """Mark timed-out jobs and clean up expired finished jobs."""
+    now = time.time()
+    to_delete = []
+    for job_id, job in list(jobs.items()):
+        started = job.get('started_at', now)
+        if job['status'] == 'running':
+            if now - started > JOB_TIMEOUT_SECONDS:
+                job['status'] = 'error'
+                job['error'] = 'This operation timed out after 10 minutes. Please try again.'
+                job['log'].append('Job timed out.')
+        else:
+            # Clean up finished jobs older than 1 hour
+            if now - started > JOB_EXPIRE_SECONDS:
+                to_delete.append(job_id)
+    for job_id in to_delete:
+        jobs.pop(job_id, None)
+
+
+# Run stale job reaper every 30 seconds
+scheduler.add_job(_reap_stale_jobs, 'interval', seconds=30, id='reap_stale_jobs',
+                  replace_existing=True)
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +431,7 @@ def radio_run():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -388,7 +442,7 @@ def radio_run():
 @app.route('/api/radio/soundcharts', methods=['POST'])
 def radio_soundcharts():
     data = request.get_json() or {}
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     region = data.get('region', 'latam').strip()  # 'latam' or 'all'
     if not artist:
         return jsonify({'error': 'Please enter an artist name.'}), 400
@@ -464,7 +518,7 @@ def radio_soundcharts():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -506,7 +560,7 @@ def format_custom_period(start_date, end_date):
 def radio_soundcharts_fetch():
     """Step 1: Fetch airplay data and return song summary for the picker."""
     data = request.get_json() or {}
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     region = data.get('region', 'latam').strip()
     time_range = data.get('time_range', '28d').strip()
     start_date = data.get('start_date', '').strip()
@@ -587,7 +641,7 @@ def radio_soundcharts_fetch():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -596,7 +650,7 @@ def radio_soundcharts_generate():
     """Step 2: Filter cached airplay data to selected songs and generate report."""
     data = request.get_json() or {}
     fetch_job_id = data.get('fetch_job_id', '').strip()
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     selected_songs = data.get('selected_songs', [])
     time_range = data.get('time_range', '').strip()
     start_date = data.get('start_date', '').strip()
@@ -730,7 +784,7 @@ def radio_soundcharts_generate():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -741,7 +795,7 @@ def radio_soundcharts_generate():
 @app.route('/api/press/run', methods=['POST'])
 def press_run():
     data = request.get_json(silent=True) or {}
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     start_date = data.get('start_date')
     end_date = data.get('end_date')
     days = data.get('days', 28)
@@ -757,6 +811,8 @@ def press_run():
             days = int(days)
         except (TypeError, ValueError):
             days = 28
+        if days < 1:
+            return jsonify({'error': 'Days must be at least 1.'}), 400
         start_date = None
         end_date = None
         log_label = f'last {days} days'
@@ -768,8 +824,6 @@ def press_run():
     def run():
         try:
             from importlib import import_module
-            # Capture stdout from the press pickup module
-            buf = io.StringIO()
             log_line(job_id, f'Searching for press coverage of {artist} ({log_label})...')
 
             # Import and run
@@ -778,19 +832,13 @@ def press_run():
             spec = importlib.util.spec_from_file_location('press_pickup', str(spec_path))
             mod = importlib.util.module_from_spec(spec)
 
-            # Redirect stdout to capture progress
-            old_stdout = sys.stdout
-            sys.stdout = buf
-
-            try:
+            with capture_stdout() as buf:
                 spec.loader.exec_module(mod)
                 kwargs = {}
                 if start_date and end_date:
                     kwargs['start_date'] = start_date
                     kwargs['end_date'] = end_date
                 country_results = mod.run_press_pickup(artist, days, str(output_path), **kwargs)
-            finally:
-                sys.stdout = old_stdout
 
             # Send captured output to log
             for line in buf.getvalue().splitlines():
@@ -813,7 +861,7 @@ def press_run():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -825,7 +873,7 @@ def press_run():
 def dsp_run():
     data = request.get_json(silent=True) or {}
     mode = data.get('mode', 'artist')  # artist | week | all
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     week = data.get('week', 'current').strip()
     platforms = data.get('platforms', None)  # list of platform names, or None for all
     grouping = data.get('grouping', 'platform')
@@ -860,7 +908,12 @@ def dsp_run():
             if mode == 'artist':
                 search_lower = artist.lower()
                 releases = [r for r in releases if search_lower in r['artist'].lower() or r['artist'].lower() in search_lower]
-                log_line(job_id, f'  Filtered to {len(releases)} releases for {artist}')
+                if not releases:
+                    # No schedule entry — create a synthetic one for artist-only playlist matching
+                    releases = [{'artist': artist, 'title': '', 'focus_track': '', 'date': '', 'type': ''}]
+                    log_line(job_id, f'  No releases in schedule for {artist} — searching playlists by artist name')
+                else:
+                    log_line(job_id, f'  Filtered to {len(releases)} releases for {artist}')
                 safe_name = artist.lower().replace(' ', '_')
             elif mode == 'week':
                 spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
@@ -878,27 +931,18 @@ def dsp_run():
                 finish_job(job_id, result='No releases found matching your criteria.')
                 return
 
-            output_path = REPORT_DIR / f'{safe_name}_dsp.txt'
+            # Use job-scoped subdirectory so concurrent DSP jobs don't share proof images
+            job_dir = REPORT_DIR / f'dsp_{job_id}'
+            job_dir.mkdir(exist_ok=True)
+            output_path = job_dir / f'{safe_name}_dsp.txt'
 
-            # Clear previous proof images
-            proof_dir = REPORT_DIR / 'dsp_proofs'
-            if proof_dir.exists():
-                shutil.rmtree(proof_dir, ignore_errors=True)
-
-            # Capture stdout
-            buf = io.StringIO()
-            old_stdout = sys.stdout
-            sys.stdout = buf
-
-            try:
+            with capture_stdout() as buf:
                 spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
                 import importlib.util
                 spec = importlib.util.spec_from_file_location('dsp_pickup_run', str(spec_path))
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 results = mod.run_dsp_pickup(releases, playlists, str(output_path), grouping=grouping)
-            finally:
-                sys.stdout = old_stdout
 
             # Feed captured output into log
             for line in buf.getvalue().splitlines():
@@ -906,7 +950,6 @@ def dsp_run():
 
             # Read the generated report
             result_text = output_path.read_text(encoding='utf-8') if output_path.exists() else ''
-            json_path = output_path.with_suffix('.json')
 
             total_matches = sum(
                 len(matches)
@@ -919,11 +962,16 @@ def dsp_run():
             else:
                 log_line(job_id, 'No matches found in checked playlists.')
 
-            # Collect proof image paths — just list all PNGs in the proof dir
+            # Collect proof images from job-scoped proof dir
             proof_images = []
-            proof_dir = REPORT_DIR / 'dsp_proofs'
+            proof_dir = job_dir / 'dsp_proofs'
             if proof_dir.exists():
                 proof_images = sorted([f.name for f in proof_dir.glob('proof_*.png')])
+                # Copy proofs to shared dir for the download endpoint
+                shared_proof_dir = REPORT_DIR / 'dsp_proofs'
+                shared_proof_dir.mkdir(exist_ok=True)
+                for img in proof_dir.glob('proof_*.png'):
+                    shutil.copy2(str(img), str(shared_proof_dir / img.name))
 
             jobs[job_id]['proof_images'] = proof_images
 
@@ -932,7 +980,7 @@ def dsp_run():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -1207,7 +1255,7 @@ def api_releases():
 @app.route('/api/report/compile', methods=['POST'])
 def report_compile():
     data = request.get_json(silent=True) or {}
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     press_days = data.get('press_days', data.get('days', 28))
     press_start_date = data.get('press_start_date')
     press_end_date = data.get('press_end_date')
@@ -1280,7 +1328,7 @@ def report_compile():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -1327,7 +1375,7 @@ def discovery_search():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -1366,7 +1414,7 @@ def discovery_csv(job_id):
 @app.route('/api/digest/generate', methods=['POST'])
 def digest_generate():
     data = request.get_json(silent=True) or {}
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     days = data.get('days', 7)
     radio_region = data.get('radio_region', 'latam')
     radio_time_range = data.get('radio_time_range', '7d')
@@ -1426,7 +1474,7 @@ def digest_generate():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -1536,7 +1584,7 @@ def digest_batch():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -1588,7 +1636,7 @@ def proposal_data():
 @app.route('/api/proposal/generate', methods=['POST'])
 def proposal_generate():
     data = request.get_json(silent=True) or {}
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
 
     if not artist:
         return jsonify({'error': 'Please enter an artist name.'}), 400
@@ -1663,7 +1711,7 @@ def proposal_generate():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -1692,6 +1740,8 @@ def pr_translate():
         # Handle file upload
         uploaded = request.files.get('file')
         if uploaded and uploaded.filename:
+            if not uploaded.filename.lower().endswith('.docx'):
+                return jsonify({'error': 'Please upload a .docx file. Other formats are not supported.'}), 400
             job_id = str(uuid.uuid4())
             upload_path = UPLOAD_DIR / job_id
             upload_path.mkdir(parents=True, exist_ok=True)
@@ -1757,7 +1807,7 @@ def pr_translate():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -1848,7 +1898,7 @@ def dashboard_artist(artist):
 def dashboard_collect():
     """Trigger a fresh data collection for an artist (reuses digest pipeline)."""
     data = request.get_json(silent=True) or {}
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     if not artist:
         return jsonify({'error': 'Artist name required'}), 400
 
@@ -1879,7 +1929,7 @@ def dashboard_collect():
         except Exception as e:
             finish_job(job_id, error=str(e))
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
     return jsonify({'job_id': job_id})
 
 
@@ -1895,7 +1945,7 @@ def dashboard_add_note():
     """Add a campaign note."""
     from shared.history import add_note
     data = request.get_json(silent=True) or {}
-    artist = data.get('artist', '').strip()
+    artist = (data.get('artist') or '').strip()
     text = data.get('text', '').strip()
     if not artist or not text:
         return jsonify({'error': 'Artist and text required'}), 400

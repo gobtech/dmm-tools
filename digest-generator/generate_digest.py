@@ -133,15 +133,11 @@ def generate_digest(
             spec = importlib.util.spec_from_file_location('press_pickup', str(spec_path))
             mod = importlib.util.module_from_spec(spec)
 
-            old_stdout = sys.stdout
-            buf = io.StringIO()
-            sys.stdout = buf
-            try:
+            from shared.capture import capture_stdout
+            with capture_stdout() as buf:
                 spec.loader.exec_module(mod)
                 press_output = str(REPORT_DIR / f'{safe_artist}_press.txt')
                 press_data = mod.run_press_pickup(artist, days, press_output)
-            finally:
-                sys.stdout = old_stdout
 
             for line in buf.getvalue().splitlines():
                 log_fn(line)
@@ -164,17 +160,13 @@ def generate_digest(
 
             dsp_output = str(REPORT_DIR / f'{safe_artist}_dsp.txt')
 
-            old_stdout = sys.stdout
-            buf = io.StringIO()
-            sys.stdout = buf
-            try:
+            from shared.capture import capture_stdout
+            with capture_stdout() as buf:
                 spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
                 spec = importlib.util.spec_from_file_location('dsp_pickup_run', str(spec_path))
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 dsp_data = mod.run_dsp_pickup(artist_releases, playlists, dsp_output)
-            finally:
-                sys.stdout = old_stdout
 
             for line in buf.getvalue().splitlines():
                 log_fn(line)

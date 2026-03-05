@@ -375,9 +375,8 @@ def _search_google_news(query, gl, hl, max_results):
     except Exception:
         return []
 
-    results = []
-    seen = set()
-
+    # Parse all items first, then batch-decode URLs
+    parsed = []
     for item in root.findall('.//item')[:max_results]:
         title_el = item.find('title')
         link_el = item.find('link')
@@ -392,16 +391,40 @@ def _search_google_news(query, gl, hl, max_results):
         if source_name and title.endswith(f' - {source_name}'):
             title = title[: -len(f' - {source_name}')]
 
-        # Decode Google News redirect
-        link = google_link
-        if new_decoderv1:
+        parsed.append((title, google_link, source_name, snippet))
+
+    # Batch-decode Google News URLs with timeout to prevent hangs
+    decoded_links = {}
+    if new_decoderv1 and parsed:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _decode(gl):
             try:
-                decoded = new_decoderv1(google_link)
-                if decoded.get('status'):
-                    link = decoded['decoded_url']
+                d = new_decoderv1(gl)
+                if d.get('status'):
+                    return d['decoded_url']
             except Exception:
                 pass
+            return gl
 
+        executor = ThreadPoolExecutor(max_workers=10)
+        fmap = {executor.submit(_decode, p[1]): i for i, p in enumerate(parsed)}
+        try:
+            for f in as_completed(fmap, timeout=10):
+                idx = fmap[f]
+                try:
+                    decoded_links[idx] = f.result(timeout=1)
+                except Exception:
+                    decoded_links[idx] = parsed[idx][1]
+        except TimeoutError:
+            pass
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    results = []
+    seen = set()
+    for i, (title, google_link, source_name, snippet) in enumerate(parsed):
+        link = decoded_links.get(i, google_link)
         domain = extract_domain(link) or ''
         if domain in SKIP_DOMAINS or link in seen:
             continue
@@ -414,7 +437,6 @@ def _search_google_news(query, gl, hl, max_results):
             'domain': domain,
             'source_name': source_name,
         })
-        time.sleep(0.1)
 
     return results
 

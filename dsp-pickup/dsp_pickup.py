@@ -643,6 +643,8 @@ def check_release_in_playlist(release, playlist_tracks):
     else:
         focus_track = normalize_name(raw_focus)
 
+    artist_only_mode = not release_title and not focus_track
+
     for track in playlist_tracks:
         # Check if any artist matches
         artist_match = False
@@ -654,13 +656,25 @@ def check_release_in_playlist(release, playlist_tracks):
                 artist_match = True
                 break
             # Partial match — require minimum length to avoid false positives
-            if len(release_artist) >= 3 and len(pl_artist_norm) >= 3:
+            # Skip partial matching in artist-only mode (no title to cross-validate)
+            if not artist_only_mode and len(release_artist) >= 3 and len(pl_artist_norm) >= 3:
                 if release_artist in pl_artist_norm or pl_artist_norm in release_artist:
                     artist_match = True
                     break
 
         if not artist_match:
             continue
+
+        # If release has no title and no focus track, exact artist match alone is enough
+        if artist_only_mode:
+            return {
+                'playlist_track': track.get('track', ''),
+                'playlist_artist': track.get('artist', ''),
+                'position': track.get('position', '?'),
+                'added_at': track.get('added_at', ''),
+                'artwork_url': track.get('artwork_url', ''),
+                'spotify_uri': track.get('spotify_uri', ''),
+            }
 
         # Check track/album title match
         pl_track = normalize_name(track.get('track', ''))

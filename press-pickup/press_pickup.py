@@ -302,6 +302,8 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
         return []
 
     # ── Phase 2: Decode all Google News URLs concurrently ─────────────────
+    DECODE_TIMEOUT = 10  # seconds total for all URL decodes
+
     def _decode(google_link):
         try:
             decoded = new_decoderv1(google_link)
@@ -312,16 +314,26 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
         return google_link
 
     decoded_urls = {}  # index → decoded_url
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        future_map = {
-            executor.submit(_decode, p[2]): p[0] for p in pending
-        }
-        for future in as_completed(future_map):
+    executor = ThreadPoolExecutor(max_workers=20)
+    future_map = {
+        executor.submit(_decode, p[2]): p[0] for p in pending
+    }
+    try:
+        for future in as_completed(future_map, timeout=DECODE_TIMEOUT):
             idx = future_map[future]
             try:
-                decoded_urls[idx] = future.result()
+                decoded_urls[idx] = future.result(timeout=1)
             except Exception:
-                decoded_urls[idx] = pending[idx][2]  # fallback to google link
+                decoded_urls[idx] = pending[idx][2]
+    except TimeoutError:
+        pass  # global timeout hit — use raw google links for remaining
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    # Fill in any undecoded URLs with the original google links
+    for idx, _title, google_link, _src, _snip in pending:
+        if idx not in decoded_urls:
+            decoded_urls[idx] = google_link
 
     # ── Phase 3: Build results ────────────────────────────────────────────
     results = []
@@ -1043,6 +1055,7 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
         return urls
 
     # Year/month patterns to check in URLs when lastmod is missing
+    now = datetime.now().astimezone()
     _current_year = str(now.year)
     _recent_year_months = set()
     _d = cutoff
