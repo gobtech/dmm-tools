@@ -36,6 +36,7 @@ The web UI provides:
 - **Outlet Discovery** *(WIP)*: Select a genre and region → searches for new LATAM outlets not in the database → deduplicates against 1,500+ known outlets (name-normalized matching) → optional AI descriptions and type classification (Groq Llama 3.3 70B — free) → downloadable CSV for Notion import
 - **PR Translator**: Upload the .docx from the label or paste text → auto-detects source language → translates to Spanish and/or Portuguese using Google Translate (free) or Gemini AI → download translated .docx with all original formatting preserved (fonts, bold, italic, alignment, sizes, images) or copy plain text to clipboard
 - **Release Calendar** (`/calendar`): Visual timeline of all releases grouped by week, color-coded by phase (Pre-Pitch → Release Week → Reporting), with quick-action buttons to run DSP/Press/Report for any artist
+- **Artist Dashboard** (`/dashboard`): Per-artist metrics dashboard with 4 KPI cards (radio plays, press articles, playlists, markets), trend/country/platform charts, activity feed, campaign notes, and snapshot comparison. **Export to PNG or PDF** — client-side rendering via html2canvas + jsPDF with branded header, chart snapshots, and theme-aware background
 - **Playlist Database** (`/playlists`): Browse, search, and filter all 99+ tracked editorial playlists with platform badges, mood tags, and sortable columns. Add new playlists (auto-detects platform from URL) or remove existing ones — changes sync directly with the DSP Pickup database
 
 ## Quick Setup
@@ -120,6 +121,7 @@ dmm-tools/
 │   ├── app.py                      ← Flask web server
 │   └── templates/
 │       ├── index.html              ← Web UI (single-page app)
+│       ├── dashboard.html           ← Artist Dashboard (metrics, charts, export to PNG/PDF)
 │       ├── calendar.html           ← Release Calendar timeline
 │       ├── playlists.html          ← Playlist Database viewer + management
 │       ├── licensing.html          ← Licensing & attribution page

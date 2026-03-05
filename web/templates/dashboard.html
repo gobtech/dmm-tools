@@ -6,6 +6,8 @@
   <title>Artist Dashboard — DMM Tools</title>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Raleway:wght@300;400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <style>
     /* ── Light theme (default) ── */
     :root {
@@ -435,6 +437,74 @@
       line-height: 1.5;
     }
 
+    /* ── Export button ── */
+    .btn-outline {
+      background: transparent;
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+      padding: 9px 20px;
+      border-radius: var(--radius-xs);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: border-color var(--transition), opacity var(--transition);
+    }
+    .btn-outline:hover { border-color: var(--accent); }
+    .btn-outline:disabled { opacity: .4; cursor: not-allowed; }
+    .export-wrap {
+      position: relative;
+      display: inline-block;
+    }
+    .export-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      background: var(--bg-card);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-xs);
+      box-shadow: var(--shadow-md);
+      z-index: 50;
+      min-width: 170px;
+    }
+    .export-menu.open { display: block; }
+    .export-menu-item {
+      padding: 9px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text-primary);
+      transition: background var(--transition);
+      white-space: nowrap;
+    }
+    .export-menu-item:hover { background: var(--bg-input); }
+    .export-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.5);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .export-overlay.active { display: flex; }
+    .export-overlay-box {
+      background: var(--bg-card);
+      border-radius: var(--radius-sm);
+      padding: 32px 48px;
+      text-align: center;
+      box-shadow: var(--shadow-md);
+    }
+    .export-overlay-box h3 {
+      font-family: var(--font-heading);
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
+    .export-overlay-box p {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
     /* ── Responsive ── */
     @media (max-width: 768px) {
       .metrics-row { grid-template-columns: repeat(2, 1fr); }
@@ -464,7 +534,21 @@
     <div class="artist-dropdown" id="artist-dropdown"></div>
   </div>
   <button class="btn" id="collect-btn" onclick="collectData()" disabled>Collect Data</button>
+  <div class="export-wrap">
+    <button class="btn-outline" id="export-btn" onclick="toggleExportMenu()" disabled>Export &#9662;</button>
+    <div class="export-menu" id="export-menu">
+      <div class="export-menu-item" onclick="exportDashboard('png')">Download as PNG</div>
+      <div class="export-menu-item" onclick="exportDashboard('pdf')">Download as PDF</div>
+    </div>
+  </div>
 </header>
+
+<div class="export-overlay" id="export-overlay">
+  <div class="export-overlay-box">
+    <h3>Exporting<span class="loading-dots"></span></h3>
+    <p>Rendering dashboard snapshot</p>
+  </div>
+</div>
 
 <main class="dash-content">
   <div id="state-msg" class="state-msg">
@@ -608,6 +692,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Close dropdown on outside click
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.artist-search-wrap')) closeDropdown();
+    if (!e.target.closest('.export-wrap')) document.getElementById('export-menu').classList.remove('open');
   });
   // Keyboard nav
   document.getElementById('artist-search').addEventListener('keydown', handleSearchKey);
@@ -716,6 +801,7 @@ async function selectArtist(name) {
     stateEl.style.display = '';
     dashEl.style.display = 'none';
     document.getElementById('collect-btn').disabled = true;
+    document.getElementById('export-btn').disabled = true;
     currentArtist = null;
     return;
   }
@@ -743,11 +829,13 @@ async function selectArtist(name) {
         + '<p>Click <strong>Collect Data</strong> to run a Radio / Press / DSP scan and start building this dashboard.</p>';
       stateEl.style.display = '';
       dashEl.style.display = 'none';
+      document.getElementById('export-btn').disabled = true;
       return;
     }
 
     stateEl.style.display = 'none';
     dashEl.style.display = '';
+    document.getElementById('export-btn').disabled = false;
     currentData = data;
 
     buildCompareDropdown(data);
@@ -763,6 +851,7 @@ async function selectArtist(name) {
     stateEl.innerHTML = '<h2>Failed to load data</h2><p>' + esc(e.message) + '</p>';
     stateEl.style.display = '';
     dashEl.style.display = 'none';
+    document.getElementById('export-btn').disabled = true;
   }
 }
 
@@ -1088,6 +1177,109 @@ async function deleteNote(id) {
     if (currentArtist) await loadNotes(currentArtist);
   } catch (e) {
     console.error('Failed to delete note:', e);
+  }
+}
+
+// ── Export ──
+function toggleExportMenu() {
+  document.getElementById('export-menu').classList.toggle('open');
+}
+
+async function exportDashboard(format) {
+  document.getElementById('export-menu').classList.remove('open');
+  const overlay = document.getElementById('export-overlay');
+  overlay.classList.add('active');
+
+  const dashboard = document.getElementById('dashboard');
+  const restoreFns = [];
+
+  try {
+    // 1. Swap Chart.js canvases → static <img> (html2canvas can't reliably capture canvas)
+    const chartIds = ['trend-chart', 'country-chart', 'platform-chart'];
+    const chartMap = { 'trend-chart': trendChart, 'country-chart': countryChart, 'platform-chart': platformChart };
+    for (const id of chartIds) {
+      const canvas = document.getElementById(id);
+      const chart = chartMap[id];
+      if (!chart || canvas.style.display === 'none') continue;
+      const img = document.createElement('img');
+      img.src = chart.toBase64Image();
+      img.style.width = '100%';
+      img.style.height = canvas.style.height || 'auto';
+      canvas.parentNode.insertBefore(img, canvas);
+      canvas.style.display = 'none';
+      restoreFns.push(() => { img.remove(); canvas.style.display = ''; });
+    }
+
+    // 2. Hide excluded sections
+    const hideSelectors = ['.actions-row', '.notes-section', '#compare-row', '.collect-log'];
+    for (const sel of hideSelectors) {
+      const el = dashboard.querySelector(sel) || document.querySelector(sel);
+      if (el) {
+        const prev = el.style.display;
+        el.style.display = 'none';
+        restoreFns.push(() => { el.style.display = prev; });
+      }
+    }
+
+    // 3. Inject branded header
+    const header = document.createElement('div');
+    header.style.cssText = 'border-left:4px solid #c43030;padding:8px 16px;margin-bottom:20px;';
+    header.innerHTML = '<div style="font-family:Cormorant Garamond,Georgia,serif;font-size:22px;font-weight:600;">'
+      + esc(currentArtist) + '</div>'
+      + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;">Dashboard snapshot — '
+      + new Date().toLocaleDateString() + '</div>';
+    dashboard.insertBefore(header, dashboard.firstChild);
+    restoreFns.push(() => header.remove());
+
+    // 4. Force consistent width
+    const prevMin = dashboard.style.minWidth;
+    dashboard.style.minWidth = '1060px';
+    restoreFns.push(() => { dashboard.style.minWidth = prevMin; });
+
+    // 5. Wait for fonts then capture
+    await document.fonts.ready;
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-base').trim();
+    const canvas = await html2canvas(dashboard, {
+      scale: 2,
+      backgroundColor: bgColor,
+      useCORS: true,
+      logging: false,
+    });
+
+    // 6. Generate file
+    const dateSuffix = new Date().toISOString().slice(0, 10);
+    const safeName = currentArtist.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = safeName + '_dashboard_' + dateSuffix;
+
+    if (format === 'png') {
+      canvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename + '.png';
+        a.click();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    } else {
+      const { jsPDF } = window.jspdf;
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+      const pdfW = imgW * 0.264583;  // px to mm at 96dpi (scale=2 → /2 then *25.4/96 → *0.264583 / 2)
+      const pdfH = imgH * 0.264583;
+      const halfW = pdfW / 2;
+      const halfH = pdfH / 2;
+      const pdf = new jsPDF({ orientation: halfW > halfH ? 'l' : 'p', unit: 'mm', format: [halfW, halfH] });
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', 0, 0, halfW, halfH);
+      pdf.save(filename + '.pdf');
+    }
+  } catch (e) {
+    console.error('Export failed:', e);
+    alert('Export failed: ' + e.message);
+  } finally {
+    // 7. Restore all DOM mutations
+    for (const fn of restoreFns.reverse()) fn();
+    overlay.classList.remove('active');
   }
 }
 

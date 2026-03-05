@@ -8,9 +8,9 @@
 ## Medium effort
 - [x] Batch digest — run weekly digest for all active artists in one click
 - [ ] DSP pitch email drafter — generate outreach emails from playlist data
-- [ ] Export dashboard as PDF/image
+- [x] Export dashboard as PDF/image
 
 ## Bigger lifts
 - [ ] Notion two-way sync — push results back to Notion
-- [ ] Scheduled automated runs — cron-based weekly digests
-- [ ] Multi-artist comparison — side-by-side dashboards
+- [x] Scheduled automated runs — cron-based weekly digests
+- [x] Multi-artist comparison — side-by-side dashboards
