@@ -127,6 +127,8 @@ def _execute_schedule(schedule_id, job_id=None):
                     artists.append(n)
 
     if not artists:
+        if job_id:
+            finish_job(job_id, result='No artists found for this schedule.')
         return
 
     run_id = save_schedule_run(schedule_id, len(artists))
@@ -881,6 +883,13 @@ def dsp_run():
     if mode == 'artist' and not artist:
         return jsonify({'error': 'Please enter an artist name.'}), 400
 
+    if mode == 'week' and week != 'current':
+        from datetime import datetime as _dt
+        try:
+            _dt.strptime(week, '%Y-%m-%d')
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid week date. Use YYYY-MM-DD format or "current".'}), 400
+
     job_id = new_job()
 
     def run():
@@ -1270,6 +1279,9 @@ def report_compile():
 
     if not artist:
         return jsonify({'error': 'Please enter an artist name.'}), 400
+
+    if not include_radio and not include_dsp and not include_press:
+        return jsonify({'error': 'Please enable at least one section (Radio, Press, or DSP).'}), 400
 
     try:
         press_days = int(press_days)
@@ -1988,6 +2000,8 @@ def create_schedule():
         CronTrigger.from_crontab(cron)
     except Exception as e:
         return jsonify({'error': f'Invalid cron expression: {e}'}), 400
+    if data.get('artist_source') == 'manual' and not data.get('artists'):
+        return jsonify({'error': 'Please select at least one artist.'}), 400
     new_id = save_schedule(data)
     if data.get('enabled', True):
         _register_scheduler_job(new_id, cron)
