@@ -229,6 +229,18 @@ def run_with_limit(job_id, fn):
     return wrapper
 
 
+MAX_ARTIST_NAME_LENGTH = 100
+
+
+def validate_artist(name):
+    """Return an error string if the artist name is invalid, else None."""
+    if not name:
+        return 'Please enter an artist name.'
+    if len(name) > MAX_ARTIST_NAME_LENGTH:
+        return f'Artist name is too long (max {MAX_ARTIST_NAME_LENGTH} characters).'
+    return None
+
+
 def new_job():
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
@@ -386,8 +398,9 @@ def download_typed(job_id, filetype):
 @app.route('/api/radio/run', methods=['POST'])
 def radio_run():
     artist = request.form.get('artist', '').strip()
-    if not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    err = validate_artist(artist)
+    if err:
+        return jsonify({'error': err}), 400
 
     files = request.files.getlist('csvfiles')
     if not files or all(f.filename == '' for f in files):
@@ -446,8 +459,9 @@ def radio_soundcharts():
     data = request.get_json() or {}
     artist = (data.get('artist') or '').strip()
     region = data.get('region', 'latam').strip()  # 'latam' or 'all'
-    if not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    err = validate_artist(artist)
+    if err:
+        return jsonify({'error': err}), 400
 
     job_id = new_job()
 
@@ -567,8 +581,9 @@ def radio_soundcharts_fetch():
     time_range = data.get('time_range', '28d').strip()
     start_date = data.get('start_date', '').strip()
     end_date = data.get('end_date', '').strip()
-    if not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    err = validate_artist(artist)
+    if err:
+        return jsonify({'error': err}), 400
     if time_range == 'custom' and (not start_date or not end_date):
         return jsonify({'error': 'Please select both start and end dates.'}), 400
 
@@ -660,8 +675,9 @@ def radio_soundcharts_generate():
 
     if not fetch_job_id or fetch_job_id not in jobs or 'airplay_cache' not in jobs.get(fetch_job_id, {}):
         return jsonify({'error': 'Airplay data expired. Please fetch songs again.'}), 400
-    if not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    err = validate_artist(artist)
+    if err:
+        return jsonify({'error': err}), 400
     if not selected_songs:
         return jsonify({'error': 'Please select at least one song.'}), 400
 
@@ -802,8 +818,9 @@ def press_run():
     end_date = data.get('end_date')
     days = data.get('days', 28)
 
-    if not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    err = validate_artist(artist)
+    if err:
+        return jsonify({'error': err}), 400
 
     # Custom date range or preset days
     if start_date and end_date:
@@ -812,7 +829,7 @@ def press_run():
         try:
             days = int(days)
         except (TypeError, ValueError):
-            days = 28
+            return jsonify({'error': 'Invalid value for days. Please provide a number.'}), 400
         if days < 1:
             return jsonify({'error': 'Days must be at least 1.'}), 400
         start_date = None
@@ -880,8 +897,19 @@ def dsp_run():
     platforms = data.get('platforms', None)  # list of platform names, or None for all
     grouping = data.get('grouping', 'platform')
 
-    if mode == 'artist' and not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    VALID_PLATFORMS = {'Spotify', 'Apple Music', 'Deezer', 'Amazon Music', 'Claro Música', 'YouTube Music'}
+
+    if mode == 'artist':
+        err = validate_artist(artist)
+        if err:
+            return jsonify({'error': err}), 400
+
+    if platforms is not None:
+        if not isinstance(platforms, list) or len(platforms) == 0:
+            return jsonify({'error': 'Please select at least one platform.'}), 400
+        bad = [p for p in platforms if p not in VALID_PLATFORMS]
+        if bad:
+            return jsonify({'error': f'Unsupported platform(s): {", ".join(bad)}. Supported: {", ".join(sorted(VALID_PLATFORMS))}'}), 400
 
     if mode == 'week' and week != 'current':
         from datetime import datetime as _dt
@@ -1277,16 +1305,22 @@ def report_compile():
     include_dsp = data.get('include_dsp', True)
     include_press = data.get('include_press', True)
 
-    if not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    err = validate_artist(artist)
+    if err:
+        return jsonify({'error': err}), 400
 
     if not include_radio and not include_dsp and not include_press:
         return jsonify({'error': 'Please enable at least one section (Radio, Press, or DSP).'}), 400
 
-    try:
-        press_days = int(press_days)
-    except (TypeError, ValueError):
-        press_days = 28
+    if press_start_date and press_end_date:
+        pass  # custom date range, no days needed
+    else:
+        try:
+            press_days = int(press_days)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Invalid value for press days. Please provide a number.'}), 400
+        if press_days < 1:
+            return jsonify({'error': 'Press days must be at least 1.'}), 400
 
     job_id = new_job()
     safe_artist = artist.lower().replace(' ', '_')
@@ -1351,11 +1385,13 @@ def report_compile():
 @app.route('/api/discovery/search', methods=['POST'])
 def discovery_search():
     data = request.get_json(silent=True) or {}
-    genre = data.get('genre', 'general music')
+    genre = (data.get('genre') or 'general music').strip()
     countries = data.get('countries', ['All LATAM'])
     custom_query = data.get('custom_query', '')
     use_llm = data.get('use_llm', True)
 
+    if not genre:
+        genre = 'general music'
     if not countries:
         countries = ['All LATAM']
 
@@ -1437,13 +1473,16 @@ def digest_generate():
     include_dsp = data.get('include_dsp', True)
     include_press = data.get('include_press', True)
 
-    if not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    err = validate_artist(artist)
+    if err:
+        return jsonify({'error': err}), 400
 
     try:
         days = int(days)
     except (TypeError, ValueError):
-        days = 7
+        return jsonify({'error': 'Invalid value for days. Please provide a number.'}), 400
+    if days < 1:
+        return jsonify({'error': 'Days must be at least 1.'}), 400
 
     job_id = new_job()
 
@@ -1517,6 +1556,11 @@ def digest_batch():
 
     if not artists:
         return jsonify({'error': 'Please select at least one artist.'}), 400
+
+    for a in artists:
+        err = validate_artist(a)
+        if err:
+            return jsonify({'error': f'Invalid artist "{a}": {err}'}), 400
 
     daysMap = {'7d': 7, '28d': 28}
     days = daysMap.get(radio_time_range, 7)
@@ -1650,10 +1694,11 @@ def proposal_generate():
     data = request.get_json(silent=True) or {}
     artist = (data.get('artist') or '').strip()
 
-    if not artist:
-        return jsonify({'error': 'Please enter an artist name.'}), 400
+    err = validate_artist(artist)
+    if err:
+        return jsonify({'error': err}), 400
 
-    genre = data.get('genre', 'general')
+    genre = (data.get('genre') or 'general').strip()
     campaign_duration = data.get('campaign_duration', 3)
     try:
         campaign_duration = int(campaign_duration)
@@ -2032,7 +2077,9 @@ def edit_schedule(schedule_id):
 
 @app.route('/api/schedules/<int:schedule_id>', methods=['DELETE'])
 def remove_schedule(schedule_id):
-    from shared.history import delete_schedule
+    from shared.history import get_schedule, delete_schedule
+    if not get_schedule(schedule_id):
+        return jsonify({'error': 'Schedule not found'}), 404
     job_name = f'schedule_{schedule_id}'
     if scheduler.get_job(job_name):
         scheduler.remove_job(job_name)
