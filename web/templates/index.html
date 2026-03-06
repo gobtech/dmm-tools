@@ -1014,6 +1014,73 @@ textarea.form-control:focus {
   color: var(--error);
   font-size: 15px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.result-error .error-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--error);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(239,68,68,.3);
+}
+
+.result-error .error-icon svg { width: 14px; height: 14px; }
+
+.result-warning {
+  background: #fffbeb;
+  border: 2px solid #fde68a;
+  border-radius: var(--radius-sm);
+  padding: 20px 24px;
+  color: #92400e;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+html.dark .result-warning {
+  background: rgba(245,158,11,.1);
+  border-color: rgba(245,158,11,.25);
+  color: #fbbf24;
+}
+
+.result-warning .warning-icon {
+  width: 28px;
+  height: 28px;
+  background: #f59e0b;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(245,158,11,.3);
+}
+
+.result-warning .warning-icon svg { width: 14px; height: 14px; }
+
+.timeout-hint {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: rgba(0,0,0,.03);
+  border-radius: var(--radius-xs);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+html.dark .timeout-hint {
+  background: rgba(255,255,255,.04);
 }
 
 .result-report {
@@ -2772,9 +2839,22 @@ function pollJob(jobId, logEl, progressEl, resultEl, onDone) {
   resultEl.classList.remove('visible');
   resultEl.innerHTML = '';
   let settled = false;
+  const startTime = Date.now();
+  let hintShown = false;
+  const TIMEOUT_HINT_MS = 180000; // 3 minutes
 
   const interval = setInterval(async () => {
     if (settled) return;
+
+    // Show timeout hint after 3 minutes
+    if (!hintShown && Date.now() - startTime > TIMEOUT_HINT_MS) {
+      hintShown = true;
+      const hint = document.createElement('div');
+      hint.className = 'timeout-hint';
+      hint.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> This is taking longer than usual. You can keep waiting or try again.`;
+      progressEl.appendChild(hint);
+    }
+
     try {
       const resp = await fetch('/api/status/' + jobId);
       const data = await resp.json();
@@ -2820,6 +2900,18 @@ function showToast(msg) {
 }
 
 const checkSvg = '<svg viewBox="0 0 12 12" fill="none" stroke="white" stroke-width="2"><path d="M2 6l3 3 5-5"/></svg>';
+const errorSvg = '<svg viewBox="0 0 12 12" fill="none" stroke="white" stroke-width="2"><path d="M3 3l6 6M9 3l-6 6"/></svg>';
+const warnSvg = '<svg viewBox="0 0 12 12" fill="none" stroke="white" stroke-width="2"><path d="M6 3v4M6 9v0"/></svg>';
+
+function showError(resultEl, message) {
+  resultEl.classList.add('visible');
+  resultEl.innerHTML = `<div class="result-error"><span class="error-icon">${errorSvg}</span><span>${escapeHtml(message)}</span></div>`;
+}
+
+function showWarning(containerEl, message) {
+  containerEl.insertAdjacentHTML('beforeend',
+    `<div class="result-warning"><span class="warning-icon">${warnSvg}</span><span>${escapeHtml(message)}</span></div>`);
+}
 
 // =====================================================================
 // Radio Report
@@ -2875,19 +2967,17 @@ async function fetchRadioSongs() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fetchBody),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
     pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
       setLoading(btn, false);
       if (result.status === 'error') {
-        resultEl.classList.add('visible');
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+          showError(resultEl, result.error);
       } else {
         radioFetchJobId = data.job_id;
         renderSongPicker(result.result.songs, result.result.range_label, result.result.is_custom);
@@ -2895,8 +2985,7 @@ async function fetchRadioSongs() {
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -2961,11 +3050,10 @@ async function generateRadioReport() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(genBody),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -2973,7 +3061,7 @@ async function generateRadioReport() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         resultEl.innerHTML = `
           <div class="result-success">
@@ -2987,8 +3075,7 @@ async function generateRadioReport() {
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -3006,11 +3093,10 @@ async function runRadioCsv(btn, logEl, progressEl, resultEl) {
 
   try {
     const resp = await fetch('/api/radio/run', { method: 'POST', body: fd });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -3018,7 +3104,7 @@ async function runRadioCsv(btn, logEl, progressEl, resultEl) {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         resultEl.innerHTML = `
           <div class="result-success">
@@ -3032,8 +3118,7 @@ async function runRadioCsv(btn, logEl, progressEl, resultEl) {
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -3085,11 +3170,10 @@ async function runPress() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -3097,7 +3181,7 @@ async function runPress() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Press search complete!</strong></div>`;
         if (result.result) {
@@ -3117,8 +3201,7 @@ async function runPress() {
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -3149,11 +3232,10 @@ async function runDsp() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode, artist, week: week || 'current', platforms, grouping }),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -3161,7 +3243,7 @@ async function runDsp() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         // Parse platform match counts from the report text
         const counts = parsePlatformCounts(result.result || '');
@@ -3220,8 +3302,7 @@ async function runDsp() {
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -3328,11 +3409,10 @@ async function runReport() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -3340,7 +3420,7 @@ async function runReport() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Full report compiled!</strong></div>`;
 
@@ -3379,8 +3459,7 @@ async function runReport() {
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -3397,7 +3476,7 @@ async function loadProposalData() {
     renderRadioStations();
     updateBudgetPreview();
   } catch (e) {
-    console.error('Failed to load proposal data:', e);
+    showToast('Could not load proposal data. Try refreshing the page.');
   }
 }
 
@@ -3603,11 +3682,10 @@ async function runProposal() {
         digital_package: digitalPackage,
       }),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -3615,7 +3693,7 @@ async function runProposal() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         resultEl.innerHTML = `
           <div class="result-success">${escapeHtml(result.result || 'Proposal generated.')}</div>
@@ -3624,7 +3702,7 @@ async function runProposal() {
     });
   } catch (e) {
     setLoading(btn, false);
-    showToast('Network error: ' + e.message);
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -3679,11 +3757,10 @@ async function runDigest() {
         include_press: includePress,
       }),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -3691,15 +3768,14 @@ async function runDigest() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         renderDigest(result, resultEl);
       }
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -3910,11 +3986,10 @@ async function runBatchDigest() {
         include_press: includePress,
       }),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -3922,15 +3997,14 @@ async function runBatchDigest() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         renderBatchDigest(result, mode);
       }
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -4097,11 +4171,10 @@ async function runDiscovery() {
         use_llm: useLlm,
       }),
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -4109,15 +4182,14 @@ async function runDiscovery() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         renderDiscovery(result, data.job_id, resultEl);
       }
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -4188,6 +4260,17 @@ function copyDiscoveryHtml(jobId) {
 // =====================================================================
 // Helpers
 // =====================================================================
+async function parseResponse(resp) {
+  if (!resp.ok && resp.status >= 500) {
+    throw new Error('Server error (' + resp.status + '). Please try again.');
+  }
+  try {
+    return await resp.json();
+  } catch (e) {
+    throw new Error('Unexpected server response. Please try again.');
+  }
+}
+
 function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
@@ -4343,11 +4426,10 @@ async function runPrTranslate() {
       method: 'POST',
       body: formData,
     });
-    const data = await resp.json();
+    const data = await parseResponse(resp);
     if (data.error) {
       setLoading(btn, false);
-      resultEl.classList.add('visible');
-      resultEl.innerHTML = `<div class="result-error">${escapeHtml(data.error)}</div>`;
+      showError(resultEl, data.error);
       return;
     }
 
@@ -4356,7 +4438,7 @@ async function runPrTranslate() {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error)}</div>`;
+        showError(resultEl, result.error);
       } else {
         result._jobId = prJobId;
         renderPrTranslation(result, resultEl);
@@ -4364,8 +4446,7 @@ async function runPrTranslate() {
     });
   } catch (e) {
     setLoading(btn, false);
-    resultEl.classList.add('visible');
-    resultEl.innerHTML = `<div class="result-error">Could not connect to the server.</div>`;
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -4953,8 +5034,7 @@ async function triggerSchedule(id) {
         resultEl.classList.add('visible');
         resultEl.innerHTML = `<div class="result-success">${escapeHtml(result.result || 'Complete')}</div>`;
       } else {
-        resultEl.classList.add('visible');
-        resultEl.innerHTML = `<div class="result-error">${escapeHtml(result.error || 'Failed')}</div>`;
+        showError(resultEl, result.error || 'Failed');
       }
       loadSchedules();
       loadScheduleHistory();
