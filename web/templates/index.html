@@ -1117,6 +1117,7 @@ html.dark .timeout-hint {
 .conditional { display: none; }
 .conditional.visible { display: block; margin-top: 28px; }
 .conditional.visible label:first-child { margin-top: 0; }
+.batch-preview { padding: 12px 16px; background: var(--bg-input); border-radius: 10px; font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
 
 /* ============================================================
    TOAST — floating notification
@@ -1832,15 +1833,31 @@ html.dark .bg-glow-orb { opacity: .25; }
       </div>
     </div>
 
-    <label>Data Source</label>
+    <label>Mode</label>
     <div class="radio-group">
+      <label><input type="radio" name="radio-batch-mode" value="artist" checked onchange="radioBatchModeChanged()"><span>Specific artist</span></label>
+      <label><input type="radio" name="radio-batch-mode" value="week" onchange="radioBatchModeChanged()"><span>This week's releases</span></label>
+      <label><input type="radio" name="radio-batch-mode" value="all" onchange="radioBatchModeChanged()"><span>All releases</span></label>
+    </div>
+
+    <div id="radio-week-field" class="conditional">
+      <label for="radio-week">Week (release Friday)</label>
+      <input type="date" id="radio-week">
+    </div>
+
+    <div id="radio-batch-preview" class="conditional batch-preview"></div>
+
+    <label id="radio-datasource-label">Data Source</label>
+    <div class="radio-group" id="radio-datasource-group">
       <label><input type="radio" name="radio-mode" value="soundcharts" checked onchange="radioModeChanged()"><span>Fetch from Soundcharts</span></label>
       <label><input type="radio" name="radio-mode" value="csv" onchange="radioModeChanged()"><span>Upload CSV</span></label>
     </div>
 
     <div class="conditional visible" id="radio-soundcharts-fields">
-      <label for="radio-artist">Artist Name</label>
-      <input type="text" id="radio-artist" placeholder="e.g. Djo">
+      <div id="radio-artist-field">
+        <label for="radio-artist">Artist Name</label>
+        <input type="text" id="radio-artist" placeholder="e.g. Djo">
+      </div>
 
       <label>Region</label>
       <div class="radio-group">
@@ -1934,8 +1951,24 @@ html.dark .bg-glow-orb { opacity: .25; }
       </div>
     </div>
 
-    <label for="press-artist">Artist Name</label>
-    <input type="text" id="press-artist" placeholder="e.g. Bleachers">
+    <label>Mode</label>
+    <div class="radio-group">
+      <label><input type="radio" name="press-mode" value="artist" checked onchange="pressModeChanged()"><span>Specific artist</span></label>
+      <label><input type="radio" name="press-mode" value="week" onchange="pressModeChanged()"><span>This week's releases</span></label>
+      <label><input type="radio" name="press-mode" value="all" onchange="pressModeChanged()"><span>All releases</span></label>
+    </div>
+
+    <div id="press-week-field" class="conditional">
+      <label for="press-week">Week (release Friday)</label>
+      <input type="date" id="press-week">
+    </div>
+
+    <div id="press-batch-preview" class="conditional batch-preview"></div>
+
+    <div id="press-artist-field">
+      <label for="press-artist">Artist Name</label>
+      <input type="text" id="press-artist" placeholder="e.g. Bleachers">
+    </div>
 
     <label>Search Period</label>
     <div class="radio-group">
@@ -2768,6 +2801,77 @@ function radioRangeChanged() {
 }
 
 // =====================================================================
+// Batch mode helpers (shared by Radio + Press)
+// =====================================================================
+async function loadBatchPreview(mode, weekInputId, previewElId) {
+  const previewEl = document.getElementById(previewElId);
+  if (mode === 'artist') {
+    previewEl.classList.remove('visible');
+    previewEl.innerHTML = '';
+    return;
+  }
+  previewEl.classList.add('visible');
+  previewEl.innerHTML = '<span style="color:var(--text-secondary)">Loading releases...</span>';
+  const week = document.getElementById(weekInputId)?.value || 'current';
+  try {
+    const resp = await fetch('/api/releases/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, week }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      previewEl.innerHTML = `<span style="color:var(--accent)">${escapeHtml(data.error)}</span>`;
+      return;
+    }
+    if (!data.artists || data.artists.length === 0) {
+      previewEl.innerHTML = '<span style="color:var(--text-secondary)">No releases found for this period.</span>';
+      return;
+    }
+    const allNames = data.artists.map(a => a.artist);
+    const display = allNames.length > 20 ? allNames.slice(0, 20).join(', ') + `, ... and ${allNames.length - 20} more` : allNames.join(', ');
+    previewEl.innerHTML = `<strong>${data.total} artist${data.total !== 1 ? 's' : ''}</strong>: ${escapeHtml(display)}`;
+  } catch (e) {
+    previewEl.innerHTML = '<span style="color:var(--accent)">Could not load releases.</span>';
+  }
+}
+
+function radioBatchModeChanged() {
+  const mode = document.querySelector('input[name="radio-batch-mode"]:checked').value;
+  const isArtist = mode === 'artist';
+  document.getElementById('radio-artist-field').style.display = isArtist ? '' : 'none';
+  document.getElementById('radio-week-field').classList.toggle('visible', mode === 'week');
+  // Hide CSV mode and data source selector in batch mode
+  document.getElementById('radio-datasource-label').style.display = isArtist ? '' : 'none';
+  document.getElementById('radio-datasource-group').style.display = isArtist ? '' : 'none';
+  if (!isArtist) {
+    // Force soundcharts mode in batch
+    const scRadio = document.querySelector('input[name="radio-mode"][value="soundcharts"]');
+    if (scRadio) { scRadio.checked = true; radioModeChanged(); }
+    document.getElementById('radio-csv-fields').classList.remove('visible');
+  }
+  // Update button text
+  const btn = document.getElementById('radio-fetch-btn');
+  btn.textContent = isArtist ? 'Fetch Songs' : 'Run Batch Radio Reports';
+  // Hide song picker in batch mode
+  if (!isArtist) {
+    document.getElementById('radio-song-picker').style.display = 'none';
+    document.getElementById('radio-generate-btn').style.display = 'none';
+  }
+  loadBatchPreview(mode, 'radio-week', 'radio-batch-preview');
+}
+
+function pressModeChanged() {
+  const mode = document.querySelector('input[name="press-mode"]:checked').value;
+  const isArtist = mode === 'artist';
+  document.getElementById('press-artist-field').style.display = isArtist ? '' : 'none';
+  document.getElementById('press-week-field').classList.toggle('visible', mode === 'week');
+  // Update button text
+  document.getElementById('press-btn').textContent = isArtist ? 'Search for Press Coverage' : 'Run Batch Press Search';
+  loadBatchPreview(mode, 'press-week', 'press-batch-preview');
+}
+
+// =====================================================================
 // Dropzone
 // =====================================================================
 const dropzone = document.getElementById('radio-dropzone');
@@ -2807,6 +2911,16 @@ function renderFileList() {
     `<div><span>${f.name}</span><a href="#" class="remove-btn" onclick="event.preventDefault();removeFile(${i})">remove</a></div>`
   ).join('');
 }
+
+// Week date inputs: reload preview on change
+document.getElementById('radio-week')?.addEventListener('change', () => {
+  const mode = document.querySelector('input[name="radio-batch-mode"]:checked').value;
+  if (mode === 'week') loadBatchPreview('week', 'radio-week', 'radio-batch-preview');
+});
+document.getElementById('press-week')?.addEventListener('change', () => {
+  const mode = document.querySelector('input[name="press-mode"]:checked').value;
+  if (mode === 'week') loadBatchPreview('week', 'press-week', 'press-batch-preview');
+});
 
 // =====================================================================
 // DSP conditional fields
@@ -2919,8 +3033,14 @@ function showWarning(containerEl, message) {
 let radioFetchJobId = null;
 
 async function runRadio() {
-  const mode = document.querySelector('input[name="radio-mode"]:checked').value;
+  const batchMode = document.querySelector('input[name="radio-batch-mode"]:checked').value;
 
+  // Batch mode: week or all
+  if (batchMode !== 'artist') {
+    return runRadioBatch(batchMode);
+  }
+
+  const mode = document.querySelector('input[name="radio-mode"]:checked').value;
   if (mode === 'soundcharts') {
     return fetchRadioSongs();
   } else {
@@ -2929,6 +3049,64 @@ async function runRadio() {
     const progressEl = document.getElementById('radio-progress');
     const resultEl = document.getElementById('radio-result');
     return runRadioCsv(btn, logEl, progressEl, resultEl);
+  }
+}
+
+async function runRadioBatch(batchMode) {
+  const btn = document.getElementById('radio-fetch-btn');
+  const logEl = document.getElementById('radio-log');
+  const progressEl = document.getElementById('radio-progress');
+  const resultEl = document.getElementById('radio-result');
+
+  const region = document.querySelector('input[name="radio-region"]:checked').value;
+  const timeRange = document.querySelector('input[name="radio-range"]:checked').value;
+  const week = document.getElementById('radio-week').value || 'current';
+
+  const body = { mode: batchMode, week, region, time_range: timeRange };
+  if (timeRange === 'custom') {
+    body.start_date = document.getElementById('radio-start-date').value;
+    body.end_date = document.getElementById('radio-end-date').value;
+    if (!body.start_date || !body.end_date) return showToast('Please select both start and end dates.');
+  }
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+  resultEl.classList.remove('visible');
+  resultEl.innerHTML = '';
+  document.getElementById('radio-song-picker').style.display = 'none';
+  document.getElementById('radio-generate-btn').style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/radio/soundcharts/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await parseResponse(resp);
+    if (data.error) {
+      setLoading(btn, false);
+      showError(resultEl, data.error);
+      return;
+    }
+
+    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        showError(resultEl, result.error);
+      } else {
+        let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>${escapeHtml(result.result)}</strong></div>`;
+        html += `<div class="result-actions">`;
+        if (result.has_file) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}" download>Download Reports (.zip)</a>`;
+        }
+        html += `</div>`;
+        resultEl.innerHTML = html;
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
   }
 }
 
@@ -3141,24 +3319,35 @@ function togglePressCustomDates() {
 }
 
 async function runPress() {
-  const artist = document.getElementById('press-artist').value.trim();
-  if (!artist) return showToast('Please enter an artist name.');
-
+  const batchMode = document.querySelector('input[name="press-mode"]:checked').value;
   const days = document.querySelector('input[name="press-days"]:checked').value;
   const btn = document.getElementById('press-btn');
   const logEl = document.getElementById('press-log');
   const progressEl = document.getElementById('press-progress');
   const resultEl = document.getElementById('press-result');
 
-  let body;
+  let body = {};
+
+  // Date params (shared by both single and batch)
   if (days === 'custom') {
     const startDate = document.getElementById('press-date-from').value;
     const endDate = document.getElementById('press-date-to').value;
     if (!startDate || !endDate) return showToast('Please select both From and To dates.');
     if (startDate > endDate) return showToast('From date must be before To date.');
-    body = { artist, start_date: startDate, end_date: endDate };
+    body.start_date = startDate;
+    body.end_date = endDate;
   } else {
-    body = { artist, days: parseInt(days) };
+    body.days = parseInt(days);
+  }
+
+  if (batchMode === 'artist') {
+    const artist = document.getElementById('press-artist').value.trim();
+    if (!artist) return showToast('Please enter an artist name.');
+    body.mode = 'artist';
+    body.artist = artist;
+  } else {
+    body.mode = batchMode;
+    body.week = document.getElementById('press-week').value || 'current';
   }
 
   setLoading(btn, true);
@@ -3183,13 +3372,19 @@ async function runPress() {
       if (result.status === 'error') {
         showError(resultEl, result.error);
       } else {
-        let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Press search complete!</strong></div>`;
+        const isBatch = batchMode !== 'artist';
+        let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>${isBatch ? 'Batch press search complete!' : 'Press search complete!'}</strong></div>`;
         if (result.result) {
           html += `<div class="result-report">${formatPressReport(escapeHtml(result.result))}</div>`;
         }
         html += `<div class="result-actions">`;
-        if (result.has_file) {
+        if (isBatch && result.has_batch_zip) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/zip" download>Download All .docx (.zip)</a>`;
+        }
+        if (!isBatch && result.has_file) {
           html += `<a class="btn btn-small" href="/api/download/${data.job_id}/docx" download>Download .docx</a>`;
+        }
+        if (result.has_file) {
           html += `<a class="btn btn-small" href="/api/download/${data.job_id}" download>Download .txt</a>`;
         }
         if (result.result) {

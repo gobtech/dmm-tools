@@ -332,6 +332,7 @@ def job_status(job_id):
         'pr_es_has_docx': bool(job.get('pr_es_docx_path')),
         'pr_pt_has_docx': bool(job.get('pr_pt_docx_path')),
         'batch_results': job.get('batch_results', {}),
+        'has_batch_zip': bool(job.get('batch_zip')),
     })
 
 
@@ -375,15 +376,22 @@ def download_proofs_zip():
 
 @app.route('/api/download/<job_id>/<filetype>')
 def download_typed(job_id, filetype):
-    """Download a specific output file type (txt, json, or docx) for jobs."""
+    """Download a specific output file type (txt, json, docx, or zip) for jobs."""
     job = jobs.get(job_id)
-    if not job or not job['output_path']:
+    if not job or not job.get('output_path'):
         return jsonify({'error': 'No file available'}), 404
     base = Path(job['output_path'])
     if filetype == 'json':
         p = base.with_suffix('.json')
     elif filetype == 'docx':
         p = base.with_suffix('.docx')
+    elif filetype == 'zip':
+        # Batch zip — stored separately on the job
+        zip_path = job.get('batch_zip')
+        if zip_path and Path(zip_path).exists():
+            p = Path(zip_path)
+        else:
+            return jsonify({'error': 'No zip file available'}), 404
     else:
         p = base
     if not p.exists():
@@ -806,6 +814,170 @@ def radio_soundcharts_generate():
     return jsonify({'job_id': job_id})
 
 
+@app.route('/api/radio/soundcharts/batch', methods=['POST'])
+def radio_soundcharts_batch():
+    """Batch mode: fetch + generate radio reports for multiple artists from release schedule."""
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode', 'week')  # week | all
+    week = (data.get('week') or 'current').strip()
+    region = data.get('region', 'latam').strip()
+    time_range = data.get('time_range', '28d').strip()
+    start_date = data.get('start_date', '').strip()
+    end_date = data.get('end_date', '').strip()
+
+    if time_range == 'custom' and (not start_date or not end_date):
+        return jsonify({'error': 'Please select both start and end dates.'}), 400
+
+    if mode == 'week' and week != 'current':
+        from datetime import datetime as _dt
+        try:
+            _dt.strptime(week, '%Y-%m-%d')
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid week date. Use YYYY-MM-DD format or "current".'}), 400
+
+    sort_col, play_key = RANGE_MAP.get(time_range, RANGE_MAP['28d'])
+
+    job_id = new_job()
+
+    def run():
+        try:
+            from shared.soundcharts import search_artist, fetch_airplay_data, get_token, airplay_to_csv
+            from shared.database import load_release_schedule
+
+            token = get_token()
+            if not token:
+                finish_job(job_id, error='Soundcharts credentials not configured. Add SOUNDCHARTS_EMAIL and SOUNDCHARTS_PASSWORD to .env')
+                return
+
+            # Load and filter releases
+            schedule_url = os.environ.get(
+                'RELEASE_SCHEDULE_URL',
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
+            )
+            log_line(job_id, 'Loading release schedule...')
+            releases = load_release_schedule(schedule_url)
+            log_line(job_id, f'  Loaded {len(releases)} releases')
+
+            if mode == 'week':
+                dsp_spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
+                dsp_spec = importlib.util.spec_from_file_location('dsp_pickup_filter', str(dsp_spec_path))
+                dsp_mod = importlib.util.module_from_spec(dsp_spec)
+                dsp_spec.loader.exec_module(dsp_mod)
+                releases = dsp_mod.filter_releases_by_week(releases, week)
+                log_line(job_id, f'  Filtered to {len(releases)} releases for week of {week}')
+
+            # Deduplicate artists
+            seen = set()
+            artist_list = []
+            for r in releases:
+                a = r['artist']
+                if a and a not in seen:
+                    seen.add(a)
+                    artist_list.append(a)
+
+            if not artist_list:
+                finish_job(job_id, result='No releases found matching your criteria.')
+                return
+
+            region_label = 'LATAM' if region == 'latam' else 'all countries'
+            log_line(job_id, f'Running radio reports for {len(artist_list)} artists ({region_label})...')
+            log_line(job_id, '')
+
+            docx_paths = []
+            succeeded = 0
+
+            for i, art in enumerate(artist_list, 1):
+                log_line(job_id, f'[{i}/{len(artist_list)}] {art}')
+                log_fn = lambda msg: log_line(job_id, msg)
+
+                try:
+                    match = search_artist(art, token=token)
+                    if not match:
+                        log_line(job_id, f'  → Not found on Soundcharts, skipping')
+                        log_line(job_id, '')
+                        continue
+
+                    log_line(job_id, f'  Found: {match["name"]}')
+                    airplay = fetch_airplay_data(match['uuid'], token, sort_by=sort_col,
+                                                 region=region if region != 'all' else None, log_fn=log_fn)
+                    if not airplay:
+                        log_line(job_id, f'  → No airplay data')
+                        log_line(job_id, '')
+                        continue
+
+                    # For batch mode, include all songs (no picker)
+                    for e in airplay:
+                        e['plays_28d'] = e[play_key]
+
+                    log_line(job_id, f'  → {len(airplay)} station entries')
+
+                    # Write CSV and generate report
+                    upload_dir = UPLOAD_DIR / f'{job_id}_{i}'
+                    upload_dir.mkdir(parents=True, exist_ok=True)
+                    csv_path = upload_dir / 'soundcharts_airplay.csv'
+                    airplay_to_csv(airplay, str(csv_path))
+
+                    safe_art = art.lower().replace(' ', '_')
+                    output_path = REPORT_DIR / f'{safe_art}_radio.docx'
+
+                    if time_range == 'custom':
+                        period_title = format_custom_period(start_date, end_date)
+                    else:
+                        period_title = RANGE_PERIOD_TITLES.get(time_range, 'last 28 days')
+
+                    cmd = [
+                        'node',
+                        str(ROOT_DIR / 'airplay-report' / 'generate_report.js'),
+                        '--artist', art,
+                        '--input', str(upload_dir),
+                        '--output', str(output_path),
+                        '--period', period_title,
+                    ]
+                    proc = subprocess.Popen(
+                        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, cwd=str(ROOT_DIR),
+                    )
+                    for line in proc.stdout:
+                        log_line(job_id, '  ' + line.rstrip())
+                    proc.wait()
+
+                    if proc.returncode == 0 and output_path.exists():
+                        docx_paths.append(output_path)
+                        succeeded += 1
+                        log_line(job_id, f'  → Report generated')
+                    else:
+                        log_line(job_id, f'  → Report generation failed')
+
+                except Exception as e:
+                    log_line(job_id, f'  → Error: {e}')
+
+                log_line(job_id, '')
+
+            # Create zip of individual docx files
+            if docx_paths:
+                import zipfile
+                safe_batch = f'batch_week_{week}' if mode == 'week' else 'batch_all'
+                zip_path = REPORT_DIR / f'{safe_batch}_radio.zip'
+                with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for dp in docx_paths:
+                        zf.write(str(dp), dp.name)
+                jobs[job_id]['batch_zip'] = str(zip_path)
+                # Set output_path to the zip for download
+                finish_job(job_id,
+                           result=f'Generated {succeeded}/{len(artist_list)} radio reports.',
+                           output_path=zip_path)
+            else:
+                finish_job(job_id, result=f'No radio reports generated. 0/{len(artist_list)} artists had airplay data.')
+
+            log_line(job_id, f'Done! {succeeded}/{len(artist_list)} reports generated.')
+
+        except Exception as e:
+            finish_job(job_id, error=str(e))
+
+    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
 # ---------------------------------------------------------------------------
 # Press Pickup
 # ---------------------------------------------------------------------------
@@ -813,14 +985,24 @@ def radio_soundcharts_generate():
 @app.route('/api/press/run', methods=['POST'])
 def press_run():
     data = request.get_json(silent=True) or {}
+    mode = data.get('mode', 'artist')  # artist | week | all
     artist = (data.get('artist') or '').strip()
+    week = (data.get('week') or 'current').strip()
     start_date = data.get('start_date')
     end_date = data.get('end_date')
     days = data.get('days', 28)
 
-    err = validate_artist(artist)
-    if err:
-        return jsonify({'error': err}), 400
+    if mode == 'artist':
+        err = validate_artist(artist)
+        if err:
+            return jsonify({'error': err}), 400
+
+    if mode == 'week' and week != 'current':
+        from datetime import datetime as _dt
+        try:
+            _dt.strptime(week, '%Y-%m-%d')
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid week date. Use YYYY-MM-DD format or "current".'}), 400
 
     # Custom date range or preset days
     if start_date and end_date:
@@ -837,43 +1019,120 @@ def press_run():
         log_label = f'last {days} days'
 
     job_id = new_job()
-    safe_artist = artist.lower().replace(' ', '_')
-    output_path = REPORT_DIR / f'{safe_artist}_press.txt'
+
+    def _run_single_artist(mod, artist_name, out_path, kwargs_extra):
+        """Run press pickup for a single artist, return (result_text, total_count)."""
+        with capture_stdout() as buf:
+            country_results = mod.run_press_pickup(artist_name, days, str(out_path), **kwargs_extra)
+        for line in buf.getvalue().splitlines():
+            log_line(job_id, line)
+        total = sum(len(v) for v in country_results.values()) if country_results else 0
+        result_text = out_path.read_text(encoding='utf-8') if out_path.exists() else ''
+        return result_text, total
 
     def run():
         try:
-            from importlib import import_module
-            log_line(job_id, f'Searching for press coverage of {artist} ({log_label})...')
-
-            # Import and run
+            # Import press pickup module
             spec_path = ROOT_DIR / 'press-pickup' / 'press_pickup.py'
-            import importlib.util
             spec = importlib.util.spec_from_file_location('press_pickup', str(spec_path))
             mod = importlib.util.module_from_spec(spec)
-
             with capture_stdout() as buf:
                 spec.loader.exec_module(mod)
-                kwargs = {}
-                if start_date and end_date:
-                    kwargs['start_date'] = start_date
-                    kwargs['end_date'] = end_date
-                country_results = mod.run_press_pickup(artist, days, str(output_path), **kwargs)
-
-            # Send captured output to log
             for line in buf.getvalue().splitlines():
                 log_line(job_id, line)
 
-            # Build result text
-            if not country_results:
-                finish_job(job_id, result='No press coverage found for this artist in the selected time range.',
-                           output_path=output_path if output_path.exists() else None)
+            kwargs = {}
+            if start_date and end_date:
+                kwargs['start_date'] = start_date
+                kwargs['end_date'] = end_date
+
+            # --- Single artist mode ---
+            if mode == 'artist':
+                safe_artist = artist.lower().replace(' ', '_')
+                output_path = REPORT_DIR / f'{safe_artist}_press.txt'
+                log_line(job_id, f'Searching for press coverage of {artist} ({log_label})...')
+                result_text, total = _run_single_artist(mod, artist, output_path, kwargs)
+
+                if not result_text.strip():
+                    finish_job(job_id, result='No press coverage found for this artist in the selected time range.',
+                               output_path=output_path if output_path.exists() else None)
+                else:
+                    log_line(job_id, f'Found {total} results.')
+                    finish_job(job_id, result=result_text, output_path=output_path if output_path.exists() else None)
                 return
 
-            # Read the generated report
-            result_text = output_path.read_text(encoding='utf-8') if output_path.exists() else ''
-            total = sum(len(v) for v in country_results.values())
-            log_line(job_id, f'Found {total} results across {len(country_results)} countries.')
-            finish_job(job_id, result=result_text, output_path=output_path if output_path.exists() else None)
+            # --- Batch mode (week / all) ---
+            from shared.database import load_release_schedule
+            schedule_url = os.environ.get(
+                'RELEASE_SCHEDULE_URL',
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
+            )
+            log_line(job_id, 'Loading release schedule...')
+            releases = load_release_schedule(schedule_url)
+            log_line(job_id, f'  Loaded {len(releases)} releases')
+
+            if mode == 'week':
+                dsp_spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
+                dsp_spec = importlib.util.spec_from_file_location('dsp_pickup_filter', str(dsp_spec_path))
+                dsp_mod = importlib.util.module_from_spec(dsp_spec)
+                dsp_spec.loader.exec_module(dsp_mod)
+                releases = dsp_mod.filter_releases_by_week(releases, week)
+                log_line(job_id, f'  Filtered to {len(releases)} releases for week of {week}')
+
+            # Deduplicate artists
+            seen = set()
+            artist_list = []
+            for r in releases:
+                a = r['artist']
+                if a and a not in seen:
+                    seen.add(a)
+                    artist_list.append(a)
+
+            if not artist_list:
+                finish_job(job_id, result='No releases found matching your criteria.')
+                return
+
+            log_line(job_id, f'Running press pickup for {len(artist_list)} artists ({log_label})...')
+            log_line(job_id, '')
+
+            # Run sequentially per artist, collect individual docx paths
+            all_texts = []
+            docx_paths = []
+            grand_total = 0
+            for i, art in enumerate(artist_list, 1):
+                log_line(job_id, f'[{i}/{len(artist_list)}] {art}')
+                safe = art.lower().replace(' ', '_')
+                out = REPORT_DIR / f'{safe}_press.txt'
+                try:
+                    text, total = _run_single_artist(mod, art, out, kwargs)
+                    grand_total += total
+                    if text.strip():
+                        all_texts.append(text)
+                    docx_out = out.with_suffix('.docx')
+                    if docx_out.exists():
+                        docx_paths.append(docx_out)
+                    log_line(job_id, f'  → {total} results')
+                except Exception as e:
+                    log_line(job_id, f'  → Error: {e}')
+                log_line(job_id, '')
+
+            # Combine all text reports
+            combined_text = '\n\n'.join(all_texts) if all_texts else 'No press coverage found.'
+            safe_batch = f'batch_week_{week}' if mode == 'week' else 'batch_all'
+            combined_txt = REPORT_DIR / f'{safe_batch}_press.txt'
+            combined_txt.write_text(combined_text, encoding='utf-8')
+
+            # Create zip of individual docx files
+            if docx_paths:
+                import zipfile
+                zip_path = REPORT_DIR / f'{safe_batch}_press.zip'
+                with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for dp in docx_paths:
+                        zf.write(str(dp), dp.name)
+                jobs[job_id]['batch_zip'] = str(zip_path)
+
+            log_line(job_id, f'Done! {grand_total} total results across {len(artist_list)} artists.')
+            finish_job(job_id, result=combined_text, output_path=combined_txt)
 
         except SystemExit:
             finish_job(job_id, error='Press pickup failed unexpectedly.')
@@ -1283,6 +1542,44 @@ def api_releases():
         })
 
     return jsonify(result)
+
+
+@app.route('/api/releases/preview', methods=['POST'])
+def releases_preview():
+    """Return filtered artist list for batch mode preview."""
+    from datetime import datetime as _dt
+    from shared.database import load_release_schedule
+
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode', 'week')
+    week = (data.get('week') or 'current').strip()
+
+    schedule_url = os.environ.get(
+        'RELEASE_SCHEDULE_URL',
+        'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
+    )
+    try:
+        releases = load_release_schedule(schedule_url)
+    except Exception:
+        return jsonify({'error': 'Could not load release schedule.'}), 500
+
+    if mode == 'week':
+        spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
+        spec = importlib.util.spec_from_file_location('dsp_pickup_preview', str(spec_path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        releases = mod.filter_releases_by_week(releases, week)
+
+    # Deduplicate artists, preserving order
+    seen = set()
+    artists = []
+    for r in releases:
+        a = r['artist']
+        if a and a not in seen:
+            seen.add(a)
+            artists.append({'artist': a, 'title': r.get('title', ''), 'date': r.get('date', '')})
+
+    return jsonify({'artists': artists, 'total': len(artists)})
 
 
 # ---------------------------------------------------------------------------
