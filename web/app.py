@@ -232,6 +232,25 @@ def run_with_limit(job_id, fn):
 MAX_ARTIST_NAME_LENGTH = 100
 
 
+def combine_docx(paths, output_path):
+    """Merge multiple .docx files into one with page breaks between them."""
+    import copy
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    if not paths:
+        return
+    combined = Document(str(paths[0]))
+    for path in paths[1:]:
+        # Add page break
+        combined.add_page_break()
+        # Append all body elements from the sub-document
+        sub = Document(str(path))
+        for element in sub.element.body:
+            combined.element.body.append(copy.deepcopy(element))
+    combined.save(str(output_path))
+
+
 def validate_artist(name):
     """Return an error string if the artist name is invalid, else None."""
     if not name:
@@ -333,6 +352,7 @@ def job_status(job_id):
         'pr_pt_has_docx': bool(job.get('pr_pt_docx_path')),
         'batch_results': job.get('batch_results', {}),
         'has_batch_zip': bool(job.get('batch_zip')),
+        'has_batch_combined_docx': bool(job.get('batch_combined_docx')),
     })
 
 
@@ -392,6 +412,13 @@ def download_typed(job_id, filetype):
             p = Path(zip_path)
         else:
             return jsonify({'error': 'No zip file available'}), 404
+    elif filetype == 'combined':
+        # Batch combined .docx — all artists in one file
+        combined_path = job.get('batch_combined_docx')
+        if combined_path and Path(combined_path).exists():
+            p = Path(combined_path)
+        else:
+            return jsonify({'error': 'No combined file available'}), 404
     else:
         p = base
     if not p.exists():
@@ -953,7 +980,7 @@ def radio_soundcharts_batch():
 
                 log_line(job_id, '')
 
-            # Create zip of individual docx files
+            # Create combined .docx and zip of individual docx files
             if docx_paths:
                 import zipfile
                 safe_batch = f'batch_week_{week}' if mode == 'week' else 'batch_all'
@@ -962,7 +989,16 @@ def radio_soundcharts_batch():
                     for dp in docx_paths:
                         zf.write(str(dp), dp.name)
                 jobs[job_id]['batch_zip'] = str(zip_path)
-                # Set output_path to the zip for download
+
+                # Combined single .docx with page breaks
+                combined_docx = REPORT_DIR / f'{safe_batch}_radio.docx'
+                try:
+                    combine_docx(docx_paths, combined_docx)
+                    jobs[job_id]['batch_combined_docx'] = str(combined_docx)
+                    log_line(job_id, f'Combined .docx created with {len(docx_paths)} reports.')
+                except Exception as e:
+                    log_line(job_id, f'Warning: Could not create combined .docx: {e}')
+
                 finish_job(job_id,
                            result=f'Generated {succeeded}/{len(artist_list)} radio reports.',
                            output_path=zip_path)
@@ -1122,7 +1158,7 @@ def press_run():
             combined_txt = REPORT_DIR / f'{safe_batch}_press.txt'
             combined_txt.write_text(combined_text, encoding='utf-8')
 
-            # Create zip of individual docx files
+            # Create combined .docx and zip of individual docx files
             if docx_paths:
                 import zipfile
                 zip_path = REPORT_DIR / f'{safe_batch}_press.zip'
@@ -1130,6 +1166,15 @@ def press_run():
                     for dp in docx_paths:
                         zf.write(str(dp), dp.name)
                 jobs[job_id]['batch_zip'] = str(zip_path)
+
+                # Combined single .docx with page breaks
+                combined_docx = REPORT_DIR / f'{safe_batch}_press.docx'
+                try:
+                    combine_docx(docx_paths, combined_docx)
+                    jobs[job_id]['batch_combined_docx'] = str(combined_docx)
+                    log_line(job_id, f'Combined .docx created with {len(docx_paths)} reports.')
+                except Exception as e:
+                    log_line(job_id, f'Warning: Could not create combined .docx: {e}')
 
             log_line(job_id, f'Done! {grand_total} total results across {len(artist_list)} artists.')
             finish_job(job_id, result=combined_text, output_path=combined_txt)

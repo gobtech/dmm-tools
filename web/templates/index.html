@@ -3097,8 +3097,11 @@ async function runRadioBatch(batchMode) {
       } else {
         let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>${escapeHtml(result.result)}</strong></div>`;
         html += `<div class="result-actions">`;
-        if (result.has_file) {
-          html += `<a class="btn btn-small" href="/api/download/${data.job_id}" download>Download Reports (.zip)</a>`;
+        if (result.has_batch_combined_docx) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/combined" download>Download Combined .docx</a>`;
+        }
+        if (result.has_batch_zip) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/zip" download>Download Individual (.zip)</a>`;
         }
         html += `</div>`;
         resultEl.innerHTML = html;
@@ -3378,8 +3381,11 @@ async function runPress() {
           html += `<div class="result-report">${formatPressReport(escapeHtml(result.result))}</div>`;
         }
         html += `<div class="result-actions">`;
+        if (isBatch && result.has_batch_combined_docx) {
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/combined" download>Download Combined .docx</a>`;
+        }
         if (isBatch && result.has_batch_zip) {
-          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/zip" download>Download All .docx (.zip)</a>`;
+          html += `<a class="btn btn-small" href="/api/download/${data.job_id}/zip" download>Download Individual (.zip)</a>`;
         }
         if (!isBatch && result.has_file) {
           html += `<a class="btn btn-small" href="/api/download/${data.job_id}/docx" download>Download .docx</a>`;
