@@ -29,6 +29,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -54,18 +55,47 @@ RELEASE_SCHEDULE_URL = os.environ.get(
     'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
 )
 
+def _normalize_for_matching(text):
+    """Strip accents/diacritics for fuzzy comparison.
+
+    'Björk' → 'Bjork', 'Ñengo Flow' → 'Nengo Flow', 'José' → 'Jose'.
+    Applied to BOTH keyword and target text so accented and unaccented forms match.
+    """
+    nfkd = unicodedata.normalize('NFKD', text)
+    return ''.join(c for c in nfkd if not unicodedata.combining(c))
+
+
 def _make_keyword_patterns(keywords):
     """Build compiled regex patterns for word-boundary matching of keywords.
 
-    Returns a list of compiled re.Pattern objects. Use with any(p.search(text) for p in patterns).
-    This prevents false positives like "Metric" matching "Biometrica".
+    Returns a list of compiled re.Pattern objects. Creates patterns for both
+    the original keyword and its accent-normalized form (if different), so
+    "Björk" matches both "Björk" and "Bjork" in text.
+
+    Each keyword is treated as a full phrase — "Bad Bunny" becomes \\bBad Bunny\\b,
+    requiring the full name to match. An article mentioning only "Bunny" won't match.
     """
-    return [re.compile(r'\b' + re.escape(kw) + r'\b', re.IGNORECASE) for kw in keywords]
+    patterns = []
+    for kw in keywords:
+        patterns.append(re.compile(r'\b' + re.escape(kw) + r'\b', re.IGNORECASE))
+        normalized = _normalize_for_matching(kw)
+        if normalized != kw:
+            patterns.append(re.compile(r'\b' + re.escape(normalized) + r'\b', re.IGNORECASE))
+    return patterns
 
 
 def _any_keyword_matches(patterns, text):
-    """Check if any keyword pattern matches in the given text (word-boundary)."""
-    return any(p.search(text) for p in patterns)
+    """Check if any keyword pattern matches in the given text (word-boundary).
+
+    Checks both the original text and its accent-normalized form, so
+    "Björk" in a pattern matches "Bjork" in text and vice versa.
+    """
+    if any(p.search(text) for p in patterns):
+        return True
+    normalized = _normalize_for_matching(text)
+    if normalized != text and any(p.search(normalized) for p in patterns):
+        return True
+    return False
 
 
 # Map TLDs / URL patterns to countries for grouping (longer patterns first)
@@ -668,6 +698,12 @@ An article is NOT about the artist if:
 - The title is a generic lineup/playlist listing many artists and {artist} isn't the focus
 - The title is about an event from more than 1 year ago
 - The title doesn't mention {artist} at all (it appeared only in page metadata)
+- The FULL artist name is not referenced — an article mentioning only part of a multi-word name does not count (e.g. "Bunny" alone is NOT coverage for "Bad Bunny")
+
+Special attention for ambiguous artist names:
+- If the artist name is a common English or Spanish word (like Metric, Future, Calle, Sol, Air, Her, Low), be EXTRA strict: the article must clearly be about a musical artist, not using the word in its ordinary meaning
+- If the artist name is very short (2-3 characters like LP, IU, AI), require strong musical context in the title
+- Articles about "the metric system", "biometric data", "future trends", "solar energy", "air quality" etc. are NOT about the corresponding musical artists
 
 Articles:
 {chr(10).join(article_list)}
@@ -1261,8 +1297,17 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
 
 
 def parse_search_terms(raw_input):
-    """Split free-text input into individual search keywords.
-    Handles: 'PNAU, Meduza', 'PNAU ft. Meduza', 'PNAU & Meduza', 'PNAU Meduza', etc.
+    """Split free-text input into individual artist keywords.
+
+    Multi-word names are preserved as full phrases — "Bad Bunny" stays as one keyword,
+    NOT split into ["Bad", "Bunny"]. Only explicit separators trigger a split:
+      'PNAU, Meduza'       → ['PNAU', 'Meduza']
+      'PNAU ft. Meduza'    → ['PNAU', 'Meduza']
+      'Bad Bunny & J Balvin'→ ['Bad Bunny', 'J Balvin']
+      'Bad Bunny'           → ['Bad Bunny']  (no split — no separator found)
+
+    The matching step (_make_keyword_patterns) then creates \\bBad Bunny\\b which
+    requires the full phrase, so "Bunny" alone won't match.
     """
     # Split on common separators (comma, ampersand, slash, ft., feat., etc.)
     terms = re.split(r'[,&/]\s*|\s+(?:ft\.?|feat\.?|featuring|x|w/)\s+', raw_input, flags=re.IGNORECASE)
@@ -2180,7 +2225,7 @@ def _generate_press_docx(artist, country_results, docx_path):
     style = doc.styles['Normal']
     font = style.font
     font.name = 'Arial'
-    font.size = Pt(10)
+    font.size = Pt(11)
     style.paragraph_format.space_before = Pt(0)
     style.paragraph_format.space_after = Pt(0)
     style.paragraph_format.line_spacing = 1.0
@@ -2190,7 +2235,7 @@ def _generate_press_docx(artist, country_results, docx_path):
     title_run = title_para.add_run('Press pickup')
     title_run.bold = True
     title_run.font.color.rgb = RGBColor(0xC4, 0x30, 0x30)
-    title_run.font.size = Pt(12)
+    title_run.font.size = Pt(13)
     title_para.paragraph_format.space_after = Pt(0)
 
     for country in sorted(country_results.keys()):
@@ -2200,7 +2245,7 @@ def _generate_press_docx(artist, country_results, docx_path):
         country_para = doc.add_paragraph()
         country_run = country_para.add_run(country)
         country_run.underline = True
-        country_run.font.size = Pt(10)
+        country_run.font.size = Pt(11)
         country_para.paragraph_format.space_before = Pt(0)
         country_para.paragraph_format.space_after = Pt(0)
 
@@ -2211,10 +2256,10 @@ def _generate_press_docx(artist, country_results, docx_path):
             media_para = doc.add_paragraph()
             name_run = media_para.add_run(f"{entry['media_name']}: ")
             name_run.bold = True
-            name_run.font.size = Pt(10)
+            name_run.font.size = Pt(11)
             desc_text = f"{entry['description']}{db_flag}"
             desc_run = media_para.add_run(desc_text)
-            desc_run.font.size = Pt(10)
+            desc_run.font.size = Pt(11)
             media_para.paragraph_format.space_before = Pt(0)
             media_para.paragraph_format.space_after = Pt(0)
 
@@ -2226,7 +2271,7 @@ def _generate_press_docx(artist, country_results, docx_path):
                 label = _URL_TYPE_LABELS.get(u['type'])
                 if label:
                     prefix_run = url_para.add_run(f"{label}: ")
-                    prefix_run.font.size = Pt(10)
+                    prefix_run.font.size = Pt(11)
                 _add_hyperlink(url_para, u['url'], u['url'])
                 url_para.paragraph_format.space_before = Pt(0)
                 url_para.paragraph_format.space_after = Pt(0)
@@ -2238,7 +2283,7 @@ def _generate_press_docx(artist, country_results, docx_path):
                         prefix_run = url_para.add_run(f"• {label}: ")
                     else:
                         prefix_run = url_para.add_run("• ")
-                    prefix_run.font.size = Pt(10)
+                    prefix_run.font.size = Pt(11)
                     _add_hyperlink(url_para, u['url'], u['url'])
                     url_para.paragraph_format.space_before = Pt(0)
                     url_para.paragraph_format.space_after = Pt(0)
@@ -2279,7 +2324,7 @@ def _add_hyperlink(paragraph, url, text):
 
     # Font size
     sz = OxmlElement('w:sz')
-    sz.set(qn('w:val'), '20')  # 10pt = 20 half-points
+    sz.set(qn('w:val'), '22')  # 11pt = 22 half-points
     rPr.append(sz)
 
     new_run.append(rPr)
