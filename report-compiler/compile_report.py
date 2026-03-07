@@ -301,6 +301,18 @@ def _generate_full_docx(
 
     doc = Document()
 
+    # Override docDefaults to remove built-in spacing (200 twips after, 1.15 line)
+    from docx.oxml.ns import qn as _qn
+    for child in doc.styles.element:
+        if child.tag.endswith('docDefaults'):
+            for ppr_default in child.iter(_qn('w:pPrDefault')):
+                for ppr in ppr_default.iter(_qn('w:pPr')):
+                    for spacing in ppr.iter(_qn('w:spacing')):
+                        spacing.set(_qn('w:after'), '0')
+                        spacing.set(_qn('w:before'), '0')
+                        spacing.set(_qn('w:line'), '240')
+                        spacing.set(_qn('w:lineRule'), 'auto')
+
     # Default styling
     style = doc.styles['Normal']
     font = style.font
@@ -308,6 +320,7 @@ def _generate_full_docx(
     font.size = Pt(10)
     style.paragraph_format.space_before = Pt(0)
     style.paragraph_format.space_after = Pt(0)
+    style.paragraph_format.line_spacing = 1.0
 
     RED = RGBColor(0xC4, 0x30, 0x30)
     BLUE = RGBColor(0x00, 0x56, 0xD2)
@@ -512,9 +525,9 @@ def _generate_full_docx(
                     fr.font.color.rgb = GRAY
                     fp.paragraph_format.space_after = Pt(8)
 
-    # ─── Press Pick Up ────────────────────────────────────────
+    # ─── Press pickup ─────────────────────────────────────────
     if press_data:
-        _add_section_header(doc, 'Press Pick Up', RED)
+        _add_section_header(doc, 'Press pickup', RED)
 
         for country in sorted(press_data.keys()):
             entries = press_data[country]
@@ -523,8 +536,8 @@ def _generate_full_docx(
             cr = cp.add_run(country)
             cr.underline = True
             cr.font.size = Pt(10)
-            cp.paragraph_format.space_before = Pt(12)
-            cp.paragraph_format.space_after = Pt(2)
+            cp.paragraph_format.space_before = Pt(0)
+            cp.paragraph_format.space_after = Pt(0)
 
             for entry in entries:
                 mp = doc.add_paragraph()
@@ -534,35 +547,39 @@ def _generate_full_docx(
 
                 dr = mp.add_run(entry['description'])
                 dr.font.size = Pt(10)
-                mp.paragraph_format.space_before = Pt(6)
+                mp.paragraph_format.space_before = Pt(0)
+                mp.paragraph_format.space_after = Pt(0)
 
                 # Entries are grouped by outlet — each has a 'urls' list
+                # Display raw URL as clickable text (not article title)
                 urls = entry.get('urls', [])
                 if urls:
                     if len(urls) == 1:
                         u = urls[0]
                         url_para = doc.add_paragraph()
-                        title = u.get('title', '').strip()
-                        display = title if title else u['url']
-                        _add_hyperlink(url_para, u['url'], display)
+                        _add_hyperlink(url_para, u['url'], u['url'])
+                        url_para.paragraph_format.space_before = Pt(0)
+                        url_para.paragraph_format.space_after = Pt(0)
                     else:
                         for u in urls:
                             url_para = doc.add_paragraph()
-                            title = u.get('title', '').strip()
-                            if title:
-                                bullet_run = url_para.add_run('\u2022 ')
-                                bullet_run.font.size = Pt(10)
-                                _add_hyperlink(url_para, u['url'], title)
-                            else:
-                                bullet_run = url_para.add_run('\u2022 ')
-                                bullet_run.font.size = Pt(10)
-                                _add_hyperlink(url_para, u['url'], u['url'])
+                            bullet_run = url_para.add_run('\u2022 ')
+                            bullet_run.font.size = Pt(10)
+                            _add_hyperlink(url_para, u['url'], u['url'])
+                            url_para.paragraph_format.space_before = Pt(0)
+                            url_para.paragraph_format.space_after = Pt(0)
                 elif entry.get('url'):
                     # Fallback for ungrouped entries
                     url_para = doc.add_paragraph()
-                    title = entry.get('title', '').strip()
-                    display = title if title else entry['url']
-                    _add_hyperlink(url_para, entry['url'], display)
+                    _add_hyperlink(url_para, entry['url'], entry['url'])
+                    url_para.paragraph_format.space_before = Pt(0)
+                    url_para.paragraph_format.space_after = Pt(0)
+
+                # Blank line separator after each entry
+                sep = doc.add_paragraph()
+                sep.paragraph_format.space_before = Pt(0)
+                sep.paragraph_format.space_after = Pt(0)
+                sep.paragraph_format.line_spacing = 1.0
 
     doc.save(output_path)
 

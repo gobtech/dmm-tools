@@ -54,6 +54,20 @@ RELEASE_SCHEDULE_URL = os.environ.get(
     'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
 )
 
+def _make_keyword_patterns(keywords):
+    """Build compiled regex patterns for word-boundary matching of keywords.
+
+    Returns a list of compiled re.Pattern objects. Use with any(p.search(text) for p in patterns).
+    This prevents false positives like "Metric" matching "Biometrica".
+    """
+    return [re.compile(r'\b' + re.escape(kw) + r'\b', re.IGNORECASE) for kw in keywords]
+
+
+def _any_keyword_matches(patterns, text):
+    """Check if any keyword pattern matches in the given text (word-boundary)."""
+    return any(p.search(text) for p in patterns)
+
+
 # Map TLDs / URL patterns to countries for grouping (longer patterns first)
 DOMAIN_TO_COUNTRY = {
     '.com.ar': 'ARGENTINA', '.gob.ar': 'ARGENTINA', '.ar': 'ARGENTINA',
@@ -593,14 +607,14 @@ def _groq_filter_relevance(all_results, artist, keywords, releases=None, log_fn=
     if not all_results:
         return all_results
 
-    keywords_lower = [kw.lower() for kw in keywords]
+    kw_patterns = _make_keyword_patterns(keywords)
 
     # Split into title-confirmed vs snippet-only
     title_confirmed = []
     snippet_only = []
     for r in all_results:
-        title_lower = (r.get('title') or '').lower()
-        if any(kw in title_lower for kw in keywords_lower):
+        title = r.get('title') or ''
+        if _any_keyword_matches(kw_patterns, title):
             title_confirmed.append(r)
         else:
             snippet_only.append(r)
@@ -650,6 +664,7 @@ An article IS about the artist if the title mentions them by name in a meaningfu
 
 An article is NOT about the artist if:
 - The title is about a different artist entirely
+- The artist name appears only as a substring of another word (e.g. if the artist is "Metric", reject articles about "biometric", "parametric", "Biometrica", etc.)
 - The title is a generic lineup/playlist listing many artists and {artist} isn't the focus
 - The title is about an event from more than 1 year ago
 - The title doesn't mention {artist} at all (it appeared only in page metadata)
@@ -787,7 +802,7 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
     if not rss_outlets and not wp_outlets:
         return []
 
-    keywords_lower = [kw.lower() for kw in artist_keywords]
+    kw_patterns = _make_keyword_patterns(artist_keywords)
     if cutoff is None:
         cutoff = datetime.now().astimezone() - timedelta(days=days)
     cutoff_iso = cutoff.strftime('%Y-%m-%dT%H:%M:%S')
@@ -836,11 +851,10 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
 
                 title = entry.get('title', '')
                 summary = _strip_html(entry.get('summary', '') or entry.get('description', ''))
-                title_lower = title.lower()
 
-                # Require keyword in TITLE — snippet/summary matches from RSS
+                # Require keyword in TITLE (word-boundary) — snippet/summary matches from RSS
                 # are almost always sidebar mentions, tag clouds, related articles
-                if not any(kw in title_lower for kw in keywords_lower):
+                if not _any_keyword_matches(kw_patterns, title):
                     continue
 
                 link = entry.get('link', '')
@@ -894,10 +908,9 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                     link = post.get('link', '')
                     excerpt = _strip_html(post.get('excerpt', {}).get('rendered', ''))
 
-                    # Client-side keyword check — require in TITLE (WP search is loose,
-                    # excerpt matches catch sidebar/widget mentions)
-                    title_lower = title.lower()
-                    if not any(kw in title_lower for kw in keywords_lower):
+                    # Client-side keyword check — require in TITLE with word boundaries
+                    # (WP search is loose, excerpt matches catch sidebar/widget mentions)
+                    if not _any_keyword_matches(kw_patterns, title):
                         continue
 
                     entry_domain = extract_domain(link) if link else domain
@@ -988,8 +1001,9 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
     if not outlets:
         return []
 
-    keywords_lower = [kw.lower() for kw in artist_keywords]
+    kw_patterns = _make_keyword_patterns(artist_keywords)
     # Build URL-slug variants: "Bad Bunny" → ["bad-bunny", "bad_bunny", "badbunny"]
+    # Slug matching stays substring-based since URL slugs use delimiters as word boundaries
     slug_variants = []
     for kw in artist_keywords:
         kw_l = kw.lower()
@@ -1090,11 +1104,11 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
         return False  # Skip undated content without recent URL patterns
 
     def _url_matches_keywords(url_entry):
-        """Check if a URL TITLE contains artist keywords.
+        """Check if a URL TITLE contains artist keywords (word-boundary matching).
         For sitemap results, only match on title or news:title — not URL slug alone,
         as slug matches without title confirmation catch tag/category pages."""
-        title = (url_entry.get('title') or '').lower()
-        if title and any(kw in title for kw in keywords_lower):
+        title = url_entry.get('title') or ''
+        if title and _any_keyword_matches(kw_patterns, title):
             return True
         # Fall back to URL slug matching only if there's no title to check
         if not title:
@@ -1281,14 +1295,13 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
         schedule_source = release_schedule_url or RELEASE_SCHEDULE_URL
         all_releases = load_release_schedule(schedule_source)
 
-        # Match releases to this artist (case-insensitive, check all keywords)
-        keywords_lower = [kw.lower() for kw in keywords]
+        # Match releases to this artist (word-boundary matching)
+        release_patterns = _make_keyword_patterns(keywords)
         cutoff_days = 60  # Look back 60 days for release context
         now = datetime.now()
 
         for rel in all_releases:
-            artist_lower = rel['artist'].lower()
-            if not any(kw in artist_lower for kw in keywords_lower):
+            if not _any_keyword_matches(release_patterns, rel['artist']):
                 continue
 
             # Parse release date (format: "Jan 5", "Feb 14" — no year, assume current year)
@@ -1862,7 +1875,8 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
     # Match against press database and group by country
     country_results = {}
     skipped = 0
-    keywords_lower = [k.lower() for k in keywords]
+    kw_patterns = _make_keyword_patterns(keywords)
+    keywords_lower = [k.lower() for k in keywords]  # kept for social handle substring check
     new_outlets_to_enrich = []  # Collect new outlets for batch AI enrichment
     social_stats = {'known_outlet': 0, 'artist_account': 0, 'unknown': 0}
 
@@ -1882,8 +1896,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
             # positives (sidebar mentions, related articles, tag clouds).
             source = result.get('_source', '')
             if source in ('feeds', 'sitemaps'):
-                title_lower = result['title'].lower()
-                if not any(kw in title_lower for kw in keywords_lower):
+                if not _any_keyword_matches(kw_patterns, result['title']):
                     skipped += 1
                     continue
 
@@ -1918,9 +1931,9 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
         # The Groq filter upstream already split title-confirmed vs snippet-only
         # and rejected irrelevant snippet-only articles. Here we just verify at
         # least one keyword appears somewhere (title or snippet) as a safety net.
-        title_lower = result['title'].lower()
-        snippet_lower = (result.get('snippet') or '').lower()
-        if not any(kw in title_lower or kw in snippet_lower for kw in keywords_lower):
+        title_text = result['title']
+        snippet_text = result.get('snippet') or ''
+        if not (_any_keyword_matches(kw_patterns, title_text) or _any_keyword_matches(kw_patterns, snippet_text)):
             skipped += 1
             continue
 
@@ -2150,6 +2163,19 @@ def _generate_press_docx(artist, country_results, docx_path):
 
     doc = Document()
 
+    # Override docDefaults to remove built-in spacing (200 twips after, 1.15 line)
+    from docx.oxml.ns import qn
+    styles_el = doc.styles.element
+    for child in styles_el:
+        if child.tag.endswith('docDefaults'):
+            for ppr_default in child.iter(qn('w:pPrDefault')):
+                for ppr in ppr_default.iter(qn('w:pPr')):
+                    for spacing in ppr.iter(qn('w:spacing')):
+                        spacing.set(qn('w:after'), '0')
+                        spacing.set(qn('w:before'), '0')
+                        spacing.set(qn('w:line'), '240')
+                        spacing.set(qn('w:lineRule'), 'auto')
+
     # Set default font and zero paragraph spacing
     style = doc.styles['Normal']
     font = style.font
@@ -2157,25 +2183,26 @@ def _generate_press_docx(artist, country_results, docx_path):
     font.size = Pt(10)
     style.paragraph_format.space_before = Pt(0)
     style.paragraph_format.space_after = Pt(0)
+    style.paragraph_format.line_spacing = 1.0
 
-    # Title: "Press Pick Up" in bold red
+    # Title: "Press pickup" in bold red
     title_para = doc.add_paragraph()
-    title_run = title_para.add_run('Press Pick Up')
+    title_run = title_para.add_run('Press pickup')
     title_run.bold = True
     title_run.font.color.rgb = RGBColor(0xC4, 0x30, 0x30)
     title_run.font.size = Pt(12)
-    title_para.paragraph_format.space_after = Pt(4)
+    title_para.paragraph_format.space_after = Pt(0)
 
     for country in sorted(country_results.keys()):
         entries = country_results[country]
 
-        # Country header: underlined, not bold — extra space before to separate sections
+        # Country header: underlined, not bold
         country_para = doc.add_paragraph()
         country_run = country_para.add_run(country)
         country_run.underline = True
         country_run.font.size = Pt(10)
-        country_para.paragraph_format.space_before = Pt(12)
-        country_para.paragraph_format.space_after = Pt(2)
+        country_para.paragraph_format.space_before = Pt(0)
+        country_para.paragraph_format.space_after = Pt(0)
 
         for entry in entries:
             db_flag = "" if entry['in_database'] else " [NEW — not in DB]"
@@ -2185,13 +2212,13 @@ def _generate_press_docx(artist, country_results, docx_path):
             name_run = media_para.add_run(f"{entry['media_name']}: ")
             name_run.bold = True
             name_run.font.size = Pt(10)
-
             desc_text = f"{entry['description']}{db_flag}"
             desc_run = media_para.add_run(desc_text)
             desc_run.font.size = Pt(10)
-            media_para.paragraph_format.space_before = Pt(6)
+            media_para.paragraph_format.space_before = Pt(0)
+            media_para.paragraph_format.space_after = Pt(0)
 
-            # URLs — single or multiple
+            # URLs — display raw URL as clickable text
             urls = entry.get('urls', [])
             if len(urls) == 1:
                 u = urls[0]
@@ -2200,9 +2227,9 @@ def _generate_press_docx(artist, country_results, docx_path):
                 if label:
                     prefix_run = url_para.add_run(f"{label}: ")
                     prefix_run.font.size = Pt(10)
-                title = u.get('title', '').strip()
-                display = title if title else u['url']
-                _add_hyperlink(url_para, u['url'], display)
+                _add_hyperlink(url_para, u['url'], u['url'])
+                url_para.paragraph_format.space_before = Pt(0)
+                url_para.paragraph_format.space_after = Pt(0)
             else:
                 for u in urls:
                     url_para = doc.add_paragraph()
@@ -2212,9 +2239,15 @@ def _generate_press_docx(artist, country_results, docx_path):
                     else:
                         prefix_run = url_para.add_run("• ")
                     prefix_run.font.size = Pt(10)
-                    title = u.get('title', '').strip()
-                    display = title if title else u['url']
-                    _add_hyperlink(url_para, u['url'], display)
+                    _add_hyperlink(url_para, u['url'], u['url'])
+                    url_para.paragraph_format.space_before = Pt(0)
+                    url_para.paragraph_format.space_after = Pt(0)
+
+            # Blank line separator after each entry
+            sep = doc.add_paragraph()
+            sep.paragraph_format.space_before = Pt(0)
+            sep.paragraph_format.space_after = Pt(0)
+            sep.paragraph_format.line_spacing = 1.0
 
     doc.save(docx_path)
 
