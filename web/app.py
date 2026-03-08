@@ -63,6 +63,16 @@ UPLOAD_DIR = Path(__file__).parent / 'uploads'
 REPORT_DIR = ROOT_DIR / 'reports'
 REPORT_DIR.mkdir(exist_ok=True)
 
+
+def _check_internet(timeout=3):
+    """Quick connectivity check (HEAD to Google)."""
+    import requests as _req
+    try:
+        _req.head('https://www.google.com', timeout=timeout)
+        return True
+    except Exception:
+        return False
+
 # ---------------------------------------------------------------------------
 # APScheduler — background cron scheduler
 # ---------------------------------------------------------------------------
@@ -695,7 +705,7 @@ def radio_soundcharts():
 
             token = get_token()
             if not token:
-                finish_job(job_id, error='Soundcharts credentials not configured. Add SOUNDCHARTS_EMAIL and SOUNDCHARTS_PASSWORD to .env')
+                finish_job(job_id, error='Soundcharts credentials not configured. Go to Settings to add them.')
                 return
 
             log_fn = lambda msg: log_line(job_id, msg)
@@ -818,7 +828,7 @@ def radio_soundcharts_fetch():
 
             token = get_token()
             if not token:
-                finish_job(job_id, error='Soundcharts credentials not configured. Add SOUNDCHARTS_EMAIL and SOUNDCHARTS_PASSWORD to .env')
+                finish_job(job_id, error='Soundcharts credentials not configured. Go to Settings to add them.')
                 return
 
             log_fn = lambda msg: log_line(job_id, msg)
@@ -1105,7 +1115,7 @@ def radio_soundcharts_batch():
 
             token = get_token()
             if not token:
-                finish_job(batch_id, error='Soundcharts credentials not configured. Add SOUNDCHARTS_EMAIL and SOUNDCHARTS_PASSWORD to .env')
+                finish_job(batch_id, error='Soundcharts credentials not configured. Go to Settings to add them.')
                 return
 
             statuses = jobs[batch_id]['artist_statuses']
@@ -1497,8 +1507,12 @@ def dsp_run():
                 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
             )
             log_line(job_id, 'Loading release schedule...')
-            releases = load_release_schedule(schedule_url)
-            log_line(job_id, f'  Loaded {len(releases)} releases')
+            try:
+                releases = load_release_schedule(schedule_url)
+                log_line(job_id, f'  Loaded {len(releases)} releases')
+            except Exception as e:
+                log_line(job_id, f'  Release schedule unavailable: {e}')
+                releases = []
 
             # Filter releases
             if mode == 'artist':
@@ -1837,7 +1851,10 @@ def api_releases():
         'RELEASE_SCHEDULE_URL',
         'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
     )
-    releases = load_release_schedule(schedule_url)
+    try:
+        releases = load_release_schedule(schedule_url)
+    except Exception as e:
+        return jsonify({'error': f'Release schedule unavailable: {e}'}), 503
     today = datetime.now()
     year = today.year
 
@@ -2749,6 +2766,15 @@ def schedule_history():
     schedule_id = request.args.get('schedule_id', type=int)
     runs = get_schedule_runs(schedule_id=schedule_id)
     return jsonify(runs)
+
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+@app.route('/api/health/internet')
+def health_internet():
+    return jsonify({'online': _check_internet()})
 
 
 # ---------------------------------------------------------------------------

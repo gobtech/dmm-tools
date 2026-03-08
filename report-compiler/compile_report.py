@@ -87,7 +87,11 @@ def compile_report(
     log_fn('Loading release schedule...')
     from shared.database import load_release_schedule, load_playlist_database
 
-    all_releases = load_release_schedule(RELEASE_SCHEDULE_URL)
+    try:
+        all_releases = load_release_schedule(RELEASE_SCHEDULE_URL)
+    except Exception as e:
+        log_fn(f'  Release schedule unavailable: {e}')
+        all_releases = []
     search_lower = artist.lower()
     artist_releases = [
         r for r in all_releases

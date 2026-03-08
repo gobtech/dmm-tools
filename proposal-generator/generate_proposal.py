@@ -874,6 +874,7 @@ def _groq_generate_sections(artist, genre_label, duration, collaborators, timeli
 
     api_key = os.environ.get('GROQ_API_KEY')
     if not api_key:
+        log_fn('  Groq API key not configured — using template text.')
         return {}
 
     timeline_str = ''

@@ -86,7 +86,11 @@ def generate_digest(
     log_fn('Loading release schedule...')
     from shared.database import load_release_schedule, load_playlist_database
 
-    all_releases = load_release_schedule(RELEASE_SCHEDULE_URL)
+    try:
+        all_releases = load_release_schedule(RELEASE_SCHEDULE_URL)
+    except Exception as e:
+        log_fn(f'  Release schedule unavailable: {e}')
+        all_releases = []
     search_lower = artist.lower()
     artist_releases = [
         r for r in all_releases
@@ -241,6 +245,7 @@ def _groq_analyze_campaign(artist, radio_data, press_data, dsp_data, play_key, d
 
     api_key = os.environ.get('GROQ_API_KEY')
     if not api_key:
+        log_fn('  Groq API key not configured — skipping AI analysis.')
         return None
 
     # ── Serialize data into a structured summary for the LLM ──

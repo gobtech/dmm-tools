@@ -185,7 +185,7 @@ Each credential should:
 
 This directly solves the Soundcharts credential problem you raised. If Flor leaves, anyone with a Soundcharts account goes to Settings, enters new credentials, clicks Test, done.
 
-### Milestone 2.2: Graceful Degradation (Day 8-9)
+### Milestone 2.2: Graceful Degradation (Day 8-9) — DONE
 
 When a dependency is down, the tool should still work with whatever's available:
 
