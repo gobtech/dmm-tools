@@ -1,0 +1,78 @@
+  <div id="tab-pr" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li><strong>Translates press releases</strong> from labels/artists into Spanish and/or Brazilian Portuguese for LATAM distribution.</li>
+              <li>Paste the PR text directly <strong>or upload the .docx</strong> file from the label.</li>
+              <li>Uses <strong>Gemini Flash AI</strong> for high-quality music-industry translation that preserves formatting, quotes, tracklists, tour dates, and links.</li>
+              <li>Artist names, song titles, venue names, and URLs are <strong>kept as-is</strong> &mdash; only prose is translated.</li>
+              <li>Auto-detects the <strong>source language</strong> (English, French, Spanish, Portuguese).</li>
+              <li>AI mode requires <strong>GEMINI_API_KEY</strong> in .env (free tier: 1,500 req/day).</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input: paste or upload -->
+    <label>Source PR</label>
+    <div class="radio-group" style="margin-bottom:12px;">
+      <label><input type="radio" name="pr-input-mode" value="paste" checked onchange="prInputModeChanged()"><span>Paste Text</span></label>
+      <label><input type="radio" name="pr-input-mode" value="upload" onchange="prInputModeChanged()"><span>Upload .docx</span></label>
+    </div>
+
+    <div id="pr-paste-area">
+      <textarea id="pr-text" rows="10" placeholder="Paste the full press release text here..." style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical; line-height:1.6;"></textarea>
+    </div>
+
+    <div id="pr-upload-area" style="display:none;">
+      <div id="pr-dropzone" class="dropzone" onclick="document.getElementById('pr-file-input').click()" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="event.preventDefault(); this.classList.remove('dragover'); handlePrFile(event.dataTransfer.files)">
+        <span style="font-size:28px; display:block; margin-bottom:8px;">&#128196;</span>
+        <span>Drop .docx file here or click to browse</span>
+      </div>
+      <input type="file" id="pr-file-input" accept=".docx" style="display:none;" onchange="handlePrFile(this.files)">
+      <div id="pr-file-name" style="display:none; margin-top:8px; font-size:13px; color:var(--text-secondary); display:flex; align-items:center; gap:8px;"></div>
+    </div>
+
+    <!-- Target languages -->
+    <label style="margin-top:16px;">Translate to</label>
+    <div style="display:flex; gap:16px; margin-top:4px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="pr-target-es" checked>
+        <label for="pr-target-es">Spanish (LATAM)</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="pr-target-pt" checked>
+        <label for="pr-target-pt">Portuguese (Brazil)</label>
+      </div>
+    </div>
+
+    <!-- Engine toggle -->
+    <div style="margin-top:16px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="pr-use-ai">
+        <label for="pr-use-ai">Use Gemini AI <span style="color:var(--text-tertiary); font-weight:400;">(higher quality, preserves proper nouns &amp; music-industry tone — free)</span></label>
+      </div>
+      <div style="font-size:12px; color:var(--text-tertiary); margin-top:4px; padding-left:24px;">Default: Google Translate (free, no API key needed)</div>
+    </div>
+
+    <!-- Adaptation notes (only relevant for AI mode) -->
+    <details id="pr-notes-section" style="margin-top:12px;">
+      <summary style="font-size:13px; color:var(--text-secondary); cursor:pointer;">Adaptation Notes <span style="color:var(--text-tertiary); font-weight:400;">(optional, AI mode only)</span></summary>
+      <textarea id="pr-notes" rows="2" placeholder="e.g. Add DMM contact info at the bottom, adapt tour dates for LATAM audience..." style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical; margin-top:8px;"></textarea>
+    </details>
+
+    <button class="btn" id="pr-btn" onclick="runPrTranslate()">Translate Press Release</button>
+
+    <div class="progress-area" id="pr-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <pre class="log-output" id="pr-log"></pre>
+    </div>
+
+    <div class="result-area" id="pr-result"></div>
+  </div>

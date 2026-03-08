@@ -1,0 +1,86 @@
+  <div id="tab-report" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Generates a <strong>single client-facing .docx</strong> combining Radio, DSP, and Press data in one document.</li>
+              <li>Runs all three tools automatically &mdash; <strong>no need to run them separately</strong> first.</li>
+              <li>Release timeline is <strong>auto-populated</strong> from the Google Sheets release schedule.</li>
+              <li>Use the <strong>efforts summary</strong> to add custom bullet points (e.g. "Serviced PR", "Pitched to DSPs").</li>
+              <li>You can <strong>disable sections</strong> you don't need &mdash; e.g. skip Radio if there's no airplay data yet.</li>
+              <li>This is a <strong>long-running task</strong> (2-5 min) since it checks all platforms. Be patient!</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <label for="report-artist">Artist Name</label>
+    <input type="text" id="report-artist" placeholder="e.g. PNAU" maxlength="100">
+
+    <label>Radio Time Range</label>
+    <div class="radio-group">
+      <label><input type="radio" name="report-radio-range" value="7d" onchange="toggleReportRadioCustomDates()"><span>7 Days</span></label>
+      <label><input type="radio" name="report-radio-range" value="28d" checked onchange="toggleReportRadioCustomDates()"><span>28 Days</span></label>
+      <label><input type="radio" name="report-radio-range" value="1y" onchange="toggleReportRadioCustomDates()"><span>1 Year</span></label>
+      <label><input type="radio" name="report-radio-range" value="custom" onchange="toggleReportRadioCustomDates()"><span>Custom Range</span></label>
+    </div>
+    <div id="report-radio-custom-dates" style="display:none; margin-top:0.5rem;">
+      <div style="display:flex; gap:1rem; align-items:center;">
+        <label style="margin:0;">From <input type="date" id="report-radio-date-from" style="margin-left:0.3rem;"></label>
+        <label style="margin:0;">To <input type="date" id="report-radio-date-to" style="margin-left:0.3rem;"></label>
+      </div>
+    </div>
+
+    <label>Press Search Period</label>
+    <div class="radio-group">
+      <label><input type="radio" name="report-press-range" value="7" onchange="toggleReportPressCustomDates()"><span>7 Days</span></label>
+      <label><input type="radio" name="report-press-range" value="14" onchange="toggleReportPressCustomDates()"><span>14 Days</span></label>
+      <label><input type="radio" name="report-press-range" value="28" checked onchange="toggleReportPressCustomDates()"><span>28 Days</span></label>
+      <label><input type="radio" name="report-press-range" value="custom" onchange="toggleReportPressCustomDates()"><span>Custom</span></label>
+    </div>
+    <div id="report-press-custom-dates" style="display:none; margin-top:0.5rem;">
+      <div style="display:flex; gap:1rem; align-items:center;">
+        <label style="margin:0;">From <input type="date" id="report-press-date-from" style="margin-left:0.3rem;"></label>
+        <label style="margin:0;">To <input type="date" id="report-press-date-to" style="margin-left:0.3rem;"></label>
+      </div>
+    </div>
+
+    <label>Region (Radio)</label>
+    <div class="radio-group">
+      <label><input type="radio" name="report-region" value="latam" checked><span>LATAM</span></label>
+      <label><input type="radio" name="report-region" value="all"><span>All Countries</span></label>
+    </div>
+
+    <label>Sections to Include</label>
+    <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="report-inc-radio" checked>
+        <label for="report-inc-radio">Radio Plays (Soundcharts)</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="report-inc-dsp" checked>
+        <label for="report-inc-dsp">Streaming / Playlist Highlights (DSP Pickup)</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="report-inc-press" checked>
+        <label for="report-inc-press">Press Pick Up</label>
+      </div>
+    </div>
+
+    <label for="report-efforts" style="margin-top:20px;">Overall Efforts <span style="color:var(--text-tertiary); font-weight:400;">(optional — one per line)</span></label>
+    <textarea id="report-efforts" rows="4" placeholder="- Serviced PR to 50+ outlets across LATAM&#10;- Pitched to DSPs in MX, BR, AR, CL, CO&#10;- Radio servicing across 8 countries" style="width:100%; padding:12px 16px; border:1px solid var(--border-default); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical;"></textarea>
+
+    <button class="btn" id="report-btn" onclick="runReport()">Generate Full Report</button>
+
+    <div class="progress-area" id="report-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="report-log"></div>
+    </div>
+
+    <div class="result-area" id="report-result"></div>
+  </div>

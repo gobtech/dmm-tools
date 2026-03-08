@@ -1,0 +1,16 @@
+
+<!-- ACTIVE JOBS DRAWER -->
+<div id="job-drawer" class="job-drawer">
+  <div class="job-drawer-header">
+    <h3>Active Tasks</h3>
+    <button onclick="toggleJobDrawer()" class="btn-close">&times;</button>
+  </div>
+  <div id="job-list" class="job-list">
+    <div class="job-empty">No active tasks</div>
+  </div>
+</div>
+
+<button id="job-drawer-toggle" class="job-drawer-toggle" onclick="toggleJobDrawer()">
+  <span class="icon">&#9881;</span>
+  <span id="job-badge" class="job-badge" style="display:none;">0</span>
+</button>

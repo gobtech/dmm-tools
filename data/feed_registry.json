@@ -6111,6 +6111,38 @@
       "feed_type": null,
       "country": "BRAZIL",
       "description": "Asian pop culture portal. Social Media: 8.2K"
+    },
+    "biobiochile.cl": {
+      "name": "BioBio Chile",
+      "feed_url": null,
+      "wp_api_url": null,
+      "feed_type": null,
+      "country": "CHILE",
+      "description": "One of the largest independent media companies with a focus on national and international news. Social Media: 2.3M"
+    },
+    "elpais.com.uy": {
+      "name": "El Pais",
+      "feed_url": null,
+      "wp_api_url": null,
+      "feed_type": null,
+      "country": "URUGUAY",
+      "description": "Biggest newspaper in Uruguay, founded in 1976, with one of the most prestigious music sections in the country. Social Media: 1.8M"
+    },
+    "rpp.pe": {
+      "name": "RPP Noticias",
+      "feed_url": null,
+      "wp_api_url": null,
+      "feed_type": null,
+      "country": "PERU",
+      "description": "News from Peru and the world. The best of national and international news, sports and entertainment. Social Media: 6.9M"
+    },
+    "expreso.ec": {
+      "name": "Diario Expreso",
+      "feed_url": null,
+      "wp_api_url": null,
+      "feed_type": null,
+      "country": "ECUADOR",
+      "description": "Ecuadorian Newspaper reporting national and international news. Social Media: 102K"
     }
   }
 }

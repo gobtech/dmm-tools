@@ -1,0 +1,162 @@
+  <div id="tab-proposal" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            Generates a complete client proposal document with campaign overview, DSP strategy,
+            press and radio targets filtered by genre, and a budget breakdown.
+            All data is pulled from the internal databases — just fill in the artist details.
+            <strong>Goal/Strategy and Digital Marketing sections are AI-generated</strong> via Groq
+            (tailored to the artist's genre, collaborators, and timeline) when left blank.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section: Artist & Campaign ── -->
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:16px 18px 12px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);margin-bottom:10px;">Artist & Campaign</div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <input type="text" id="proposal-artist" class="form-control" placeholder="Artist name" maxlength="100">
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-genre" style="font-size:11px;">Genre</label>
+          <select id="proposal-genre" class="form-control" onchange="loadProposalData()" style="font-size:12px;">
+            <option value="general">General</option>
+            <option value="electronic">Electronic / Dance</option>
+            <option value="indie">Indie / Alternative</option>
+            <option value="rock">Rock</option>
+            <option value="pop">Pop</option>
+            <option value="urban">Urban / Reggaeton</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-duration" style="font-size:11px;">Duration</label>
+          <select id="proposal-duration" class="form-control" onchange="updateBudgetPreview()" style="font-size:12px;">
+            <option value="1">1 month</option>
+            <option value="2">2 months</option>
+            <option value="3" selected>3 months</option>
+            <option value="4">4 months</option>
+            <option value="6">6 months</option>
+            <option value="12">12 months</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label style="font-size:11px;">Collaborators</label>
+          <input type="text" id="proposal-collaborators" class="form-control" placeholder="ft. Artist, remix by..." style="font-size:12px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section: Timeline ── -->
+    <details style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:0 18px;margin-bottom:14px;">
+      <summary style="cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);padding:14px 0;list-style:none;display:flex;align-items:center;justify-content:space-between;">
+        Release Timeline <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text-tertiary);">optional &#9660;</span>
+      </summary>
+      <div style="padding-bottom:14px;">
+        <div id="proposal-timeline" style="display:flex;flex-direction:column;gap:6px;"></div>
+        <button type="button" onclick="addTimelineRow()" style="margin-top:8px;font-size:11px;padding:5px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text-secondary);">+ Add Release</button>
+      </div>
+    </details>
+
+    <!-- ── Section: Markets & Radio ── -->
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:16px 18px 14px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);margin-bottom:10px;">Markets & Radio</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 14px;margin-bottom:12px;align-items:center;">
+        <label class="proposal-check" style="font-weight:600;color:var(--text-primary);">
+          <input type="checkbox" id="proposal-all-countries" checked onchange="toggleAllCountries(this.checked)"><span class="checkmark"></span> All LATAM
+        </label>
+        <span style="color:var(--border-strong);margin:0 2px;font-size:14px;">|</span>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="MÉXICO" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> MX</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="BRAZIL" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> BR</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="ARGENTINA" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> AR</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="CHILE" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> CL</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="COLOMBIA" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> CO</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="ECUADOR" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> EC</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="PERU" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> PE</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="URUGUAY" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> UY</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-country" value="VENEZUELA" checked onchange="renderRadioStations();updateBudgetPreview()"><span class="checkmark"></span> VE</label>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;">Radio Stations <span id="radio-count-label" style="font-weight:400;"></span></div>
+      <div id="proposal-radio-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;background:var(--bg-card);display:flex;flex-direction:column;font-size:12px;">
+        <span style="color:var(--text-tertiary);font-size:12px;">Loading stations...</span>
+      </div>
+    </div>
+
+    <!-- ── Section: Services & Budget ── -->
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:16px 18px 14px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);margin-bottom:10px;">Services</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;margin-bottom:12px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-influencer" style="font-size:11px;">Influencer Tier</label>
+          <select id="proposal-influencer" class="form-control" onchange="updateBudgetPreview()" style="font-size:12px;">
+            <option value="">None</option>
+            <option value="micro">Micro (10K-50K)</option>
+            <option value="mid" selected>Mid-tier (50K-500K)</option>
+            <option value="macro">Macro (500K+)</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-digital" style="font-size:11px;">Digital Marketing</label>
+          <select id="proposal-digital" class="form-control" onchange="updateBudgetPreview()" style="font-size:12px;">
+            <option value="">None</option>
+            <option value="starter">Starter ($500/mo)</option>
+            <option value="standard" selected>Standard ($1,500/mo)</option>
+            <option value="premium">Premium ($3,000/mo)</option>
+          </select>
+        </div>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;">DJ & Club Servicing</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 14px;">
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Mexico" onchange="updateBudgetPreview()"><span class="checkmark"></span> Mexico</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Brazil" onchange="updateBudgetPreview()"><span class="checkmark"></span> Brazil</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Argentina" onchange="updateBudgetPreview()"><span class="checkmark"></span> Argentina</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Colombia" onchange="updateBudgetPreview()"><span class="checkmark"></span> Colombia</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Chile" onchange="updateBudgetPreview()"><span class="checkmark"></span> Chile</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Peru" onchange="updateBudgetPreview()"><span class="checkmark"></span> Peru</label>
+        <label class="proposal-check"><input type="checkbox" class="proposal-dj" value="Multi-LATAM" onchange="updateBudgetPreview()"><span class="checkmark"></span> Multi-LATAM</label>
+      </div>
+    </div>
+
+    <!-- ── Budget Preview ── -->
+    <div id="proposal-budget-preview" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:14px;display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-tertiary);">Budget Estimate</div>
+        <div>
+          <span style="font-weight:700;font-size:18px;color:var(--accent);" id="proposal-budget-total">$0 USD</span>
+          <span style="font-size:11px;color:var(--text-tertiary);margin-left:6px;" id="proposal-budget-monthly"></span>
+        </div>
+      </div>
+      <div id="proposal-budget-items" style="display:flex;flex-direction:column;gap:3px;font-size:12px;"></div>
+    </div>
+
+    <!-- ── Custom text overrides ── -->
+    <details style="margin-bottom:14px;">
+      <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-tertiary);padding:4px 0;letter-spacing:.5px;">
+        &#9654; Custom Text Overrides
+      </summary>
+      <div style="margin-top:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:14px 18px;">
+        <div class="form-group" style="margin-bottom:10px;">
+          <label for="proposal-goal" style="font-size:11px;">Goal & Strategy</label>
+          <textarea id="proposal-goal" class="form-control" rows="2" placeholder="Leave empty for auto-generated text..." style="font-size:12px;"></textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="proposal-digital-text" style="font-size:11px;">Digital Marketing</label>
+          <textarea id="proposal-digital-text" class="form-control" rows="2" placeholder="Leave empty for auto-generated text..." style="font-size:12px;"></textarea>
+        </div>
+      </div>
+    </details>
+
+    <button class="btn" id="proposal-btn" onclick="runProposal()">Generate Proposal</button>
+
+    <div class="progress-area" id="proposal-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="proposal-log"></div>
+    </div>
+
+    <div class="result-area" id="proposal-result"></div>
+  </div>

@@ -8,3 +8,5 @@ web/uploads/
 __pycache__/
 *.pyc
 data/history.db
+data/google_credentials.json
+data/google_token.json

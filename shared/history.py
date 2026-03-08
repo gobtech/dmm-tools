@@ -92,7 +92,41 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_schedule_runs
             ON schedule_runs(schedule_id, started_at);
+
+        CREATE TABLE IF NOT EXISTS artist_google_docs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist_name TEXT NOT NULL,
+            artist_name_normalized TEXT NOT NULL,
+            doc_url TEXT NOT NULL,
+            doc_id TEXT NOT NULL,
+            bookmark_index INTEGER DEFAULT NULL,
+            insertion_confirmed INTEGER DEFAULT 0,
+            linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_appended_at TIMESTAMP DEFAULT NULL,
+            last_append_status TEXT DEFAULT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_artist_docs_normalized
+            ON artist_google_docs(artist_name_normalized);
     """)
+
+    # Migration: add auto_append_gdocs column to schedules if missing
+    try:
+        conn.execute("SELECT auto_append_gdocs FROM schedules LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE schedules ADD COLUMN auto_append_gdocs INTEGER DEFAULT 0")
+
+    # Migration: add undo tracking columns to artist_google_docs
+    for col, default in [
+        ('last_insert_start', 'NULL'),
+        ('last_insert_end', 'NULL'),
+        ('last_insert_doc_id', 'NULL'),
+        ('last_insert_at', 'NULL'),
+    ]:
+        try:
+            conn.execute(f"SELECT {col} FROM artist_google_docs LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute(f"ALTER TABLE artist_google_docs ADD COLUMN {col} DEFAULT {default}")
+
     conn.commit()
     conn.close()
 
@@ -312,6 +346,7 @@ def get_all_schedules():
         d['include_radio'] = bool(d['include_radio'])
         d['include_dsp'] = bool(d['include_dsp'])
         d['include_press'] = bool(d['include_press'])
+        d['auto_append_gdocs'] = bool(d.get('auto_append_gdocs', 0))
         result.append(d)
     return result
 
@@ -329,6 +364,7 @@ def get_schedule(schedule_id):
     d['include_radio'] = bool(d['include_radio'])
     d['include_dsp'] = bool(d['include_dsp'])
     d['include_press'] = bool(d['include_press'])
+    d['auto_append_gdocs'] = bool(d.get('auto_append_gdocs', 0))
     return d
 
 
@@ -339,8 +375,8 @@ def save_schedule(data):
     cur = conn.execute("""
         INSERT INTO schedules (name, artist_source, artists, mode,
             radio_region, radio_time_range, include_radio, include_dsp, include_press,
-            cron_expression, enabled, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            cron_expression, enabled, auto_append_gdocs, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data.get('name', 'Untitled'),
         data.get('artist_source', 'manual'),
@@ -353,6 +389,7 @@ def save_schedule(data):
         int(data.get('include_press', True)),
         data['cron_expression'],
         int(data.get('enabled', True)),
+        int(data.get('auto_append_gdocs', False)),
         now, now,
     ))
     new_id = cur.lastrowid
@@ -367,7 +404,7 @@ def update_schedule(schedule_id, data):
         'name', 'artist_source', 'artists', 'mode',
         'radio_region', 'radio_time_range',
         'include_radio', 'include_dsp', 'include_press',
-        'cron_expression', 'enabled',
+        'cron_expression', 'enabled', 'auto_append_gdocs',
     }
     sets = []
     vals = []
@@ -376,7 +413,7 @@ def update_schedule(schedule_id, data):
             continue
         if k == 'artists':
             v = json.dumps(v)
-        elif k in ('include_radio', 'include_dsp', 'include_press', 'enabled'):
+        elif k in ('include_radio', 'include_dsp', 'include_press', 'enabled', 'auto_append_gdocs'):
             v = int(v)
         sets.append(f"{k} = ?")
         vals.append(v)
@@ -471,5 +508,192 @@ def update_schedule_last_run(schedule_id, status):
         "UPDATE schedules SET last_run_at = ?, last_run_status = ? WHERE id = ?",
         (datetime.utcnow().isoformat(), status, schedule_id),
     )
+    conn.commit()
+    conn.close()
+
+
+# ── Google Docs Mapping ──
+
+def _normalize_artist(name):
+    """Normalize artist name for matching: lowercase, strip accents and non-alnum."""
+    import unicodedata
+    nfkd = unicodedata.normalize('NFKD', name.lower().strip())
+    return ''.join(c for c in nfkd if not unicodedata.combining(c) and (c.isalnum() or c == ' ')).strip()
+
+
+def _extract_doc_id(url):
+    """Extract Google Doc ID from a URL like https://docs.google.com/document/d/{ID}/..."""
+    import re
+    m = re.search(r'/document/d/([a-zA-Z0-9_-]+)', url)
+    return m.group(1) if m else None
+
+
+def get_artist_doc(artist_name):
+    """Get the linked Google Doc for an artist, or None."""
+    init_db()
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM artist_google_docs WHERE artist_name_normalized = ?",
+        (_normalize_artist(artist_name),),
+    ).fetchone()
+    conn.close()
+    if row:
+        d = dict(row)
+        d['insertion_confirmed'] = bool(d['insertion_confirmed'])
+        return d
+    return None
+
+
+def save_artist_doc(artist_name, doc_url, doc_id=None):
+    """Link a Google Doc to an artist. Insert or update."""
+    init_db()
+    if doc_id is None:
+        doc_id = _extract_doc_id(doc_url)
+    if not doc_id:
+        raise ValueError(f"Could not extract doc ID from URL: {doc_url}")
+
+    normalized = _normalize_artist(artist_name)
+    conn = _get_conn()
+    existing = conn.execute(
+        "SELECT id FROM artist_google_docs WHERE artist_name_normalized = ?",
+        (normalized,),
+    ).fetchone()
+
+    if existing:
+        conn.execute("""
+            UPDATE artist_google_docs
+            SET doc_url = ?, doc_id = ?, artist_name = ?,
+                bookmark_index = NULL, insertion_confirmed = 0,
+                linked_at = CURRENT_TIMESTAMP
+            WHERE artist_name_normalized = ?
+        """, (doc_url, doc_id, artist_name.strip(), normalized))
+    else:
+        conn.execute("""
+            INSERT INTO artist_google_docs
+                (artist_name, artist_name_normalized, doc_url, doc_id)
+            VALUES (?, ?, ?, ?)
+        """, (artist_name.strip(), normalized, doc_url, doc_id))
+
+    conn.commit()
+    conn.close()
+
+
+def update_artist_doc_bookmark(artist_name, bookmark_index):
+    """Store the insertion point index for an artist's doc."""
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE artist_google_docs SET bookmark_index = ? WHERE artist_name_normalized = ?",
+        (bookmark_index, _normalize_artist(artist_name)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def confirm_artist_doc_insertion(artist_name):
+    """Set insertion_confirmed = 1 for an artist's doc."""
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE artist_google_docs SET insertion_confirmed = 1 WHERE artist_name_normalized = ?",
+        (_normalize_artist(artist_name),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_artist_doc_append_status(artist_name, status):
+    """Update last_appended_at and last_append_status."""
+    init_db()
+    conn = _get_conn()
+    conn.execute("""
+        UPDATE artist_google_docs
+        SET last_appended_at = ?, last_append_status = ?
+        WHERE artist_name_normalized = ?
+    """, (datetime.utcnow().isoformat(), status, _normalize_artist(artist_name)))
+    conn.commit()
+    conn.close()
+
+
+def get_all_artist_docs():
+    """Return all linked artist-doc mappings."""
+    init_db()
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM artist_google_docs ORDER BY artist_name"
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['insertion_confirmed'] = bool(d['insertion_confirmed'])
+        result.append(d)
+    return result
+
+
+def delete_artist_doc(artist_name):
+    """Remove an artist's Google Doc mapping."""
+    init_db()
+    conn = _get_conn()
+    conn.execute(
+        "DELETE FROM artist_google_docs WHERE artist_name_normalized = ?",
+        (_normalize_artist(artist_name),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def save_artist_doc_undo(artist_name, doc_id, insert_start, insert_end):
+    """Store the range of the last append for undo support. Expires after 24h."""
+    init_db()
+    conn = _get_conn()
+    conn.execute("""
+        UPDATE artist_google_docs
+        SET last_insert_start = ?, last_insert_end = ?,
+            last_insert_doc_id = ?, last_insert_at = ?
+        WHERE artist_name_normalized = ?
+    """, (insert_start, insert_end, doc_id,
+          datetime.utcnow().isoformat(), _normalize_artist(artist_name)))
+    conn.commit()
+    conn.close()
+
+
+def get_artist_doc_undo(artist_name):
+    """Get undo data for an artist's last append, or None if expired/absent."""
+    init_db()
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT last_insert_start, last_insert_end, last_insert_doc_id, last_insert_at "
+        "FROM artist_google_docs WHERE artist_name_normalized = ?",
+        (_normalize_artist(artist_name),),
+    ).fetchone()
+    conn.close()
+    if not row or not row['last_insert_start']:
+        return None
+    # Check 24h expiry
+    try:
+        inserted = datetime.fromisoformat(row['last_insert_at'])
+        if (datetime.utcnow() - inserted).total_seconds() > 86400:
+            return None
+    except (ValueError, TypeError):
+        return None
+    return {
+        'start': row['last_insert_start'],
+        'end': row['last_insert_end'],
+        'doc_id': row['last_insert_doc_id'],
+        'inserted_at': row['last_insert_at'],
+    }
+
+
+def clear_artist_doc_undo(artist_name):
+    """Clear undo data after a successful undo."""
+    init_db()
+    conn = _get_conn()
+    conn.execute("""
+        UPDATE artist_google_docs
+        SET last_insert_start = NULL, last_insert_end = NULL,
+            last_insert_doc_id = NULL, last_insert_at = NULL
+        WHERE artist_name_normalized = ?
+    """, (_normalize_artist(artist_name),))
     conn.commit()
     conn.close()

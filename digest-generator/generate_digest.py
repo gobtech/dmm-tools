@@ -224,6 +224,10 @@ def generate_digest(
     result['radio_count'] = counts['radio']
     result['dsp_count'] = counts['dsp']
     result['press_count'] = counts['press']
+    # Include raw structured data for Google Docs auto-append
+    result['radio_data'] = radio_data
+    result['press_data'] = press_data
+    result['dsp_data'] = dsp_data
 
     log_fn(f'  Digest ready — Radio: {counts["radio"]}, DSP: {counts["dsp"]}, Press: {counts["press"]}')
 

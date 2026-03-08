@@ -14,8 +14,11 @@ class ThreadLocalStdout:
 
     def write(self, text):
         buf = getattr(_thread_local, 'capture_buf', None)
+        callback = getattr(_thread_local, 'on_write', None)
         if buf is not None:
             buf.write(text)
+            if callback:
+                callback(text)
         else:
             _real_stdout.write(text)
 
@@ -31,23 +34,25 @@ class ThreadLocalStdout:
 
 
 @contextlib.contextmanager
-def capture_stdout():
+def capture_stdout(on_write=None):
     """Context manager that captures stdout for the current thread only.
 
-    Works whether or not the ThreadLocalStdout proxy is installed on sys.stdout.
-    When the proxy is active, writes are routed to this thread's buffer.
-    When not (e.g. CLI usage), falls back to swapping sys.stdout directly.
+    Args:
+        on_write: Optional callback function(text) called on every write.
     """
     buf = io.StringIO()
     if isinstance(sys.stdout, ThreadLocalStdout):
         _thread_local.capture_buf = buf
+        _thread_local.on_write = on_write
         try:
             yield buf
         finally:
             _thread_local.capture_buf = None
+            _thread_local.on_write = None
     else:
         old = sys.stdout
         sys.stdout = buf
+        # Fallback mode doesn't support on_write as easily without a proxy
         try:
             yield buf
         finally:

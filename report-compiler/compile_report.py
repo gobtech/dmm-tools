@@ -535,7 +535,7 @@ def _generate_full_docx(
             cp = doc.add_paragraph()
             cr = cp.add_run(country)
             cr.underline = True
-            cr.font.size = Pt(10)
+            cr.font.size = Pt(11)
             cp.paragraph_format.space_before = Pt(0)
             cp.paragraph_format.space_after = Pt(0)
 
@@ -543,10 +543,10 @@ def _generate_full_docx(
                 mp = doc.add_paragraph()
                 nr = mp.add_run(f"{entry['media_name']}: ")
                 nr.bold = True
-                nr.font.size = Pt(10)
+                nr.font.size = Pt(11)
 
                 dr = mp.add_run(entry['description'])
-                dr.font.size = Pt(10)
+                dr.font.size = Pt(11)
                 mp.paragraph_format.space_before = Pt(0)
                 mp.paragraph_format.space_after = Pt(0)
 
@@ -564,7 +564,7 @@ def _generate_full_docx(
                         for u in urls:
                             url_para = doc.add_paragraph()
                             bullet_run = url_para.add_run('\u2022 ')
-                            bullet_run.font.size = Pt(10)
+                            bullet_run.font.size = Pt(11)
                             _add_hyperlink(url_para, u['url'], u['url'])
                             url_para.paragraph_format.space_before = Pt(0)
                             url_para.paragraph_format.space_after = Pt(0)
@@ -637,7 +637,7 @@ def _add_hyperlink(paragraph, url, text):
     rPr.append(u)
 
     sz = OxmlElement('w:sz')
-    sz.set(qn('w:val'), '20')  # 10pt = 20 half-points
+    sz.set(qn('w:val'), '22')  # 11pt = 22 half-points
     rPr.append(sz)
 
     new_run.append(rPr)

@@ -1,0 +1,124 @@
+  <div id="tab-schedules" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Create <strong>automated cron schedules</strong> to run digest/snapshot jobs without manual clicks.</li>
+              <li>Choose artists manually or auto-resolve from <strong>Dashboard data</strong> or <strong>Release Schedule</strong>.</li>
+              <li>Schedules run in the background via APScheduler — the server must be running.</li>
+              <li>Use <strong>"Run Now"</strong> to trigger a schedule immediately and watch live logs.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Schedules -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <label style="margin:0;">Active Schedules</label>
+      <button class="btn btn-small" onclick="showScheduleForm()">+ New Schedule</button>
+    </div>
+    <div id="schedules-list" style="border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); min-height:60px; padding:12px;">
+      <div style="color:var(--text-tertiary); font-size:13px;">Loading...</div>
+    </div>
+
+    <!-- Create/Edit Form (hidden by default) -->
+    <div id="schedule-form" style="display:none; margin-top:20px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); padding:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <label style="margin:0; font-size:16px;" id="schedule-form-title">New Schedule</label>
+        <button class="btn btn-small" onclick="hideScheduleForm()" style="opacity:.6;">Cancel</button>
+      </div>
+      <input type="hidden" id="schedule-edit-id" value="">
+
+      <label for="schedule-name">Name</label>
+      <input type="text" id="schedule-name" placeholder="e.g. Weekly Monday Snapshots">
+
+      <label>Artist Source</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-artist-source" value="manual" checked onchange="toggleScheduleArtistSource()"><span>Select Artists</span></label>
+        <label><input type="radio" name="schedule-artist-source" value="all_with_data" onchange="toggleScheduleArtistSource()"><span>All Dashboard</span></label>
+        <label><input type="radio" name="schedule-artist-source" value="all_schedule" onchange="toggleScheduleArtistSource()"><span>All Release Schedule</span></label>
+        <label><input type="radio" name="schedule-artist-source" value="all" onchange="toggleScheduleArtistSource()"><span>All</span></label>
+      </div>
+
+      <div id="schedule-artist-picker" style="margin-top:8px;">
+        <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">
+          <input type="text" id="schedule-artist-filter" placeholder="Filter artists..." style="flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-card); color:var(--text-primary); font-family:var(--font-body); font-size:13px;">
+          <button class="btn btn-small" onclick="scheduleArtistSelectAll(true)" style="white-space:nowrap;">Select All</button>
+          <button class="btn btn-small" onclick="scheduleArtistSelectAll(false)" style="white-space:nowrap;">Deselect All</button>
+        </div>
+        <div id="schedule-artist-list" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-card); padding:8px 12px;">
+          <div style="color:var(--text-tertiary); font-size:13px;">Loading artists...</div>
+        </div>
+        <div id="schedule-artist-count" style="font-size:12px; color:var(--text-tertiary); margin-top:6px;">0 artists selected</div>
+      </div>
+
+      <label>Mode</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-mode" value="snapshot" checked><span>Snapshot Only</span></label>
+        <label><input type="radio" name="schedule-mode" value="digest"><span>Full Digest</span></label>
+      </div>
+
+      <label>Cadence</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-cadence" value="0 18 * * *" checked onchange="toggleScheduleCron()"><span>Daily 6 PM</span></label>
+        <label><input type="radio" name="schedule-cadence" value="0 9 * * 1" onchange="toggleScheduleCron()"><span>Weekly Mon 9 AM</span></label>
+        <label><input type="radio" name="schedule-cadence" value="0 18 * * 5" onchange="toggleScheduleCron()"><span>Weekly Fri 6 PM</span></label>
+        <label><input type="radio" name="schedule-cadence" value="custom" onchange="toggleScheduleCron()"><span>Custom Cron</span></label>
+      </div>
+      <div id="schedule-custom-cron" style="display:none; margin-top:8px;">
+        <input type="text" id="schedule-cron-input" placeholder="e.g. */30 * * * * (every 30 min)" style="font-family:monospace;" oninput="updateCronPreview()">
+        <div style="font-size:11px; color:var(--text-tertiary); margin-top:4px;">Format: minute hour day-of-month month day-of-week</div>
+        <div id="cron-preview" style="display:none; margin-top:6px; font-size:12px; color:var(--text-secondary); background:var(--bg-card); border:1px solid var(--border); border-radius:6px; padding:8px 12px;"></div>
+      </div>
+
+      <label>Region (Radio)</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-region" value="latam" checked><span>LATAM</span></label>
+        <label><input type="radio" name="schedule-region" value="all"><span>All Countries</span></label>
+      </div>
+
+      <label>Search Period</label>
+      <div class="radio-group">
+        <label><input type="radio" name="schedule-time-range" value="7d" checked><span>7 Days</span></label>
+        <label><input type="radio" name="schedule-time-range" value="28d"><span>28 Days</span></label>
+      </div>
+
+      <label>Sections to Include</label>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+        <div class="checkbox-row"><input type="checkbox" id="schedule-inc-radio" checked><label for="schedule-inc-radio">Radio Plays</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="schedule-inc-dsp" checked><label for="schedule-inc-dsp">Playlist Placements</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="schedule-inc-press" checked><label for="schedule-inc-press">Press Coverage</label></div>
+      </div>
+
+      <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--border);">
+        <div class="checkbox-row">
+          <input type="checkbox" id="schedule-auto-append">
+          <label for="schedule-auto-append">Auto-append to Google Docs</label>
+        </div>
+        <p style="font-size:12px; color:var(--text-tertiary); margin:4px 0 0 24px;">
+          After each artist runs, append results to their linked Google Doc. Artists without linked docs will be skipped.
+        </p>
+      </div>
+
+      <button class="btn" onclick="saveSchedule()" style="margin-top:16px;">Save Schedule</button>
+    </div>
+
+    <!-- Run Now progress -->
+    <div class="progress-area" id="schedule-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <pre class="log-output" id="schedule-log"></pre>
+    </div>
+    <div class="result-area" id="schedule-result"></div>
+
+    <!-- Run History -->
+    <label style="margin-top:24px; display:block;">Run History</label>
+    <div id="schedule-history" style="border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-input); min-height:40px; padding:12px; font-size:13px;">
+      <div style="color:var(--text-tertiary);">Loading...</div>
+    </div>
+  </div>
+

@@ -100,6 +100,8 @@ def _execute_schedule(schedule_id, job_id=None):
     if not schedule:
         return
 
+    auto_append = schedule.get('auto_append_gdocs', False)
+
     # Resolve artist list
     artist_source = schedule['artist_source']
     if artist_source == 'manual':
@@ -131,6 +133,9 @@ def _execute_schedule(schedule_id, job_id=None):
             finish_job(job_id, result='No artists found for this schedule.')
         return
 
+    if auto_append:
+        from shared.history import get_artist_doc
+
     run_id = save_schedule_run(schedule_id, len(artists))
 
     try:
@@ -144,6 +149,7 @@ def _execute_schedule(schedule_id, job_id=None):
 
         with_data = 0
         failed = 0
+        appended = 0
         details = {}
         start_time = time.time()
 
@@ -179,6 +185,32 @@ def _execute_schedule(schedule_id, job_id=None):
                     if entry['dsp_count']: counts.append(f"DSP: {entry['dsp_count']}")
                     if entry['press_count']: counts.append(f"Press: {entry['press_count']}")
                     log_line(job_id, f"  => {artist}: {' | '.join(counts) if counts else 'No activity'}")
+
+                # Auto-append to Google Doc
+                if auto_append and has_activity:
+                    doc = get_artist_doc(artist)
+                    if doc:
+                        ar = _batch_auto_append(
+                            artist, doc['doc_id'],
+                            radio_data=result.get('radio_data'),
+                            dsp_data=result.get('dsp_data'),
+                            press_data=result.get('press_data'),
+                        )
+                        details[artist]['append'] = ar['status']
+                        if ar['status'] == 'appended':
+                            appended += 1
+                            if job_id:
+                                log_line(job_id, f"  \u2713 Appended to Google Doc: {ar['doc_title']}")
+                        elif ar['status'] == 'skipped':
+                            if job_id:
+                                log_line(job_id, f"  \u26a0 Skipped: {ar['detail']}")
+                        else:
+                            if job_id:
+                                log_line(job_id, f"  \u2717 Append failed: {ar['detail']}")
+                        time.sleep(1)  # Rate limiting
+                    elif job_id:
+                        log_line(job_id, f"  — No Google Doc linked")
+
             except Exception as e:
                 failed += 1
                 details[artist] = {'error': str(e)}
@@ -198,6 +230,8 @@ def _execute_schedule(schedule_id, job_id=None):
 
         if job_id:
             summary = f"{len(artists)} artists: {with_data} with data, {failed} failed ({duration}s)"
+            if auto_append and appended:
+                summary += f", {appended} appended to Google Docs"
             finish_job(job_id, result=summary)
 
     except Exception as e:
@@ -210,7 +244,8 @@ def _execute_schedule(schedule_id, job_id=None):
             finish_job(job_id, error=str(e))
 
 
-JOB_TIMEOUT_SECONDS = 600  # 10 minutes max per job
+JOB_TIMEOUT_SECONDS = 600       # 10 minutes max per single job
+BATCH_TIMEOUT_SECONDS = 7200    # 2 hours max for batch jobs
 MAX_CONCURRENT_JOBS = 3
 _job_semaphore = threading.Semaphore(MAX_CONCURRENT_JOBS)
 
@@ -260,11 +295,62 @@ def validate_artist(name):
     return None
 
 
+def _batch_auto_append(artist_name, doc_id, radio_data=None, dsp_data=None,
+                       press_data=None, proof_image_paths=None, date_label=None):
+    """Auto-append report data to a Google Doc. Used by batch endpoints.
+
+    Returns dict: {status: 'appended'|'skipped'|'error', detail: str, doc_title: str}
+    """
+    from shared.google_docs import append_report_to_doc, get_document_title
+    from shared.history import update_artist_doc_append_status, save_artist_doc_undo
+
+    try:
+        doc_title = get_document_title(doc_id)
+    except Exception:
+        doc_title = doc_id[:12] + '...'
+
+    try:
+        result = append_report_to_doc(
+            doc_id=doc_id,
+            dsp_data=dsp_data,
+            radio_data=radio_data,
+            press_data=press_data,
+            artist_name=artist_name,
+            date_label=date_label,
+            proof_image_paths=proof_image_paths,
+            skip_if_duplicate=True,
+        )
+
+        if result.get('skipped'):
+            update_artist_doc_append_status(artist_name, 'skipped (duplicate)')
+            return {'status': 'skipped', 'detail': result.get('reason', 'duplicate'),
+                    'doc_title': doc_title}
+
+        if result['success']:
+            update_artist_doc_append_status(artist_name, 'success')
+            # Save undo data
+            if result.get('inserted_at') and result.get('insert_end'):
+                save_artist_doc_undo(artist_name, doc_id,
+                                     result['inserted_at'], result['insert_end'])
+            return {'status': 'appended', 'detail': f'{result["characters_inserted"]} chars',
+                    'doc_title': doc_title}
+
+        update_artist_doc_append_status(artist_name, f'error: {result["error"]}')
+        return {'status': 'error', 'detail': result['error'], 'doc_title': doc_title}
+
+    except Exception as e:
+        update_artist_doc_append_status(artist_name, f'error: {e}')
+        return {'status': 'error', 'detail': str(e), 'doc_title': doc_title}
+
+
 def new_job():
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         'status': 'running',
         'log': [],
+        'current_step': None,
+        'progress': None,
+        'determinate_progress': False,
         'result': None,
         'output_path': None,
         'error': None,
@@ -276,6 +362,28 @@ def new_job():
 def log_line(job_id, text):
     if job_id in jobs:
         jobs[job_id]['log'].append(text)
+        if text:
+            jobs[job_id]['current_step'] = text
+
+
+def make_incremental_logger(job_id):
+    """Create a line-buffered callback for capture_stdout."""
+    buffer = []
+
+    def on_write(text):
+        if not text:
+            return
+        # Handle multiple lines in one write
+        lines = text.splitlines(keepends=True)
+        for line in lines:
+            if line.endswith('\n'):
+                # Complete line
+                complete = "".join(buffer) + line.rstrip('\n')
+                log_line(job_id, complete)
+                buffer.clear()
+            else:
+                buffer.append(line)
+    return on_write
 
 
 def finish_job(job_id, result=None, output_path=None, error=None):
@@ -301,9 +409,11 @@ def _reap_stale_jobs():
     for job_id, job in list(jobs.items()):
         started = job.get('started_at', now)
         if job['status'] == 'running':
-            if now - started > JOB_TIMEOUT_SECONDS:
+            timeout = BATCH_TIMEOUT_SECONDS if job.get('batch') else JOB_TIMEOUT_SECONDS
+            if now - started > timeout:
+                mins = int(timeout // 60)
                 job['status'] = 'error'
-                job['error'] = 'This operation timed out after 10 minutes. Please try again.'
+                job['error'] = f'This operation timed out after {mins} minutes. Please try again.'
                 job['log'].append('Job timed out.')
         else:
             # Clean up finished jobs older than 1 hour
@@ -337,6 +447,9 @@ def job_status(job_id):
     return jsonify({
         'status': job['status'],
         'log': job['log'],
+        'current_step': job.get('current_step'),
+        'progress': job.get('progress'),
+        'determinate_progress': bool(job.get('determinate_progress')),
         'result': job['result'],
         'error': job['error'],
         'has_file': job['output_path'] is not None,
@@ -351,8 +464,10 @@ def job_status(job_id):
         'pr_es_has_docx': bool(job.get('pr_es_docx_path')),
         'pr_pt_has_docx': bool(job.get('pr_pt_docx_path')),
         'batch_results': job.get('batch_results', {}),
+        'artist_statuses': job.get('artist_statuses', []),
         'has_batch_zip': bool(job.get('batch_zip')),
         'has_batch_combined_docx': bool(job.get('batch_combined_docx')),
+        'append_results': job.get('append_results', {}),
     })
 
 
@@ -364,6 +479,17 @@ def download(job_id):
     p = Path(job['output_path'])
     if not p.exists():
         return jsonify({'error': 'File not found on disk'}), 404
+    return send_file(str(p), as_attachment=True, download_name=p.name)
+
+
+@app.route('/api/reports/<filename>')
+def download_report(filename):
+    """Serve a report file directly from reports/ directory."""
+    if '..' in filename or '/' in filename:
+        return jsonify({'error': 'Invalid filename'}), 400
+    p = REPORT_DIR / filename
+    if not p.exists():
+        return jsonify({'error': 'File not found'}), 404
     return send_file(str(p), as_attachment=True, download_name=p.name)
 
 
@@ -398,27 +524,87 @@ def download_proofs_zip():
 def download_typed(job_id, filetype):
     """Download a specific output file type (txt, json, docx, or zip) for jobs."""
     job = jobs.get(job_id)
-    if not job or not job.get('output_path'):
+    if not job:
+        return jsonify({'error': 'No file available'}), 404
+
+    # Batch zip/combined don't need output_path
+    if filetype == 'zip':
+        zip_path = job.get('batch_zip')
+        if zip_path and Path(zip_path).exists():
+            return send_file(str(zip_path), as_attachment=True, download_name=Path(zip_path).name)
+        return jsonify({'error': 'No zip file available'}), 404
+    if filetype == 'combined':
+        combined_path = job.get('batch_combined_docx')
+        if combined_path and Path(combined_path).exists():
+            return send_file(str(combined_path), as_attachment=True, download_name=Path(combined_path).name)
+        return jsonify({'error': 'No combined file available'}), 404
+
+    if not job.get('output_path'):
         return jsonify({'error': 'No file available'}), 404
     base = Path(job['output_path'])
     if filetype == 'json':
         p = base.with_suffix('.json')
     elif filetype == 'docx':
         p = base.with_suffix('.docx')
-    elif filetype == 'zip':
-        # Batch zip — stored separately on the job
-        zip_path = job.get('batch_zip')
-        if zip_path and Path(zip_path).exists():
-            p = Path(zip_path)
+    else:
+        p = base
+    if not p.exists():
+        return jsonify({'error': 'File not found on disk'}), 404
+    return send_file(str(p), as_attachment=True, download_name=p.name)
+
+
+# ---------------------------------------------------------------------------
+# Batch status & per-artist download endpoints
+# ---------------------------------------------------------------------------
+
+@app.route('/api/batch/<batch_id>')
+def batch_status(batch_id):
+    """Return per-artist statuses for a batch job (used by card dashboard)."""
+    job = jobs.get(batch_id)
+    if not job:
+        return jsonify({'error': 'Batch not found'}), 404
+    raw_statuses = job.get('artist_statuses', [])
+    # Include output filenames for direct download URLs (survive server restarts)
+    statuses = []
+    for s in raw_statuses:
+        entry = {k: v for k, v in s.items() if k != 'output_path'}
+        out = s.get('output_path')
+        if out:
+            docx_path = Path(out).with_suffix('.docx')
+            entry['output_name'] = docx_path.name if docx_path.exists() else None
         else:
-            return jsonify({'error': 'No zip file available'}), 404
-    elif filetype == 'combined':
-        # Batch combined .docx — all artists in one file
-        combined_path = job.get('batch_combined_docx')
-        if combined_path and Path(combined_path).exists():
-            p = Path(combined_path)
-        else:
-            return jsonify({'error': 'No combined file available'}), 404
+            entry['output_name'] = None
+        statuses.append(entry)
+    zip_path = job.get('batch_zip')
+    combined_path = job.get('batch_combined_docx')
+    return jsonify({
+        'status': job['status'],
+        'error': job['error'],
+        'artist_statuses': statuses,
+        'has_batch_zip': bool(zip_path),
+        'has_batch_combined_docx': bool(combined_path),
+        'batch_zip_name': Path(zip_path).name if zip_path else None,
+        'batch_combined_name': Path(combined_path).name if combined_path else None,
+        'append_results': job.get('append_results', {}),
+    })
+
+
+@app.route('/api/batch/<batch_id>/download/<int:index>/<filetype>')
+def batch_artist_download(batch_id, index, filetype):
+    """Download a per-artist output file from a batch job."""
+    job = jobs.get(batch_id)
+    if not job:
+        return jsonify({'error': 'Batch not found. Try re-running the batch.'}), 404
+    statuses = job.get('artist_statuses', [])
+    if index < 0 or index >= len(statuses):
+        return jsonify({'error': 'Invalid artist index'}), 404
+    astat = statuses[index]
+    out = astat.get('output_path')
+    if not out:
+        return jsonify({'error': 'No file available for this artist'}), 404
+    base = Path(out)
+    if filetype == 'docx':
+        p = base.with_suffix('.docx')
     else:
         p = base
     if not p.exists():
@@ -828,6 +1014,10 @@ def radio_soundcharts_generate():
                 log_line(job_id, line.rstrip())
             proc.wait()
 
+            # Store structured data for Google Docs append
+            jobs[job_id]['artist'] = artist
+            jobs[job_id]['radio_data'] = filtered
+
             if proc.returncode != 0:
                 finish_job(job_id, error='Report generation failed.')
             elif output_path.exists():
@@ -851,6 +1041,7 @@ def radio_soundcharts_batch():
     time_range = data.get('time_range', '28d').strip()
     start_date = data.get('start_date', '').strip()
     end_date = data.get('end_date', '').strip()
+    auto_append = data.get('auto_append', False)
 
     if time_range == 'custom' and (not start_date or not end_date):
         return jsonify({'error': 'Please select both start and end dates.'}), 400
@@ -864,82 +1055,92 @@ def radio_soundcharts_batch():
 
     sort_col, play_key = RANGE_MAP.get(time_range, RANGE_MAP['28d'])
 
-    job_id = new_job()
+    # Load and filter releases if no specific artists provided
+    artist_list = data.get('artists', [])
+    if not artist_list:
+        from shared.database import load_release_schedule
+        schedule_url = os.environ.get(
+            'RELEASE_SCHEDULE_URL',
+            'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
+        )
+        try:
+            releases = load_release_schedule(schedule_url)
+        except Exception:
+            return jsonify({'error': 'Could not load release schedule.'}), 500
+
+        if mode == 'week':
+            dsp_spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
+            dsp_spec = importlib.util.spec_from_file_location('dsp_pickup_filter', str(dsp_spec_path))
+            dsp_mod = importlib.util.module_from_spec(dsp_spec)
+            dsp_mod.loader.exec_module(dsp_mod)
+            releases = dsp_mod.filter_releases_by_week(releases, week)
+
+        # Deduplicate artists
+        seen = set()
+        for r in releases:
+            a = r['artist']
+            if a and a not in seen:
+                seen.add(a)
+                artist_list.append(a)
+
+    if not artist_list:
+        return jsonify({'error': 'No releases found matching your criteria.'}), 400
+
+    batch_id = new_job()
+    jobs[batch_id]['batch'] = True
+    jobs[batch_id]['artist_statuses'] = [
+        {'artist': a, 'status': 'queued', 'result_count': 0, 'error': None, 'output_path': None}
+        for a in artist_list
+    ]
+    if auto_append:
+        jobs[batch_id]['append_results'] = {}
+        jobs[batch_id]['batch_artist_data'] = {}
 
     def run():
         try:
             from shared.soundcharts import search_artist, fetch_airplay_data, get_token, airplay_to_csv
-            from shared.database import load_release_schedule
+
+            if auto_append:
+                from shared.history import get_artist_doc
 
             token = get_token()
             if not token:
-                finish_job(job_id, error='Soundcharts credentials not configured. Add SOUNDCHARTS_EMAIL and SOUNDCHARTS_PASSWORD to .env')
+                finish_job(batch_id, error='Soundcharts credentials not configured. Add SOUNDCHARTS_EMAIL and SOUNDCHARTS_PASSWORD to .env')
                 return
 
-            # Load and filter releases
-            schedule_url = os.environ.get(
-                'RELEASE_SCHEDULE_URL',
-                'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
-            )
-            log_line(job_id, 'Loading release schedule...')
-            releases = load_release_schedule(schedule_url)
-            log_line(job_id, f'  Loaded {len(releases)} releases')
-
-            if mode == 'week':
-                dsp_spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
-                dsp_spec = importlib.util.spec_from_file_location('dsp_pickup_filter', str(dsp_spec_path))
-                dsp_mod = importlib.util.module_from_spec(dsp_spec)
-                dsp_spec.loader.exec_module(dsp_mod)
-                releases = dsp_mod.filter_releases_by_week(releases, week)
-                log_line(job_id, f'  Filtered to {len(releases)} releases for week of {week}')
-
-            # Deduplicate artists
-            seen = set()
-            artist_list = []
-            for r in releases:
-                a = r['artist']
-                if a and a not in seen:
-                    seen.add(a)
-                    artist_list.append(a)
-
-            if not artist_list:
-                finish_job(job_id, result='No releases found matching your criteria.')
-                return
-
-            region_label = 'LATAM' if region == 'latam' else 'all countries'
-            log_line(job_id, f'Running radio reports for {len(artist_list)} artists ({region_label})...')
-            log_line(job_id, '')
-
+            statuses = jobs[batch_id]['artist_statuses']
             docx_paths = []
-            succeeded = 0
 
-            for i, art in enumerate(artist_list, 1):
-                log_line(job_id, f'[{i}/{len(artist_list)}] {art}')
-                log_fn = lambda msg: log_line(job_id, msg)
+            for i, astat in enumerate(statuses):
+                art = astat['artist']
+                astat['status'] = 'running'
 
                 try:
                     match = search_artist(art, token=token)
                     if not match:
-                        log_line(job_id, f'  → Not found on Soundcharts, skipping')
-                        log_line(job_id, '')
+                        astat['status'] = 'done'
+                        astat['error'] = 'Not found on Soundcharts'
+                        log_line(batch_id, f'  Not found on Soundcharts')
+                        if auto_append:
+                            jobs[batch_id]['append_results'][art] = {
+                                'status': 'skipped', 'detail': 'Not found on Soundcharts', 'doc_title': None}
                         continue
 
-                    log_line(job_id, f'  Found: {match["name"]}')
                     airplay = fetch_airplay_data(match['uuid'], token, sort_by=sort_col,
-                                                 region=region if region != 'all' else None, log_fn=log_fn)
+                                                 region=region if region != 'all' else None)
                     if not airplay:
-                        log_line(job_id, f'  → No airplay data')
-                        log_line(job_id, '')
+                        astat['status'] = 'done'
+                        astat['error'] = 'No airplay data'
+                        log_line(batch_id, f'  No radio plays found')
+                        if auto_append:
+                            jobs[batch_id]['append_results'][art] = {
+                                'status': 'skipped', 'detail': 'No radio plays found', 'doc_title': None}
                         continue
 
-                    # For batch mode, include all songs (no picker)
                     for e in airplay:
                         e['plays_28d'] = e[play_key]
 
-                    log_line(job_id, f'  → {len(airplay)} station entries')
-
-                    # Write CSV and generate report
-                    upload_dir = UPLOAD_DIR / f'{job_id}_{i}'
+                    upload_dir = UPLOAD_DIR / f'{batch_id}_{i}'
                     upload_dir.mkdir(parents=True, exist_ok=True)
                     csv_path = upload_dir / 'soundcharts_airplay.csv'
                     airplay_to_csv(airplay, str(csv_path))
@@ -964,54 +1165,66 @@ def radio_soundcharts_batch():
                         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                         text=True, cwd=str(ROOT_DIR),
                     )
-                    for line in proc.stdout:
-                        log_line(job_id, '  ' + line.rstrip())
                     proc.wait()
 
                     if proc.returncode == 0 and output_path.exists():
                         docx_paths.append(output_path)
-                        succeeded += 1
-                        log_line(job_id, f'  → Report generated')
+                        astat['status'] = 'done'
+                        astat['result_count'] = len(airplay)
+                        astat['output_path'] = str(output_path)
+
+                        # Auto-append to Google Doc
+                        if auto_append and airplay:
+                            jobs[batch_id]['batch_artist_data'][art] = {'radio_data': airplay}
+                            doc = get_artist_doc(art)
+                            if doc:
+                                ar = _batch_auto_append(art, doc['doc_id'], radio_data=airplay)
+                                jobs[batch_id]['append_results'][art] = ar
+                                if ar['status'] == 'appended':
+                                    log_line(batch_id, f'  \u2713 Appended to Google Doc: {ar["doc_title"]}')
+                                elif ar['status'] == 'skipped':
+                                    log_line(batch_id, f'  \u26a0 Skipped: {ar["detail"]}')
+                                else:
+                                    log_line(batch_id, f'  \u2717 Append failed: {ar["detail"]}')
+                                time.sleep(1)  # Rate limiting
+                            else:
+                                jobs[batch_id]['append_results'][art] = {
+                                    'status': 'no_doc', 'detail': 'No Google Doc linked', 'doc_title': None}
                     else:
-                        log_line(job_id, f'  → Report generation failed')
+                        astat['status'] = 'done'
+                        astat['error'] = 'Report generation failed'
 
                 except Exception as e:
-                    log_line(job_id, f'  → Error: {e}')
+                    astat['status'] = 'error'
+                    astat['error'] = str(e)
 
-                log_line(job_id, '')
-
-            # Create combined .docx and zip of individual docx files
+            # Create combined outputs
+            safe_batch = f'batch_week_{week}' if mode == 'week' else 'batch_all'
             if docx_paths:
                 import zipfile
-                safe_batch = f'batch_week_{week}' if mode == 'week' else 'batch_all'
                 zip_path = REPORT_DIR / f'{safe_batch}_radio.zip'
                 with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
                     for dp in docx_paths:
                         zf.write(str(dp), dp.name)
-                jobs[job_id]['batch_zip'] = str(zip_path)
+                jobs[batch_id]['batch_zip'] = str(zip_path)
 
-                # Combined single .docx with page breaks
                 combined_docx = REPORT_DIR / f'{safe_batch}_radio.docx'
                 try:
                     combine_docx(docx_paths, combined_docx)
-                    jobs[job_id]['batch_combined_docx'] = str(combined_docx)
-                    log_line(job_id, f'Combined .docx created with {len(docx_paths)} reports.')
-                except Exception as e:
-                    log_line(job_id, f'Warning: Could not create combined .docx: {e}')
+                    jobs[batch_id]['batch_combined_docx'] = str(combined_docx)
+                except Exception:
+                    pass
 
-                finish_job(job_id,
-                           result=f'Generated {succeeded}/{len(artist_list)} radio reports.',
-                           output_path=zip_path)
-            else:
-                finish_job(job_id, result=f'No radio reports generated. 0/{len(artist_list)} artists had airplay data.')
-
-            log_line(job_id, f'Done! {succeeded}/{len(artist_list)} reports generated.')
+            finish_job(batch_id, result='Batch complete.')
 
         except Exception as e:
-            finish_job(job_id, error=str(e))
+            finish_job(batch_id, error=str(e))
 
-    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
-    return jsonify({'job_id': job_id})
+    threading.Thread(target=run_with_limit(batch_id, run), daemon=True).start()
+    return jsonify({
+        'batch_id': batch_id,
+        'artist_jobs': [{'artist': a, 'index': i} for i, a in enumerate(artist_list)]
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -1027,6 +1240,7 @@ def press_run():
     start_date = data.get('start_date')
     end_date = data.get('end_date')
     days = data.get('days', 28)
+    auto_append = data.get('auto_append', False)
 
     if mode == 'artist':
         err = validate_artist(artist)
@@ -1054,40 +1268,36 @@ def press_run():
         end_date = None
         log_label = f'last {days} days'
 
-    job_id = new_job()
+    # --- Single artist mode (unchanged) ---
+    if mode == 'artist':
+        job_id = new_job()
 
-    def _run_single_artist(mod, artist_name, out_path, kwargs_extra):
-        """Run press pickup for a single artist, return (result_text, total_count)."""
-        with capture_stdout() as buf:
-            country_results = mod.run_press_pickup(artist_name, days, str(out_path), **kwargs_extra)
-        for line in buf.getvalue().splitlines():
-            log_line(job_id, line)
-        total = sum(len(v) for v in country_results.values()) if country_results else 0
-        result_text = out_path.read_text(encoding='utf-8') if out_path.exists() else ''
-        return result_text, total
+        def run():
+            try:
+                spec_path = ROOT_DIR / 'press-pickup' / 'press_pickup.py'
+                spec = importlib.util.spec_from_file_location('press_pickup', str(spec_path))
+                mod = importlib.util.module_from_spec(spec)
+                with capture_stdout(on_write=make_incremental_logger(job_id)) as buf:
+                    spec.loader.exec_module(mod)
 
-    def run():
-        try:
-            # Import press pickup module
-            spec_path = ROOT_DIR / 'press-pickup' / 'press_pickup.py'
-            spec = importlib.util.spec_from_file_location('press_pickup', str(spec_path))
-            mod = importlib.util.module_from_spec(spec)
-            with capture_stdout() as buf:
-                spec.loader.exec_module(mod)
-            for line in buf.getvalue().splitlines():
-                log_line(job_id, line)
+                kwargs = {}
+                if start_date and end_date:
+                    kwargs['start_date'] = start_date
+                    kwargs['end_date'] = end_date
 
-            kwargs = {}
-            if start_date and end_date:
-                kwargs['start_date'] = start_date
-                kwargs['end_date'] = end_date
-
-            # --- Single artist mode ---
-            if mode == 'artist':
                 safe_artist = artist.lower().replace(' ', '_')
                 output_path = REPORT_DIR / f'{safe_artist}_press.txt'
                 log_line(job_id, f'Searching for press coverage of {artist} ({log_label})...')
-                result_text, total = _run_single_artist(mod, artist, output_path, kwargs)
+
+                with capture_stdout(on_write=make_incremental_logger(job_id)) as buf:
+                    country_results = mod.run_press_pickup(artist, days, str(output_path), **kwargs)
+
+                total = sum(len(v) for v in country_results.values()) if country_results else 0
+                result_text = output_path.read_text(encoding='utf-8') if output_path.exists() else ''
+
+                # Store structured data for Google Docs append
+                jobs[job_id]['artist'] = artist
+                jobs[job_id]['press_data'] = country_results
 
                 if not result_text.strip():
                     finish_job(job_id, result='No press coverage found for this artist in the selected time range.',
@@ -1095,97 +1305,141 @@ def press_run():
                 else:
                     log_line(job_id, f'Found {total} results.')
                     finish_job(job_id, result=result_text, output_path=output_path if output_path.exists() else None)
-                return
 
-            # --- Batch mode (week / all) ---
-            from shared.database import load_release_schedule
-            schedule_url = os.environ.get(
-                'RELEASE_SCHEDULE_URL',
-                'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
-            )
-            log_line(job_id, 'Loading release schedule...')
+            except SystemExit:
+                finish_job(job_id, error='Press pickup failed unexpectedly.')
+            except Exception as e:
+                finish_job(job_id, error=str(e))
+
+        threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
+        return jsonify({'job_id': job_id})
+
+    # --- Batch mode (week / all) — per-artist card dashboard ---
+    artist_list = data.get('artists', [])
+    if not artist_list:
+        from shared.database import load_release_schedule
+        schedule_url = os.environ.get(
+            'RELEASE_SCHEDULE_URL',
+            'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
+        )
+        try:
             releases = load_release_schedule(schedule_url)
-            log_line(job_id, f'  Loaded {len(releases)} releases')
+        except Exception:
+            return jsonify({'error': 'Could not load release schedule.'}), 500
 
-            if mode == 'week':
-                dsp_spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
-                dsp_spec = importlib.util.spec_from_file_location('dsp_pickup_filter', str(dsp_spec_path))
-                dsp_mod = importlib.util.module_from_spec(dsp_spec)
-                dsp_spec.loader.exec_module(dsp_mod)
-                releases = dsp_mod.filter_releases_by_week(releases, week)
-                log_line(job_id, f'  Filtered to {len(releases)} releases for week of {week}')
+        if mode == 'week':
+            dsp_spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
+            dsp_spec = importlib.util.spec_from_file_location('dsp_pickup_filter', str(dsp_spec_path))
+            dsp_mod = importlib.util.module_from_spec(dsp_spec)
+            dsp_mod.loader.exec_module(dsp_mod)
+            releases = dsp_mod.filter_releases_by_week(releases, week)
 
-            # Deduplicate artists
-            seen = set()
-            artist_list = []
-            for r in releases:
-                a = r['artist']
-                if a and a not in seen:
-                    seen.add(a)
-                    artist_list.append(a)
+        # Deduplicate artists
+        seen = set()
+        for r in releases:
+            a = r['artist']
+            if a and a not in seen:
+                seen.add(a)
+                artist_list.append(a)
 
-            if not artist_list:
-                finish_job(job_id, result='No releases found matching your criteria.')
-                return
+    if not artist_list:
+        return jsonify({'error': 'No releases found matching your criteria.'}), 400
 
-            log_line(job_id, f'Running press pickup for {len(artist_list)} artists ({log_label})...')
-            log_line(job_id, '')
+    batch_id = new_job()
+    jobs[batch_id]['batch'] = True
+    jobs[batch_id]['artist_statuses'] = [
+        {'artist': a, 'status': 'queued', 'result_count': 0, 'error': None, 'output_path': None}
+        for a in artist_list
+    ]
+    if auto_append:
+        jobs[batch_id]['append_results'] = {}
+        jobs[batch_id]['batch_artist_data'] = {}
 
-            # Run sequentially per artist, collect individual docx paths
-            all_texts = []
+    def orchestrate():
+        try:
+            spec_path = ROOT_DIR / 'press-pickup' / 'press_pickup.py'
+            spec = importlib.util.spec_from_file_location('press_pickup', str(spec_path))
+            mod = importlib.util.module_from_spec(spec)
+            with capture_stdout(on_write=make_incremental_logger(batch_id)) as buf:
+                spec.loader.exec_module(mod)
+
+            if auto_append:
+                from shared.history import get_artist_doc
+
+            kwargs = {}
+            if start_date and end_date:
+                kwargs['start_date'] = start_date
+                kwargs['end_date'] = end_date
+
+            statuses = jobs[batch_id]['artist_statuses']
             docx_paths = []
-            grand_total = 0
-            for i, art in enumerate(artist_list, 1):
-                log_line(job_id, f'[{i}/{len(artist_list)}] {art}')
+
+            for i, astat in enumerate(statuses):
+                art = astat['artist']
+                astat['status'] = 'running'
                 safe = art.lower().replace(' ', '_')
                 out = REPORT_DIR / f'{safe}_press.txt'
+                log_line(batch_id, f'[{i+1}/{len(statuses)}] Processing {art}...')
+
                 try:
-                    text, total = _run_single_artist(mod, art, out, kwargs)
-                    grand_total += total
-                    if text.strip():
-                        all_texts.append(text)
+                    with capture_stdout(on_write=make_incremental_logger(batch_id)) as buf:
+                        country_results = mod.run_press_pickup(art, days, str(out), **kwargs)
+                    total = sum(len(v) for v in country_results.values()) if country_results else 0
+                    astat['status'] = 'done'
+                    astat['result_count'] = total
+                    astat['output_path'] = str(out)
                     docx_out = out.with_suffix('.docx')
                     if docx_out.exists():
                         docx_paths.append(docx_out)
-                    log_line(job_id, f'  → {total} results')
+
+                    # Auto-append to Google Doc
+                    if auto_append and country_results:
+                        jobs[batch_id]['batch_artist_data'][art] = {'press_data': country_results}
+                        doc = get_artist_doc(art)
+                        if doc:
+                            ar = _batch_auto_append(art, doc['doc_id'], press_data=country_results)
+                            jobs[batch_id]['append_results'][art] = ar
+                            if ar['status'] == 'appended':
+                                log_line(batch_id, f'  \u2713 Appended to Google Doc: {ar["doc_title"]}')
+                            elif ar['status'] == 'skipped':
+                                log_line(batch_id, f'  \u26a0 Skipped: {ar["detail"]}')
+                            else:
+                                log_line(batch_id, f'  \u2717 Append failed: {ar["detail"]}')
+                            time.sleep(1)  # Rate limiting
+                        else:
+                            jobs[batch_id]['append_results'][art] = {
+                                'status': 'no_doc', 'detail': 'No Google Doc linked', 'doc_title': None}
                 except Exception as e:
-                    log_line(job_id, f'  → Error: {e}')
-                log_line(job_id, '')
+                    astat['status'] = 'error'
+                    astat['error'] = str(e)
 
-            # Combine all text reports
-            combined_text = '\n\n'.join(all_texts) if all_texts else 'No press coverage found.'
+            # Generate combined outputs
             safe_batch = f'batch_week_{week}' if mode == 'week' else 'batch_all'
-            combined_txt = REPORT_DIR / f'{safe_batch}_press.txt'
-            combined_txt.write_text(combined_text, encoding='utf-8')
-
-            # Create combined .docx and zip of individual docx files
             if docx_paths:
                 import zipfile
                 zip_path = REPORT_DIR / f'{safe_batch}_press.zip'
                 with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
                     for dp in docx_paths:
                         zf.write(str(dp), dp.name)
-                jobs[job_id]['batch_zip'] = str(zip_path)
+                jobs[batch_id]['batch_zip'] = str(zip_path)
 
-                # Combined single .docx with page breaks
                 combined_docx = REPORT_DIR / f'{safe_batch}_press.docx'
                 try:
                     combine_docx(docx_paths, combined_docx)
-                    jobs[job_id]['batch_combined_docx'] = str(combined_docx)
-                    log_line(job_id, f'Combined .docx created with {len(docx_paths)} reports.')
-                except Exception as e:
-                    log_line(job_id, f'Warning: Could not create combined .docx: {e}')
+                    jobs[batch_id]['batch_combined_docx'] = str(combined_docx)
+                except Exception:
+                    pass
 
-            log_line(job_id, f'Done! {grand_total} total results across {len(artist_list)} artists.')
-            finish_job(job_id, result=combined_text, output_path=combined_txt)
+            finish_job(batch_id, result='Batch complete.')
 
-        except SystemExit:
-            finish_job(job_id, error='Press pickup failed unexpectedly.')
         except Exception as e:
-            finish_job(job_id, error=str(e))
+            finish_job(batch_id, error=str(e))
 
-    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
-    return jsonify({'job_id': job_id})
+    threading.Thread(target=run_with_limit(batch_id, orchestrate), daemon=True).start()
+    return jsonify({
+        'batch_id': batch_id,
+        'artist_jobs': [{'artist': a, 'index': i} for i, a in enumerate(artist_list)]
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -1200,6 +1454,7 @@ def dsp_run():
     week = data.get('week', 'current').strip()
     platforms = data.get('platforms', None)  # list of platform names, or None for all
     grouping = data.get('grouping', 'platform')
+    auto_append = data.get('auto_append', False)
 
     VALID_PLATFORMS = {'Spotify', 'Apple Music', 'Deezer', 'Amazon Music', 'Claro Música', 'YouTube Music'}
 
@@ -1268,6 +1523,13 @@ def dsp_run():
             else:
                 safe_name = 'all_releases'
 
+            # Filter by selected artists if provided (from batch preview UI)
+            selected_artists = data.get('artists', [])
+            if selected_artists and mode != 'artist':
+                selected_set = set(selected_artists)
+                releases = [r for r in releases if r['artist'] in selected_set]
+                log_line(job_id, f'  Selected {len(releases)} of {len(selected_set)} artists')
+
             if not releases:
                 finish_job(job_id, result='No releases found matching your criteria.')
                 return
@@ -1277,17 +1539,13 @@ def dsp_run():
             job_dir.mkdir(exist_ok=True)
             output_path = job_dir / f'{safe_name}_dsp.txt'
 
-            with capture_stdout() as buf:
+            with capture_stdout(on_write=make_incremental_logger(job_id)) as buf:
                 spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
                 import importlib.util
                 spec = importlib.util.spec_from_file_location('dsp_pickup_run', str(spec_path))
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 results = mod.run_dsp_pickup(releases, playlists, str(output_path), grouping=grouping)
-
-            # Feed captured output into log
-            for line in buf.getvalue().splitlines():
-                log_line(job_id, line)
 
             # Read the generated report
             result_text = output_path.read_text(encoding='utf-8') if output_path.exists() else ''
@@ -1315,6 +1573,44 @@ def dsp_run():
                     shutil.copy2(str(img), str(shared_proof_dir / img.name))
 
             jobs[job_id]['proof_images'] = proof_images
+            jobs[job_id]['artist'] = artist
+            jobs[job_id]['dsp_data'] = results
+
+            # Auto-append to Google Docs (batch modes only)
+            if auto_append and mode != 'artist' and results:
+                from shared.history import get_artist_doc
+                jobs[job_id]['append_results'] = {}
+                jobs[job_id]['batch_artist_data'] = {}
+
+                # Collect proof image paths per artist
+                proof_dir_path = job_dir / 'dsp_proofs'
+                all_proof_paths = sorted(str(p) for p in proof_dir_path.glob('proof_*.png')) if proof_dir_path.exists() else []
+
+                for art, art_releases in results.items():
+                    art_matches = sum(len(m) for m in art_releases.values())
+                    if not art_matches:
+                        jobs[job_id]['append_results'][art] = {
+                            'status': 'skipped', 'detail': 'No playlist matches', 'doc_title': None}
+                        continue
+
+                    art_dsp_data = {art: art_releases}
+                    jobs[job_id]['batch_artist_data'][art] = {'dsp_data': art_dsp_data}
+
+                    doc = get_artist_doc(art)
+                    if doc:
+                        ar = _batch_auto_append(art, doc['doc_id'], dsp_data=art_dsp_data,
+                                                proof_image_paths=all_proof_paths)
+                        jobs[job_id]['append_results'][art] = ar
+                        if ar['status'] == 'appended':
+                            log_line(job_id, f'  \u2713 Appended to Google Doc: {ar["doc_title"]}')
+                        elif ar['status'] == 'skipped':
+                            log_line(job_id, f'  \u26a0 Skipped: {ar["detail"]}')
+                        else:
+                            log_line(job_id, f'  \u2717 Append failed: {ar["detail"]}')
+                        time.sleep(1)  # Rate limiting
+                    else:
+                        jobs[job_id]['append_results'][art] = {
+                            'status': 'no_doc', 'detail': 'No Google Doc linked', 'doc_title': None}
 
             finish_job(job_id, result=result_text, output_path=output_path if output_path.exists() else None)
 
@@ -1711,6 +2007,12 @@ def report_compile():
             if proof_dir.exists():
                 jobs[job_id]['proof_images'] = sorted([f.name for f in proof_dir.glob('proof_*.png')])
 
+            # Store structured data for Google Docs append
+            jobs[job_id]['artist'] = artist
+            jobs[job_id]['radio_data'] = result.get('radio_data')
+            jobs[job_id]['press_data'] = result.get('press_data')
+            jobs[job_id]['dsp_data'] = result.get('dsp_data')
+
             finish_job(job_id, result=summary, output_path=output_path)
 
         except Exception as e:
@@ -1908,6 +2210,7 @@ def digest_batch():
     days = daysMap.get(radio_time_range, 7)
 
     job_id = new_job()
+    jobs[job_id]['batch'] = True
     jobs[job_id]['batch_results'] = {}
 
     def run():
@@ -2446,6 +2749,720 @@ def schedule_history():
     schedule_id = request.args.get('schedule_id', type=int)
     runs = get_schedule_runs(schedule_id=schedule_id)
     return jsonify(runs)
+
+
+# ---------------------------------------------------------------------------
+# Settings — API Credentials
+# ---------------------------------------------------------------------------
+
+CREDENTIAL_SERVICES = {
+    'soundcharts': {
+        'keys': ['SOUNDCHARTS_EMAIL', 'SOUNDCHARTS_PASSWORD'],
+        'labels': {'SOUNDCHARTS_EMAIL': 'Email', 'SOUNDCHARTS_PASSWORD': 'Password'},
+        'label': 'Soundcharts',
+        'used_by': 'Radio Report, Full Report',
+    },
+    'serper': {
+        'keys': ['SERPER_API_KEY'],
+        'labels': {'SERPER_API_KEY': 'API Key'},
+        'label': 'Serper.dev',
+        'used_by': 'Press Pickup (Google SERP)',
+    },
+    'brave': {
+        'keys': ['BRAVE_API_KEY'],
+        'labels': {'BRAVE_API_KEY': 'API Key'},
+        'label': 'Brave Search',
+        'used_by': 'Press Pickup, Outlet Discovery',
+    },
+    'groq': {
+        'keys': ['GROQ_API_KEY'],
+        'labels': {'GROQ_API_KEY': 'API Key'},
+        'label': 'Groq',
+        'used_by': 'Press Pickup, Digest, Discovery, Proposal',
+    },
+    'tavily': {
+        'keys': ['TAVILY_API_KEY'],
+        'labels': {'TAVILY_API_KEY': 'API Key'},
+        'label': 'Tavily',
+        'used_by': 'Press Pickup',
+    },
+    'gemini': {
+        'keys': ['GEMINI_API_KEY'],
+        'labels': {'GEMINI_API_KEY': 'API Key'},
+        'label': 'Google Gemini',
+        'used_by': 'PR Translator (AI mode)',
+    },
+}
+
+
+def _mask_value(val):
+    """Return masked version of a credential value."""
+    if not val:
+        return None
+    if len(val) <= 4:
+        return '****'
+    return '****' + val[-4:]
+
+
+@app.route('/api/settings/credentials')
+def get_credentials():
+    services = []
+    for sid, info in CREDENTIAL_SERVICES.items():
+        fields = []
+        for key in info['keys']:
+            val = os.environ.get(key, '').strip()
+            fields.append({
+                'key': key,
+                'label': info['labels'].get(key, key),
+                'masked': _mask_value(val),
+                'configured': bool(val),
+            })
+        services.append({
+            'id': sid,
+            'label': info['label'],
+            'used_by': info['used_by'],
+            'fields': fields,
+        })
+    return jsonify({'services': services})
+
+
+@app.route('/api/settings/credentials/<service>/test', methods=['POST'])
+def test_credential(service):
+    if service not in CREDENTIAL_SERVICES:
+        return jsonify({'ok': False, 'error': 'Unknown service.'}), 404
+    import requests as req
+    try:
+        if service == 'soundcharts':
+            email = os.environ.get('SOUNDCHARTS_EMAIL', '').strip()
+            pw = os.environ.get('SOUNDCHARTS_PASSWORD', '').strip()
+            if not email or not pw:
+                return jsonify({'ok': False, 'error': 'Credentials not configured.'})
+            resp = req.post('https://graphql.soundcharts.com/', json={
+                'operationName': 'Login',
+                'query': 'mutation Login($input: LoginInput!) { Login(input: $input) { token expiresAt } }',
+                'variables': {'input': {'email': email, 'password': pw}},
+            }, headers={'Content-Type': 'application/json'}, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if 'errors' in data:
+                return jsonify({'ok': False, 'error': data['errors'][0].get('message', 'Login failed')})
+            if data.get('data', {}).get('Login', {}).get('token'):
+                return jsonify({'ok': True, 'message': 'Logged in successfully.'})
+            return jsonify({'ok': False, 'error': 'No token returned.'})
+
+        elif service == 'serper':
+            key = os.environ.get('SERPER_API_KEY', '').strip()
+            if not key:
+                return jsonify({'ok': False, 'error': 'API key not configured.'})
+            resp = req.post('https://google.serper.dev/search',
+                            headers={'X-API-KEY': key, 'Content-Type': 'application/json'},
+                            json={'q': 'test', 'num': 1}, timeout=10)
+            if resp.status_code == 402:
+                return jsonify({'ok': False, 'error': 'Credits exhausted (402).'})
+            resp.raise_for_status()
+            return jsonify({'ok': True, 'message': 'Connected. Uses 1 credit per test.'})
+
+        elif service == 'brave':
+            key = os.environ.get('BRAVE_API_KEY', '').strip()
+            if not key:
+                return jsonify({'ok': False, 'error': 'API key not configured.'})
+            resp = req.get('https://api.search.brave.com/res/v1/web/search',
+                           headers={'X-Subscription-Token': key, 'Accept': 'application/json'},
+                           params={'q': 'test', 'count': 1}, timeout=10)
+            resp.raise_for_status()
+            return jsonify({'ok': True, 'message': 'Connected successfully.'})
+
+        elif service == 'groq':
+            key = os.environ.get('GROQ_API_KEY', '').strip()
+            if not key:
+                return jsonify({'ok': False, 'error': 'API key not configured.'})
+            resp = req.post('https://api.groq.com/openai/v1/chat/completions',
+                            headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+                            json={'model': 'llama-3.3-70b-versatile',
+                                  'messages': [{'role': 'user', 'content': 'hi'}],
+                                  'max_tokens': 5}, timeout=15)
+            resp.raise_for_status()
+            return jsonify({'ok': True, 'message': 'Connected successfully.'})
+
+        elif service == 'tavily':
+            key = os.environ.get('TAVILY_API_KEY', '').strip()
+            if not key:
+                return jsonify({'ok': False, 'error': 'API key not configured.'})
+            resp = req.post('https://api.tavily.com/search',
+                            headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+                            json={'query': 'test', 'max_results': 1}, timeout=15)
+            resp.raise_for_status()
+            return jsonify({'ok': True, 'message': 'Connected successfully.'})
+
+        elif service == 'gemini':
+            key = os.environ.get('GEMINI_API_KEY', '').strip()
+            if not key:
+                return jsonify({'ok': False, 'error': 'API key not configured.'})
+            resp = req.post(
+                f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}',
+                headers={'Content-Type': 'application/json'},
+                json={'contents': [{'parts': [{'text': 'hi'}]}],
+                      'generationConfig': {'maxOutputTokens': 5}}, timeout=15)
+            resp.raise_for_status()
+            return jsonify({'ok': True, 'message': 'Connected successfully.'})
+
+    except req.exceptions.Timeout:
+        return jsonify({'ok': False, 'error': 'Connection timed out.'})
+    except req.exceptions.ConnectionError:
+        return jsonify({'ok': False, 'error': 'Could not connect to service.'})
+    except req.exceptions.HTTPError as e:
+        code = e.response.status_code if e.response is not None else '?'
+        if code in (401, 403):
+            return jsonify({'ok': False, 'error': f'Authentication failed ({code}).'})
+        return jsonify({'ok': False, 'error': f'HTTP error {code}.'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]})
+
+
+@app.route('/api/settings/credentials/<service>', methods=['POST'])
+def save_credential(service):
+    if service not in CREDENTIAL_SERVICES:
+        return jsonify({'error': 'Unknown service.'}), 404
+    allowed_keys = set(CREDENTIAL_SERVICES[service]['keys'])
+    data = request.get_json(force=True)
+    updates = {k: v for k, v in data.items() if k in allowed_keys and isinstance(v, str)}
+    if not updates:
+        return jsonify({'error': 'No valid fields to update.'}), 400
+
+    # Read, update, and write .env atomically
+    env_path = ROOT_DIR / '.env'
+    lines = []
+    if env_path.exists():
+        with open(env_path) as f:
+            lines = f.readlines()
+
+    updated_keys = set()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        content = stripped[7:] if stripped.startswith('export ') else stripped
+        if '=' in content:
+            key = content.partition('=')[0].strip()
+            if key in updates:
+                lines[i] = f'export {key}="{updates[key]}"\n'
+                updated_keys.add(key)
+
+    for key, val in updates.items():
+        if key not in updated_keys:
+            lines.append(f'export {key}="{val}"\n')
+
+    tmp_path = env_path.with_suffix('.env.tmp')
+    with open(tmp_path, 'w') as f:
+        f.writelines(lines)
+    os.replace(str(tmp_path), str(env_path))
+
+    # Update running process env
+    for key, val in updates.items():
+        os.environ[key] = val
+
+    # Invalidate Soundcharts token cache if credentials changed
+    if service == 'soundcharts':
+        try:
+            import shared.soundcharts as sc
+            sc._cached_token = None
+            sc._token_expires_at = 0
+        except Exception:
+            pass
+
+    return jsonify({'ok': True, 'message': 'Credentials saved.'})
+
+
+@app.route('/api/settings/data-sources')
+def get_data_sources():
+    result = {}
+
+    # Press DB
+    try:
+        press_path = ROOT_DIR / 'data' / 'press_database.csv'
+        enriched = ROOT_DIR / 'data' / 'press_database_enriched.csv'
+        p = enriched if enriched.exists() else press_path
+        import csv
+        with open(p, encoding='utf-8-sig') as f:
+            rows = list(csv.DictReader(f))
+        result['press_db'] = {
+            'total': len(rows),
+            'with_url': sum(1 for r in rows if r.get('WEBSITE', r.get('website', '')).strip()),
+        }
+    except Exception as e:
+        result['press_db'] = {'error': str(e)[:100]}
+
+    # Playlist DB
+    try:
+        pl_path = ROOT_DIR / 'data' / 'playlist_database.csv'
+        import csv
+        with open(pl_path, encoding='utf-8') as f:
+            rows = list(csv.DictReader(f))
+        result['playlists'] = {'total': len(rows)}
+    except Exception as e:
+        result['playlists'] = {'error': str(e)[:100]}
+
+    # Feed Registry
+    try:
+        feed_path = ROOT_DIR / 'data' / 'feed_registry.json'
+        if feed_path.exists():
+            with open(feed_path) as f:
+                registry = json.load(f)
+            outlets = registry.get('outlets', {})
+            rss = sum(1 for o in outlets.values() if o.get('feed_url') and o.get('feed_type') == 'rss')
+            wp = sum(1 for o in outlets.values() if o.get('wp_api_url'))
+            result['feed_registry'] = {'scanned': len(outlets), 'rss': rss, 'wp': wp, 'none': len(outlets) - rss - wp}
+        else:
+            result['feed_registry'] = {'error': 'feed_registry.json not found'}
+    except Exception as e:
+        result['feed_registry'] = {'error': str(e)[:100]}
+
+    # Social Handle Registry
+    try:
+        sh_path = ROOT_DIR / 'data' / 'social_handle_registry.json'
+        if sh_path.exists():
+            with open(sh_path) as f:
+                sh = json.load(f)
+            outlets = sh.get('outlets', {})
+            with_any = sum(1 for o in outlets.values() if any(o.get(k) for k in ('instagram', 'facebook', 'twitter')))
+            result['social_handles'] = {'scanned': len(outlets), 'with_handles': with_any}
+        else:
+            result['social_handles'] = {'error': 'social_handle_registry.json not found'}
+    except Exception as e:
+        result['social_handles'] = {'error': str(e)[:100]}
+
+    # Release Schedule
+    try:
+        from shared.database import load_release_schedule
+        releases = load_release_schedule(RELEASE_SCHEDULE_URL)
+        result['release_schedule'] = {'total': len(releases)}
+    except Exception as e:
+        result['release_schedule'] = {'error': str(e)[:100]}
+
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Google Docs Integration
+# ---------------------------------------------------------------------------
+
+@app.route('/api/settings/google/status')
+def google_status():
+    try:
+        from shared.google_auth import is_connected, get_user_email, SCOPES
+        connected = is_connected()
+        email = get_user_email() if connected else None
+        return jsonify({
+            'connected': connected,
+            'email': email,
+            'scopes': SCOPES if connected else [],
+        })
+    except Exception as e:
+        return jsonify({'connected': False, 'email': None, 'scopes': [], 'error': str(e)})
+
+
+@app.route('/api/settings/google/connect', methods=['POST'])
+def google_connect():
+    """Start OAuth flow in background thread. Returns auth URL for frontend to open.
+    Frontend should poll /api/settings/google/status to detect completion."""
+    try:
+        from shared.google_auth import start_oauth_flow
+        auth_url = start_oauth_flow()
+        return jsonify({'ok': True, 'auth_url': auth_url})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+
+@app.route('/api/settings/google/disconnect', methods=['POST'])
+def google_disconnect():
+    try:
+        from shared.google_auth import disconnect
+        disconnect()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+
+@app.route('/api/settings/google/docs')
+def google_docs_list():
+    from shared.history import get_all_artist_docs
+    docs = get_all_artist_docs()
+    return jsonify(docs)
+
+
+@app.route('/api/settings/google/docs', methods=['POST'])
+def google_docs_link():
+    data = request.json or {}
+    artist_name = (data.get('artist_name') or '').strip()
+    doc_url = (data.get('doc_url') or '').strip()
+
+    if not artist_name or not doc_url:
+        return jsonify({'ok': False, 'error': 'artist_name and doc_url are required'}), 400
+
+    if 'docs.google.com/document/d/' not in doc_url:
+        return jsonify({'ok': False, 'error': 'Invalid Google Doc URL'}), 400
+
+    from shared.history import save_artist_doc, _extract_doc_id
+    doc_id = _extract_doc_id(doc_url)
+    if not doc_id:
+        return jsonify({'ok': False, 'error': 'Could not extract document ID from URL'}), 400
+
+    # Verify access to the doc
+    try:
+        from shared.google_auth import get_docs_service
+        service = get_docs_service()
+        doc = service.documents().get(documentId=doc_id).execute()
+        doc_title = doc.get('title', 'Untitled')
+    except Exception as e:
+        err = str(e)
+        if '403' in err or 'permission' in err.lower():
+            return jsonify({
+                'ok': False,
+                'error': "Can't access this doc. Make sure it's shared with the connected Google account."
+            }), 403
+        if '404' in err:
+            return jsonify({'ok': False, 'error': 'Document not found. Check the URL.'}), 404
+        return jsonify({'ok': False, 'error': f'Could not access document: {err}'}), 400
+
+    save_artist_doc(artist_name, doc_url, doc_id)
+    return jsonify({'ok': True, 'doc_id': doc_id, 'doc_title': doc_title})
+
+
+@app.route('/api/settings/google/docs/<path:artist_name>', methods=['DELETE'])
+def google_docs_unlink(artist_name):
+    from shared.history import delete_artist_doc
+    delete_artist_doc(artist_name)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/google/doc-info/<doc_id>')
+def google_doc_info(doc_id):
+    try:
+        from shared.google_auth import get_docs_service
+        service = get_docs_service()
+        doc = service.documents().get(documentId=doc_id).execute()
+        return jsonify({
+            'accessible': True,
+            'title': doc.get('title', 'Untitled'),
+            'doc_id': doc_id,
+        })
+    except Exception as e:
+        err = str(e)
+        if '403' in err or 'permission' in err.lower():
+            return jsonify({'accessible': False, 'error': 'Permission denied'}), 403
+        if '404' in err:
+            return jsonify({'accessible': False, 'error': 'Document not found'}), 404
+        return jsonify({'accessible': False, 'error': str(e)}), 400
+
+
+@app.route('/api/google/artist-doc/<path:artist_name>')
+def google_artist_doc(artist_name):
+    """Get the linked doc for a specific artist (used by tool result pages)."""
+    from shared.history import get_artist_doc
+    doc = get_artist_doc(artist_name)
+    if doc:
+        return jsonify(doc)
+    return jsonify(None)
+
+
+@app.route('/api/google/scan-insertion/<path:artist_name>', methods=['POST'])
+def google_scan_insertion(artist_name):
+    """Scan an artist's linked doc for the insertion point."""
+    from shared.history import get_artist_doc
+    doc = get_artist_doc(artist_name)
+    if not doc:
+        return jsonify({'error': f'No Google Doc linked for {artist_name}'}), 404
+
+    try:
+        from shared.google_docs import scan_document_for_insertion_point, read_document_structure
+        scan = scan_document_for_insertion_point(doc['doc_id'])
+        structure = read_document_structure(doc['doc_id'], max_paragraphs=30) if not scan['found'] else None
+        return jsonify({
+            'scan': scan,
+            'structure': structure,
+            'doc_id': doc['doc_id'],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/google/confirm-insertion/<path:artist_name>', methods=['POST'])
+def google_confirm_insertion(artist_name):
+    """Confirm the insertion point for an artist's doc."""
+    from shared.history import update_artist_doc_bookmark, confirm_artist_doc_insertion
+    data = request.get_json(silent=True) or {}
+    index = data.get('index')
+    if index is None:
+        return jsonify({'error': 'index is required'}), 400
+    update_artist_doc_bookmark(artist_name, int(index))
+    confirm_artist_doc_insertion(artist_name)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/google/append/<path:artist_name>', methods=['POST'])
+def google_append(artist_name):
+    """Append report data to an artist's linked Google Doc."""
+    from shared.history import get_artist_doc, update_artist_doc_append_status, save_artist_doc_undo
+
+    doc = get_artist_doc(artist_name)
+    if not doc:
+        return jsonify({'error': f'No Google Doc linked for {artist_name}'}), 404
+
+    data = request.get_json(silent=True) or {}
+    dsp_data = data.get('dsp_data')
+    radio_data = data.get('radio_data')
+    press_data = data.get('press_data')
+    date_label = data.get('date_label')
+
+    if not dsp_data and not radio_data and not press_data:
+        return jsonify({'error': 'No data provided to append.'}), 400
+
+    try:
+        from shared.google_docs import append_report_to_doc
+        result = append_report_to_doc(
+            doc_id=doc['doc_id'],
+            dsp_data=dsp_data,
+            radio_data=radio_data,
+            press_data=press_data,
+            artist_name=artist_name,
+            date_label=date_label,
+        )
+
+        status = 'success' if result['success'] else f'error: {result["error"]}'
+        update_artist_doc_append_status(artist_name, status)
+
+        if result['success'] and result.get('inserted_at') and result.get('insert_end'):
+            save_artist_doc_undo(artist_name, doc['doc_id'],
+                                 result['inserted_at'], result['insert_end'])
+
+        if result['success']:
+            return jsonify(result)
+        return jsonify(result), 400
+    except Exception as e:
+        update_artist_doc_append_status(artist_name, f'error: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route('/api/google/append-from-job/<job_id>', methods=['POST'])
+def google_append_from_job(job_id):
+    """Append report data from a completed job to the artist's Google Doc."""
+    from shared.history import get_artist_doc, update_artist_doc_append_status, save_artist_doc_undo
+
+    if job_id not in jobs:
+        return jsonify({'error': 'Job not found'}), 404
+
+    job = jobs[job_id]
+    artist_name = job.get('artist', '')
+    if not artist_name:
+        # Try to extract from job params
+        data = request.get_json(silent=True) or {}
+        artist_name = data.get('artist_name', '')
+    if not artist_name:
+        return jsonify({'error': 'Artist name required (not found in job)'}), 400
+
+    doc = get_artist_doc(artist_name)
+    if not doc:
+        return jsonify({'error': f'No Google Doc linked for {artist_name}'}), 404
+
+    # The job stores structured data in the job dict when the report compiler saves it
+    dsp_data = job.get('dsp_data')
+    radio_data = job.get('radio_data')
+    press_data = job.get('press_data')
+    date_label = (request.get_json(silent=True) or {}).get('date_label')
+
+    # Check for actual data (not just None/empty)
+    has_dsp = dsp_data and any(
+        matches for rel in dsp_data.values() for matches in rel.values()
+    ) if isinstance(dsp_data, dict) else bool(dsp_data)
+    has_radio = bool(radio_data)
+    has_press = press_data and any(
+        v for v in press_data.values()
+    ) if isinstance(press_data, dict) else bool(press_data)
+
+    if not has_dsp and not has_radio and not has_press:
+        return jsonify({'error': 'No report data available to append. The report may have found no results, or this tool does not yet support Google Doc append.'}), 400
+
+    # Resolve proof image paths from the job
+    proof_image_paths = []
+    if has_dsp:
+        proof_names = job.get('proof_images', [])
+        if proof_names:
+            # Try job-scoped proof dir first, then shared dir
+            job_proof_dir = REPORT_DIR / f'dsp_{job_id}' / 'dsp_proofs'
+            shared_proof_dir = REPORT_DIR / 'dsp_proofs'
+            for name in proof_names:
+                for d in [job_proof_dir, shared_proof_dir]:
+                    p = d / name
+                    if p.exists():
+                        proof_image_paths.append(str(p))
+                        break
+
+    try:
+        from shared.google_docs import append_report_to_doc
+        result = append_report_to_doc(
+            doc_id=doc['doc_id'],
+            dsp_data=dsp_data,
+            radio_data=radio_data,
+            press_data=press_data,
+            artist_name=artist_name,
+            date_label=date_label,
+            proof_image_paths=proof_image_paths if proof_image_paths else None,
+        )
+
+        status = 'success' if result['success'] else f'error: {result["error"]}'
+        update_artist_doc_append_status(artist_name, status)
+
+        if result['success'] and result.get('inserted_at') and result.get('insert_end'):
+            save_artist_doc_undo(artist_name, doc['doc_id'],
+                                 result['inserted_at'], result['insert_end'])
+
+        if result['success']:
+            return jsonify(result)
+        return jsonify(result), 400
+    except Exception as e:
+        update_artist_doc_append_status(artist_name, f'error: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+# ---------------------------------------------------------------------------
+# Google Docs: Undo, Bulk Link, Retry
+# ---------------------------------------------------------------------------
+
+@app.route('/api/google/undo-append/<path:artist_name>', methods=['POST'])
+def google_undo_append(artist_name):
+    """Undo the last append for an artist by deleting the inserted range."""
+    from shared.history import get_artist_doc_undo, clear_artist_doc_undo, update_artist_doc_append_status
+
+    undo = get_artist_doc_undo(artist_name)
+    if not undo:
+        return jsonify({'error': 'No undo data available (expired or no recent append).'}), 404
+
+    try:
+        from shared.google_docs import undo_last_append
+        result = undo_last_append(undo['doc_id'], undo['start'], undo['end'])
+
+        if result['success']:
+            clear_artist_doc_undo(artist_name)
+            update_artist_doc_append_status(artist_name, 'undone')
+            return jsonify(result)
+        return jsonify(result), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route('/api/google/undo-status/<path:artist_name>', methods=['GET'])
+def google_undo_status(artist_name):
+    """Check if undo is available for an artist."""
+    from shared.history import get_artist_doc_undo
+    undo = get_artist_doc_undo(artist_name)
+    return jsonify({
+        'available': undo is not None,
+        'inserted_at': undo['inserted_at'] if undo else None,
+    })
+
+
+@app.route('/api/settings/google/docs/bulk', methods=['POST'])
+def google_docs_bulk_link():
+    """Bulk-link multiple artist-doc mappings at once.
+
+    Request body: {mappings: [{artist_name, doc_url}, ...]}
+    """
+    from shared.history import save_artist_doc
+    from shared.google_docs import get_document_title, scan_document_for_insertion_point
+    from shared.history import confirm_artist_doc_insertion, update_artist_doc_bookmark
+    from shared.google_auth import is_connected
+
+    if not is_connected():
+        return jsonify({'error': 'Google account not connected.'}), 400
+
+    data = request.get_json(silent=True) or {}
+    mappings = data.get('mappings', [])
+    if not mappings:
+        return jsonify({'error': 'No mappings provided.'}), 400
+
+    results = []
+    for m in mappings:
+        artist = m.get('artist_name', '').strip()
+        url = m.get('doc_url', '').strip()
+        if not artist or not url:
+            continue
+        if 'docs.google.com/document/d/' not in url:
+            results.append({'artist_name': artist, 'ok': False, 'error': 'Invalid URL format'})
+            continue
+
+        # Extract doc_id
+        try:
+            doc_id = url.split('/document/d/')[1].split('/')[0]
+        except (IndexError, AttributeError):
+            results.append({'artist_name': artist, 'ok': False, 'error': 'Could not extract doc ID'})
+            continue
+
+        # Test access
+        try:
+            title = get_document_title(doc_id)
+        except Exception as e:
+            err = str(e)
+            if '403' in err:
+                err = 'Permission denied'
+            elif '404' in err:
+                err = 'Document not found'
+            results.append({'artist_name': artist, 'ok': False, 'error': err})
+            continue
+
+        # Save mapping
+        save_artist_doc(artist, url, doc_id)
+
+        # Auto-scan insertion point
+        try:
+            scan = scan_document_for_insertion_point(doc_id)
+            if scan['found']:
+                update_artist_doc_bookmark(artist, scan['index'])
+                confirm_artist_doc_insertion(artist)
+        except Exception:
+            pass
+
+        results.append({'artist_name': artist, 'ok': True, 'doc_title': title})
+
+    return jsonify({'results': results})
+
+
+@app.route('/api/google/retry-append/<path:artist_name>', methods=['POST'])
+def google_retry_append(artist_name):
+    """Retry appending to a Google Doc from cached batch data.
+
+    Request body: {batch_id: str} — the batch job that generated data for this artist.
+    """
+    from shared.history import get_artist_doc
+
+    doc = get_artist_doc(artist_name)
+    if not doc:
+        return jsonify({'error': f'No Google Doc linked for {artist_name}'}), 404
+
+    data = request.get_json(silent=True) or {}
+    batch_id = data.get('batch_id', '')
+
+    if batch_id not in jobs:
+        return jsonify({'error': 'Batch job not found or expired.'}), 404
+
+    job = jobs[batch_id]
+
+    # Try to find cached data for this artist in batch_artist_data
+    artist_data = job.get('batch_artist_data', {}).get(artist_name, {})
+    radio_data = artist_data.get('radio_data')
+    press_data = artist_data.get('press_data')
+    dsp_data = artist_data.get('dsp_data')
+
+    if not radio_data and not press_data and not dsp_data:
+        return jsonify({'error': 'No cached data found for this artist in the batch.'}), 404
+
+    ar = _batch_auto_append(artist_name, doc['doc_id'],
+                            radio_data=radio_data, press_data=press_data, dsp_data=dsp_data)
+
+    # Update batch append_results
+    if 'append_results' in job:
+        job['append_results'][artist_name] = ar
+
+    return jsonify(ar)
 
 
 # ---------------------------------------------------------------------------

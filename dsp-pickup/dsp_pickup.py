@@ -900,7 +900,7 @@ def generate_proof_image(match, output_dir):
         s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode()
         return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
     safe_track = _ascii_safe(track_name, 30)
-    safe_playlist = _ascii_safe(playlist_name, 20)
+    safe_playlist = _ascii_safe(playlist_name, 40)
     filename = f"proof_{safe_track}_{safe_playlist}.png"
     os.makedirs(output_dir, exist_ok=True)
     filepath = os.path.join(output_dir, filename)
@@ -1024,7 +1024,7 @@ def generate_dsp_docx(results, proof_image_paths, docx_path, grouping='platform'
 
         # Embed proof image if available
         safe_track = _ascii_safe(track, 30)
-        safe_playlist = _ascii_safe(playlist_name, 20)
+        safe_playlist = _ascii_safe(playlist_name, 40)
         img_filename = f"proof_{safe_track}_{safe_playlist}.png"
         img_path = os.path.join(os.path.dirname(docx_path), 'dsp_proofs', img_filename)
 

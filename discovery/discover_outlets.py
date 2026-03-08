@@ -86,14 +86,19 @@ OUTLET_TYPES = {
 
 # Domains to skip entirely
 SKIP_DOMAINS = {
-    'spotify.com', 'apple.com', 'music.apple.com', 'deezer.com',
-    'amazon.com', 'music.amazon.com', 'youtube.com', 'youtu.be',
-    'soundcloud.com', 'bandcamp.com', 'tidal.com',
+    'spotify.com', 'apple.com', 'music.apple.com', 'youtube.com',
+    'youtu.be', 'tiktok.com', 'wikipedia.org', 'wikidata.org',
+    'amazon.com', 'amazon.com.mx', 'amazon.com.br', 'amazon.com.ar',
+    'amazon.com.co', 'amazon.com.pe', 'amazon.com.cl',
+    'deezer.com', 'soundcloud.com', 'genius.com',
+    'letras.com', 'letras.mus.br', 'musica.com', 'last.fm', 'discogs.com',
+    'bandcamp.com', 'shazam.com', 'setlist.fm', 'songkick.com',
+    'ticketmaster.com', 'ticketmaster.com.mx', 'stubhub.com', 'seatgeek.com',
+    'tidal.com', 'qobuz.com', 'pandora.com', 'napster.com', 'anghami.com',
+    'boomplay.com', 'claromusica.com', 'resso.com', 'jiosaavn.com',
     'instagram.com', 'facebook.com', 'x.com', 'twitter.com',
-    'tiktok.com', 'linkedin.com', 'threads.net', 'reddit.com',
-    'wikipedia.org', 'wikidata.org', 'discogs.com',
-    'google.com', 'google.com.mx', 'google.com.br',
-    'translate.google.com', 'news.google.com',
+    'linkedin.com', 'threads.net', 'reddit.com',
+    'google.com', 'translate.google.com', 'news.google.com',
     'pinterest.com', 'tumblr.com', 'medium.com',
 }
 
@@ -395,31 +400,38 @@ def _search_google_news(query, gl, hl, max_results):
 
     # Batch-decode Google News URLs with timeout to prevent hangs
     decoded_links = {}
-    if new_decoderv1 and parsed:
+    if parsed:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        def _decode(gl):
+        def _safe_decode(gl):
+            if new_decoderv1:
+                try:
+                    d = new_decoderv1(gl)
+                    if d.get('status'):
+                        return d['decoded_url']
+                except Exception:
+                    pass
+            # Fallback: follow redirect chain manually with strict timeout
             try:
-                d = new_decoderv1(gl)
-                if d.get('status'):
-                    return d['decoded_url']
+                resp = requests.head(gl, allow_redirects=True, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
+                if resp.status_code == 200 and 'news.google.com' not in resp.url:
+                    return resp.url
             except Exception:
                 pass
             return gl
 
-        executor = ThreadPoolExecutor(max_workers=10)
-        fmap = {executor.submit(_decode, p[1]): i for i, p in enumerate(parsed)}
-        try:
-            for f in as_completed(fmap, timeout=10):
-                idx = fmap[f]
-                try:
-                    decoded_links[idx] = f.result(timeout=1)
-                except Exception:
-                    decoded_links[idx] = parsed[idx][1]
-        except TimeoutError:
-            pass
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+        # Single bounded pool for decodes
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            fmap = {executor.submit(_safe_decode, p[1]): i for i, p in enumerate(parsed)}
+            try:
+                for f in as_completed(fmap, timeout=15):
+                    idx = fmap[f]
+                    try:
+                        decoded_links[idx] = f.result(timeout=1)
+                    except Exception:
+                        decoded_links[idx] = parsed[idx][1]
+            except TimeoutError:
+                pass
 
     results = []
     seen = set()

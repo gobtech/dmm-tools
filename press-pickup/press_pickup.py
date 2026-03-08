@@ -25,6 +25,9 @@ Setup:
 
 import argparse
 import csv
+from dataclasses import dataclass, field
+from html import unescape
+from html.parser import HTMLParser
 import json
 import os
 import re
@@ -32,6 +35,7 @@ import sys
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote_plus, unquote, urljoin, urlsplit
 
 # Add parent dir to path for shared modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -155,10 +159,14 @@ _URL_TYPE_LABELS = {
 SKIP_DOMAINS = {
     'spotify.com', 'apple.com', 'music.apple.com', 'youtube.com',
     'youtu.be', 'tiktok.com', 'wikipedia.org', 'wikidata.org',
-    'amazon.com', 'deezer.com', 'soundcloud.com', 'genius.com',
+    'amazon.com', 'amazon.com.mx', 'amazon.com.br', 'amazon.com.ar',
+    'amazon.com.co', 'amazon.com.pe', 'amazon.com.cl',
+    'deezer.com', 'soundcloud.com', 'genius.com',
     'letras.com', 'letras.mus.br', 'musica.com', 'last.fm', 'discogs.com',
     'bandcamp.com', 'shazam.com', 'setlist.fm', 'songkick.com',
-    'ticketmaster.com', 'stubhub.com', 'seatgeek.com',
+    'ticketmaster.com', 'ticketmaster.com.mx', 'stubhub.com', 'seatgeek.com',
+    'tidal.com', 'qobuz.com', 'pandora.com', 'napster.com', 'anghami.com',
+    'boomplay.com', 'claromusica.com', 'resso.com', 'jiosaavn.com',
 }
 
 # URL path segments that indicate non-article content
@@ -168,6 +176,7 @@ NON_PRESS_PATHS = (
     '/tag/', '/tags/', '/categoria/', '/category/', '/categories/',
     '/autor/', '/author/', '/etiqueta/', '/label/',
     '/search/', '/buscar/', '/page/', '/perfil/',
+    '/artist/', '/artists/', '/album/', '/albums/', '/track/', '/tracks/', '/playlist/',
 )
 
 # URL patterns that confirm LATAM relevance for .com domain articles
@@ -214,6 +223,37 @@ _TRACKING_PARAMS = re.compile(
     r'|_ga|ncid|ocid|dicbo|cmpid|cmp)=[^&#]*',
     re.IGNORECASE,
 )
+
+_NON_PRESS_SEGMENTS = {segment.strip('/') for segment in NON_PRESS_PATHS if segment.strip('/')}
+
+
+def _is_skipped_domain(domain: str) -> bool:
+    """Return True when a domain belongs to a skipped host family.
+
+    This blocks both exact/subdomain matches like `open.spotify.com` and
+    country-TLD variants like `music.amazon.com.mx` for skipped platforms.
+    """
+    if not domain:
+        return False
+    domain = domain.lower().strip()
+    for skip in SKIP_DOMAINS:
+        if (
+            domain == skip
+            or domain.endswith('.' + skip)
+            or domain.startswith(skip + '.')
+            or f'.{skip}.' in domain
+        ):
+            return True
+    return False
+
+
+def _is_non_press_url(url: str) -> bool:
+    """Return True when a URL path contains a blocked non-article segment."""
+    if not url:
+        return False
+    path = unquote(urlsplit(url).path or '').lower()
+    segments = [segment for segment in path.split('/') if segment]
+    return any(segment in _NON_PRESS_SEGMENTS for segment in segments)
 
 
 def _normalize_url(url: str) -> str:
@@ -279,14 +319,413 @@ def _extract_social_handle(url: str) -> tuple[str, str] | None:
     return None
 
 
-def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cutoff=None):
+def _handle_matches_artist_keywords(handle: str, keywords: list[str]) -> bool:
+    """Conservatively match artist keywords against a social handle.
+
+    We only treat a handle as the artist's own account when the normalized handle
+    matches the full normalized artist keyword, or a very common prefixed/suffixed
+    variant of it. This avoids broad substring false positives like `badgirls`
+    matching the artist name `Bad`.
+    """
+    if not handle:
+        return False
+
+    handle_norm = _normalize_for_matching(handle.lower())
+    handle_parts = [part for part in re.split(r'[^a-z0-9]+', handle_norm) if part]
+    handle_compact = ''.join(handle_parts)
+    if not handle_compact:
+        return False
+
+    common_prefixes = ('iam', 'soy', 'its', 'official', 'oficial')
+    common_suffixes = ('official', 'oficial', 'music', 'musica', 'hq', 'tv', 'mx', 'br', 'ar', 'latam')
+
+    for keyword in keywords:
+        keyword_norm = _normalize_for_matching((keyword or '').lower())
+        keyword_parts = [part for part in re.split(r'[^a-z0-9]+', keyword_norm) if part]
+        keyword_compact = ''.join(keyword_parts)
+        if not keyword_compact:
+            continue
+
+        if handle_compact == keyword_compact:
+            return True
+
+        if handle_parts == keyword_parts:
+            return True
+
+        if len(keyword_compact) >= 4:
+            if any(handle_compact == prefix + keyword_compact for prefix in common_prefixes):
+                return True
+            if any(handle_compact == keyword_compact + suffix for suffix in common_suffixes):
+                return True
+
+    return False
+
+
+def _keyword_match_type(patterns, title: str, snippet: str = '') -> str | None:
+    """Classify where an artist keyword matched within an article candidate."""
+    if title and _any_keyword_matches(patterns, title):
+        return 'title'
+    if snippet and _any_keyword_matches(patterns, snippet):
+        return 'snippet'
+    return None
+
+
+_HTML_TAG_RE = re.compile(r'<[^>]+>')
+
+
+def _strip_html_text(text: str) -> str:
+    """Collapse basic HTML markup to text for matching and snippets."""
+    return unescape(_HTML_TAG_RE.sub('', text or ''))
+
+
+@dataclass(frozen=True)
+class OutletAdapterSpec:
+    adapter_id: str
+    pattern_type: str
+    outlet_name: str
+    country: str
+    description: str
+    domain: str
+    website: str
+    search_url_template: str | None = None
+    category_urls: tuple[str, ...] = field(default_factory=tuple)
+    wp_api_url: str | None = None
+
+
+_OUTLET_ADAPTER_SPECS = (
+    OutletAdapterSpec(
+        adapter_id='billboard-br',
+        pattern_type='wordpress',
+        outlet_name='BILLBOARD',
+        country='BRAZIL',
+        description='National edition of the international magazine, Billboard. Social media: 600K  Circulation: 40K copies.',
+        domain='billboard.com.br',
+        website='https://billboard.com.br',
+        search_url_template='https://billboard.com.br/?s={query}',
+        category_urls=('https://billboard.com.br/',),
+        wp_api_url='https://billboard.com.br/wp-json/wp/v2/posts',
+    ),
+    OutletAdapterSpec(
+        adapter_id='popline',
+        pattern_type='wordpress',
+        outlet_name='PORTAL POPLINE',
+        country='BRAZIL',
+        description='Portal focused on music news, videos, performances and everything regarding pop music. Social Media: 1M',
+        domain='portalpopline.com.br',
+        website='https://portalpopline.com.br',
+        search_url_template='https://portalpopline.com.br/?s={query}',
+        category_urls=('https://portalpopline.com.br/',),
+        wp_api_url='https://portalpopline.com.br/wp-json/wp/v2/posts',
+    ),
+    OutletAdapterSpec(
+        adapter_id='rolling-stone-mx',
+        pattern_type='wordpress',
+        outlet_name='Rolling Stone',
+        country='MÉXICO',
+        description='National edition of the renowned American music magazine. They also focus on music, film, videos, etc. Printed edition 70K Monthly Nationwide. Social Media: 2M',
+        domain='rollingstone.com.mx',
+        website='https://www.rollingstone.com.mx',
+        search_url_template='https://www.rollingstone.com.mx/?s={query}',
+        category_urls=('https://www.rollingstone.com.mx/musica/',),
+        wp_api_url='https://www.rollingstone.com.mx/wp-json/wp/v2/posts',
+    ),
+    OutletAdapterSpec(
+        adapter_id='elpais-uy',
+        pattern_type='html',
+        outlet_name='El Pais',
+        country='URUGUAY',
+        description='Biggest newspaper in Uruguay, founded in 1976, with one of the most prestigious music sections in the country. Social Media: 1.8M',
+        domain='elpais.com.uy',
+        website='https://www.elpais.com.uy',
+        search_url_template='https://www.elpais.com.uy/busqueda?q={query}',
+        category_urls=('https://www.elpais.com.uy/tvshow/musica',),
+    ),
+    OutletAdapterSpec(
+        adapter_id='rpp',
+        pattern_type='html',
+        outlet_name='RPP Noticias',
+        country='PERU',
+        description='News from Peru and the world. The best of national and international news, sports and entertainment. Social Media: 6.9M',
+        domain='rpp.pe',
+        website='https://rpp.pe',
+        search_url_template='https://rpp.pe/buscar?q={query}',
+        category_urls=('https://rpp.pe/musica',),
+    ),
+    OutletAdapterSpec(
+        adapter_id='biobio',
+        pattern_type='html',
+        outlet_name='BioBio Chile',
+        country='CHILE',
+        description='One of the largest independent media companies with a focus on national and international news. Social Media: 2.3M',
+        domain='biobiochile.cl',
+        website='https://www.biobiochile.cl',
+        search_url_template='https://www.biobiochile.cl/buscar?q={query}',
+        category_urls=('https://www.biobiochile.cl/lista/artes-y-cultura/musica',),
+    ),
+    OutletAdapterSpec(
+        adapter_id='expreso',
+        pattern_type='html',
+        outlet_name='Diario Expreso',
+        country='ECUADOR',
+        description='Ecuadorian Newspaper reporting national and international news. Social Media: 102K',
+        domain='expreso.ec',
+        website='https://www.expreso.ec',
+        search_url_template='https://www.expreso.ec/buscar?q={query}',
+        category_urls=('https://www.expreso.ec/expresiones/ocio/',),
+    ),
+)
+
+
+def _get_outlet_adapter_specs() -> tuple[OutletAdapterSpec, ...]:
+    """Return the first adapter target set for the LATAM outlet framework."""
+    return _OUTLET_ADAPTER_SPECS
+
+
+def _build_adapter_session():
+    """Create a shared HTTP session for outlet adapter fetching."""
+    import requests
+
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    })
+    return session
+
+
+class _AdapterLinkParser(HTMLParser):
+    """Extract anchor links with visible text from listing pages."""
+
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self._href = None
+        self._title_attr = ''
+        self._text_parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != 'a':
+            return
+        attr_map = dict(attrs)
+        href = attr_map.get('href')
+        if not href:
+            return
+        self._href = href
+        self._title_attr = (attr_map.get('title') or '').strip()
+        self._text_parts = []
+
+    def handle_data(self, data):
+        if self._href is not None and data.strip():
+            self._text_parts.append(data.strip())
+
+    def handle_endtag(self, tag):
+        if tag != 'a' or self._href is None:
+            return
+        text = ' '.join(self._text_parts).strip() or self._title_attr
+        self.links.append((self._href, text))
+        self._href = None
+        self._title_attr = ''
+        self._text_parts = []
+
+
+def _adapter_domain_matches(domain: str, expected_domain: str) -> bool:
+    """Check whether a parsed domain belongs to the outlet's expected site."""
+    if not domain or not expected_domain:
+        return False
+    return domain == expected_domain or domain.endswith('.' + expected_domain)
+
+
+def _adapter_result(spec: OutletAdapterSpec, link: str, title: str, snippet: str, match_type: str) -> dict:
+    """Build a preclassified adapter result entry."""
+    return {
+        'title': title.strip(),
+        'link': link,
+        'snippet': snippet.strip()[:300],
+        'domain': extract_domain(link) or spec.domain,
+        'source': spec.outlet_name,
+        'feed_country': spec.country,
+        'feed_description': spec.description,
+        'feed_media_name': spec.outlet_name,
+        '_keyword_match': match_type,
+        '_source': 'adapter',
+    }
+
+
+def _extract_listing_links(html: str, base_url: str, expected_domain: str) -> list[tuple[str, str]]:
+    """Extract likely article links and titles from a listing page."""
+    parser = _AdapterLinkParser()
+    parser.feed(html or '')
+
+    seen = set()
+    links = []
+    for href, title in parser.links:
+        if not title or len(title.strip()) < 16:
+            continue
+        abs_url = urljoin(base_url, href)
+        domain = extract_domain(abs_url) or ''
+        if not _adapter_domain_matches(domain, expected_domain):
+            continue
+        if _is_non_press_url(abs_url):
+            continue
+        norm = _normalize_url(abs_url)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        links.append((abs_url, re.sub(r'\s+', ' ', title).strip()))
+    return links
+
+
+def _run_listing_surface(session, spec: OutletAdapterSpec, surface_url: str, kw_patterns, require_title_match=True) -> list[dict]:
+    """Fetch an outlet listing/search surface and extract matching article links."""
+    try:
+        resp = session.get(surface_url, timeout=8)
+        if resp.status_code != 200:
+            return []
+    except Exception:
+        return []
+
+    hits = []
+    for link, title in _extract_listing_links(resp.text, surface_url, spec.domain):
+        match_type = _keyword_match_type(kw_patterns, title, '')
+        if require_title_match and match_type != 'title':
+            continue
+        if not match_type:
+            continue
+        hits.append(_adapter_result(spec, link, title, '', match_type))
+    return hits
+
+
+def _run_wordpress_adapter(session, spec: OutletAdapterSpec, keywords: list[str], kw_patterns, cutoff) -> list[dict]:
+    """Search a WordPress outlet directly via REST API, with HTML fallbacks."""
+    hits = []
+    seen = set()
+    cutoff_iso = cutoff.strftime('%Y-%m-%dT%H:%M:%S')
+
+    if spec.wp_api_url:
+        for keyword in keywords:
+            try:
+                resp = session.get(
+                    spec.wp_api_url,
+                    params={'search': keyword, 'per_page': 10, 'after': cutoff_iso},
+                    timeout=8,
+                )
+                if resp.status_code != 200:
+                    continue
+                posts = resp.json()
+                if not isinstance(posts, list):
+                    continue
+            except Exception:
+                continue
+
+            for post in posts:
+                title = _strip_html_text(post.get('title', {}).get('rendered', ''))
+                excerpt = _strip_html_text(post.get('excerpt', {}).get('rendered', ''))
+                link = post.get('link', '')
+                if not link:
+                    continue
+                domain = extract_domain(link) or ''
+                if not _adapter_domain_matches(domain, spec.domain):
+                    continue
+                if _is_non_press_url(link):
+                    continue
+                match_type = _keyword_match_type(kw_patterns, title, excerpt)
+                if not match_type:
+                    continue
+                norm = _normalize_url(link)
+                if norm in seen:
+                    continue
+                seen.add(norm)
+                hits.append(_adapter_result(spec, link, title, excerpt, match_type))
+
+    # Fallback to the public search page and category listings for freshness/index lag.
+    for keyword in keywords:
+        if spec.search_url_template:
+            search_url = spec.search_url_template.format(query=quote_plus(keyword))
+            for result in _run_listing_surface(session, spec, search_url, kw_patterns, require_title_match=True):
+                norm = _normalize_url(result['link'])
+                if norm not in seen:
+                    seen.add(norm)
+                    hits.append(result)
+
+    for category_url in spec.category_urls:
+        for result in _run_listing_surface(session, spec, category_url, kw_patterns, require_title_match=True):
+            norm = _normalize_url(result['link'])
+            if norm not in seen:
+                seen.add(norm)
+                hits.append(result)
+
+    return hits
+
+
+def _run_html_adapter(session, spec: OutletAdapterSpec, keywords: list[str], kw_patterns) -> list[dict]:
+    """Search a custom outlet using direct search/category listing pages."""
+    hits = []
+    seen = set()
+
+    for keyword in keywords:
+        if spec.search_url_template:
+            search_url = spec.search_url_template.format(query=quote_plus(keyword))
+            for result in _run_listing_surface(session, spec, search_url, kw_patterns, require_title_match=True):
+                norm = _normalize_url(result['link'])
+                if norm not in seen:
+                    seen.add(norm)
+                    hits.append(result)
+
+    for category_url in spec.category_urls:
+        for result in _run_listing_surface(session, spec, category_url, kw_patterns, require_title_match=True):
+            norm = _normalize_url(result['link'])
+            if norm not in seen:
+                seen.add(norm)
+                hits.append(result)
+
+    return hits
+
+
+def scan_outlet_adapters(artist_keywords, days=28, cutoff=None, adapter_specs=None):
+    """Run deterministic outlet-specific retrieval adapters for priority LATAM outlets."""
+    import time as _time
+
+    if cutoff is None:
+        cutoff = datetime.now().astimezone() - timedelta(days=days)
+    specs = tuple(_get_outlet_adapter_specs() if adapter_specs is None else adapter_specs)
+    if not specs:
+        return []
+
+    kw_patterns = _make_keyword_patterns(artist_keywords)
+    session = _build_adapter_session()
+    all_hits = []
+    seen = set()
+    start = _time.time()
+
+    try:
+        for spec in specs:
+            if spec.pattern_type == 'wordpress':
+                hits = _run_wordpress_adapter(session, spec, artist_keywords, kw_patterns, cutoff)
+            else:
+                hits = _run_html_adapter(session, spec, artist_keywords, kw_patterns)
+
+            for hit in hits:
+                norm = _normalize_url(hit['link'])
+                if norm not in seen:
+                    seen.add(norm)
+                    all_hits.append(hit)
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+    elapsed = _time.time() - start
+    print(f"  Scanned {len(specs)} outlet adapters in {elapsed:.1f}s → found {len(all_hits)} articles")
+    return all_hits
+
+
+def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cutoff=None, decode=True):
     """
     Search Google News via free RSS feed. No API key required.
 
     Returns list of { title, link, snippet, domain, source }.
-    Links are decoded from Google News redirects to actual article URLs.
-    Decoding is done concurrently for speed (~20 workers).
-    If days is set, filters results to only include articles from the last N days.
+    If decode=True, links are decoded from Google News redirects to actual article URLs.
+    If decode=False, returns raw google_link in the 'link' field for later batch decoding.
     """
     import requests
     import xml.etree.ElementTree as ET
@@ -300,7 +739,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
     try:
         resp = requests.get(rss_url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        })
+        }, timeout=15)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:
@@ -311,7 +750,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
     if cutoff is None and days:
         cutoff = datetime.now().astimezone() - timedelta(days=days)
 
-    # ── Phase 1: Parse RSS items and collect pending decodes ──────────────
+    # ── Phase 1: Parse RSS items ──────────────────────────────────────────
     pending = []  # (index, title, google_link, source_name, snippet)
     items = root.findall('.//item')[:max_results]
 
@@ -345,8 +784,22 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
     if not pending:
         return []
 
+    if not decode:
+        # Return raw items for later batch decoding
+        return [
+            {
+                'title': p[1],
+                'link': p[2],
+                'snippet': p[4],
+                'domain': 'news.google.com',
+                'source': p[3],
+                '_source_name_match': p[3],
+            }
+            for p in pending
+        ]
+
     # ── Phase 2: Decode all Google News URLs concurrently ─────────────────
-    DECODE_TIMEOUT = 10  # seconds total for all URL decodes
+    DECODE_TIMEOUT = 20  # seconds total for all URL decodes
 
     def _decode(google_link):
         try:
@@ -355,20 +808,35 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
                 return decoded['decoded_url']
         except Exception:
             pass
+        # Fallback: follow the redirect chain directly
+        try:
+            head_resp = requests.head(google_link, allow_redirects=True, timeout=5,
+                                      headers={'User-Agent': 'Mozilla/5.0'})
+            if head_resp.url and 'news.google.com' not in head_resp.url:
+                return head_resp.url
+        except Exception:
+            pass
         return google_link
 
     decoded_urls = {}  # index → decoded_url
-    executor = ThreadPoolExecutor(max_workers=20)
+    executor = ThreadPoolExecutor(max_workers=40)
     future_map = {
         executor.submit(_decode, p[2]): p[0] for p in pending
     }
+    decode_stats = {'decoded': 0, 'fallback': 0, 'name_matched': 0, 'failed': 0}
     try:
         for future in as_completed(future_map, timeout=DECODE_TIMEOUT):
             idx = future_map[future]
             try:
-                decoded_urls[idx] = future.result(timeout=1)
+                url = future.result(timeout=1)
+                decoded_urls[idx] = url
+                if 'news.google.com' not in url:
+                    decode_stats['decoded'] += 1
+                else:
+                    decode_stats['failed'] += 1
             except Exception:
                 decoded_urls[idx] = pending[idx][2]
+                decode_stats['failed'] += 1
     except TimeoutError:
         pass  # global timeout hit — use raw google links for remaining
     finally:
@@ -378,6 +846,22 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
     for idx, _title, google_link, _src, _snip in pending:
         if idx not in decoded_urls:
             decoded_urls[idx] = google_link
+            decode_stats['failed'] += 1
+
+    # Phase 2b: For URLs still pointing to news.google.com, try source-name
+    # matching against the press database to preserve the hit
+    _source_name_matches = {}  # index → source_name (for results that failed URL decode)
+    for idx, _title, google_link, source_name, _snip in pending:
+        url = decoded_urls.get(idx, google_link)
+        if 'news.google.com' in url and source_name:
+            _source_name_matches[idx] = source_name
+            decode_stats['failed'] -= 1
+            decode_stats['name_matched'] += 1
+
+    if any(v > 0 for v in decode_stats.values()):
+        print(f"    URL decode: {decode_stats['decoded']} decoded, "
+              f"{decode_stats['name_matched']} name-matched, "
+              f"{decode_stats['failed']} dropped")
 
     # ── Phase 3: Build results ────────────────────────────────────────────
     results = []
@@ -385,25 +869,35 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
 
     for idx, title, google_link, source_name, snippet in pending:
         link = decoded_urls.get(idx, google_link)
+
+        # For unresolved Google News URLs, preserve the hit with source-name metadata
+        # so downstream matching can use the outlet name instead of the URL
+        is_name_matched = idx in _source_name_matches
+        if 'news.google.com' in link and not is_name_matched:
+            continue  # Truly unresolvable — no URL and no source name
+
         domain = extract_domain(link) or ''
 
-        if any(skip in domain for skip in SKIP_DOMAINS):
+        if _is_skipped_domain(domain):
             continue
 
-        link_lower = link.lower()
-        if any(seg in link_lower for seg in NON_PRESS_PATHS):
+        if _is_non_press_url(link):
             continue
 
         norm = _normalize_url(link)
         if norm not in seen_urls:
             seen_urls.add(norm)
-            results.append({
+            entry = {
                 'title': title,
                 'link': link,
                 'snippet': snippet,
                 'domain': domain,
                 'source': source_name,
-            })
+            }
+            # Tag source-name-matched results so downstream can match by outlet name
+            if is_name_matched:
+                entry['_source_name_match'] = source_name
+            results.append(entry)
 
     return results
 
@@ -449,11 +943,10 @@ def brave_search(query, api_key, num_results=20, freshness=None, search_type='we
         link = item.get('url', '')
         domain = extract_domain(link) or ''
 
-        if any(skip in domain for skip in SKIP_DOMAINS):
+        if _is_skipped_domain(domain):
             continue
 
-        link_lower = link.lower()
-        if any(seg in link_lower for seg in NON_PRESS_PATHS):
+        if _is_non_press_url(link):
             continue
 
         results.append({
@@ -629,8 +1122,8 @@ def _groq_filter_relevance(all_results, artist, keywords, releases=None, log_fn=
       to Groq for AI review — these are often false positives from sidebar mentions,
       related-article widgets, or tag clouds.
 
-    Returns a filtered list. If Groq is unavailable, snippet-only articles are dropped
-    (fail closed for low-confidence matches).
+    Returns a filtered list. If Groq is unavailable, snippet-only articles are kept
+    and tagged as unreviewed so recall is preserved.
     """
     import requests as _req
 
@@ -638,6 +1131,24 @@ def _groq_filter_relevance(all_results, artist, keywords, releases=None, log_fn=
         return all_results
 
     kw_patterns = _make_keyword_patterns(keywords)
+
+    def _story_cluster_key(title: str) -> str:
+        normalized = re.sub(r'\s+', ' ', _normalize_title(title or ''))
+        if not normalized:
+            return normalized
+        trimmed = re.split(r'\s(?:\||-)\s', normalized, maxsplit=1)[0]
+        return trimmed if len(trimmed) >= 24 else normalized
+
+    def _cluster_results(results):
+        clusters = {}
+        cluster_order = []
+        for result in results:
+            key = _story_cluster_key(result.get('title', '')) or _normalize_url(result.get('link', ''))
+            if key not in clusters:
+                clusters[key] = []
+                cluster_order.append(key)
+            clusters[key].append(result)
+        return [(key, clusters[key]) for key in cluster_order]
 
     # Split into title-confirmed vs snippet-only
     title_confirmed = []
@@ -653,14 +1164,23 @@ def _groq_filter_relevance(all_results, artist, keywords, releases=None, log_fn=
         log_fn(f"  AI relevance filter: all {len(all_results)} articles have keyword in title")
         return all_results
 
+    snippet_clusters = _cluster_results(snippet_only)
+    snippet_representatives = [cluster[0] for _key, cluster in snippet_clusters]
+    clustered_count = len(snippet_representatives)
+
+    cluster_note = ''
+    if clustered_count != len(snippet_only):
+        cluster_note = f" across {clustered_count} story clusters"
     log_fn(f"  AI relevance filter: {len(title_confirmed)} title-confirmed, "
-           f"{len(snippet_only)} snippet-only → sending to Groq...")
+           f"{len(snippet_only)} snippet-only{cluster_note} → sending to Groq...")
 
     api_key = os.environ.get('GROQ_API_KEY')
     if not api_key:
-        # No API key — drop snippet-only articles (fail closed)
-        log_fn(f"  No GROQ_API_KEY — dropping {len(snippet_only)} snippet-only articles")
-        return title_confirmed
+        # No API key — keep snippet-only articles rather than silently dropping them.
+        for result in snippet_only:
+            result['_groq_unreviewed'] = True
+        log_fn(f"  No GROQ_API_KEY — keeping {len(snippet_only)} snippet-only articles unreviewed")
+        return all_results
 
     # Build release context string
     release_context = "No recent releases found."
@@ -671,10 +1191,10 @@ def _groq_filter_relevance(all_results, artist, keywords, releases=None, log_fn=
         release_context = "Recent releases: " + ", ".join(parts)
 
     BATCH_SIZE = 15
-    keep_flags = [False] * len(snippet_only)  # Default: reject snippet-only
+    keep_flags = [False] * len(snippet_representatives)  # Default: reject snippet-only
 
-    for batch_start in range(0, len(snippet_only), BATCH_SIZE):
-        batch = snippet_only[batch_start:batch_start + BATCH_SIZE]
+    for batch_start in range(0, len(snippet_representatives), BATCH_SIZE):
+        batch = snippet_representatives[batch_start:batch_start + BATCH_SIZE]
 
         article_list = []
         for i, r in enumerate(batch):
@@ -738,8 +1258,15 @@ Respond with ONLY a JSON array of booleans, e.g. [true, false, true, ...]. No ot
         except Exception as e:
             log_fn(f"  AI relevance filter batch failed: {e}")  # Fail closed
 
-    groq_kept = [r for r, keep in zip(snippet_only, keep_flags) if keep]
-    groq_removed = len(snippet_only) - len(groq_kept)
+    groq_kept = []
+    groq_removed = 0
+    for (_cluster_key, cluster), keep in zip(snippet_clusters, keep_flags):
+        if keep:
+            for result in cluster:
+                result['_story_cluster_size'] = len(cluster)
+                groq_kept.append(result)
+        else:
+            groq_removed += len(cluster)
 
     filtered = title_confirmed + groq_kept
     total_removed = len(all_results) - len(filtered)
@@ -888,9 +1415,8 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                 title = entry.get('title', '')
                 summary = _strip_html(entry.get('summary', '') or entry.get('description', ''))
 
-                # Require keyword in TITLE (word-boundary) — snippet/summary matches from RSS
-                # are almost always sidebar mentions, tag clouds, related articles
-                if not _any_keyword_matches(kw_patterns, title):
+                match_type = _keyword_match_type(kw_patterns, title, summary)
+                if not match_type:
                     continue
 
                 link = entry.get('link', '')
@@ -905,6 +1431,7 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                     'feed_country': info.get('country', ''),
                     'feed_description': info.get('description', ''),
                     'feed_media_name': info.get('name', domain),
+                    '_keyword_match': match_type,
                 })
             return hits
 
@@ -944,9 +1471,8 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                     link = post.get('link', '')
                     excerpt = _strip_html(post.get('excerpt', {}).get('rendered', ''))
 
-                    # Client-side keyword check — require in TITLE with word boundaries
-                    # (WP search is loose, excerpt matches catch sidebar/widget mentions)
-                    if not _any_keyword_matches(kw_patterns, title):
+                    match_type = _keyword_match_type(kw_patterns, title, excerpt)
+                    if not match_type:
                         continue
 
                     entry_domain = extract_domain(link) if link else domain
@@ -960,6 +1486,7 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                         'feed_country': info.get('country', ''),
                         'feed_description': info.get('description', ''),
                         'feed_media_name': info.get('name', domain),
+                        '_keyword_match': match_type,
                     })
 
             except Exception:
@@ -1316,6 +1843,34 @@ def parse_search_terms(raw_input):
     return terms if terms else [raw_input.strip()]
 
 
+_AMBIGUOUS_ARTIST_TERMS = {
+    'air', 'future', 'her', 'metric', 'motel', 'sol', 'calle', 'low',
+}
+
+
+def _is_ambiguous_artist_query(keywords: list[str]) -> bool:
+    """Detect artist queries that need stricter music-context shaping."""
+    if not keywords:
+        return False
+
+    normalized = [
+        re.sub(r'[^a-z0-9]', '', _normalize_for_matching((kw or '').lower()))
+        for kw in keywords
+    ]
+    normalized = [kw for kw in normalized if kw]
+    if not normalized:
+        return False
+
+    if len(normalized) == 1:
+        kw = normalized[0]
+        if kw in _AMBIGUOUS_ARTIST_TERMS:
+            return True
+        if len(kw) <= 4:
+            return True
+
+    return False
+
+
 def _build_enriched_queries(keywords, release_schedule_url=None):
     """
     Build enriched search queries using release schedule context.
@@ -1380,16 +1935,53 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
         ('BR', 'pt-BR'),   # Brazil
         ('CL', 'es-419'),  # Chile
         ('CO', 'es-419'),  # Colombia
+        ('PE', 'es-419'),  # Peru
+        ('EC', 'es-419'),  # Ecuador
+        ('UY', 'es-419'),  # Uruguay
+        ('VE', 'es-419'),  # Venezuela
     ]
 
+    # Split regions: core (high-priority, get 2 queries) vs extended (get 1 query)
+    core_regions = regions[:5]      # MX, AR, BR, CL, CO
+    extended_regions = regions[5:]  # PE, EC, UY, VE
+
+    is_ambiguous = _is_ambiguous_artist_query(keywords)
+
     if not releases:
-        # No release context — fall back to basic queries
-        google_queries = [(artist_base, gl, hl) for gl, hl in regions]
+        # No release context — keep the free Google pass bounded.
+        # Core regions get 2 shapes; extended regions get 1.
+        q_base = artist_base
+        q_music = f'{artist_base} música OR musica'
+        q_music_strict_es = f'{artist_base} música OR musica OR banda OR cantante OR disco OR álbum OR album OR sencillo OR canción OR cancion'
+        q_music_strict_pt = f'{artist_base} música OR banda OR cantor OR cantora OR disco OR álbum OR album OR single OR canção OR cancao'
+        q_press_es = f'{artist_base} estreno OR lanzamiento OR reseña OR entrevista OR concierto'
+        q_press_pt = f'{artist_base} lançamento OR resenha OR entrevista OR show'
+
+        google_queries = []
+        for gl, hl in core_regions:
+            if is_ambiguous:
+                google_queries.append((q_music_strict_pt if hl == 'pt-BR' else q_music_strict_es, gl, hl))
+                google_queries.append((q_press_pt if hl == 'pt-BR' else q_press_es, gl, hl))
+            else:
+                google_queries.append((q_base, gl, hl))
+                google_queries.append((q_music if hl != 'pt-BR' else f'{artist_base} música', gl, hl))
+        for gl, hl in extended_regions:
+            if is_ambiguous:
+                google_queries.append((q_press_pt if hl == 'pt-BR' else q_press_es, gl, hl))
+            else:
+                google_queries.append((q_base, gl, hl))
+
         brave_news = [f'"{kw}"' for kw in keywords]
-        brave_web = [f'"{kw}" música' for kw in keywords]
-        tavily_news = artist_base
-        tavily_web = f'{artist_base} música'
-        ddg = [f'{kw} música' for kw in keywords]
+        if is_ambiguous:
+            brave_web = [f'"{kw}" música banda entrevista lanzamiento' for kw in keywords]
+            tavily_news = q_press_es
+            tavily_web = q_music_strict_es
+            ddg = [f'{kw} música banda entrevista' for kw in keywords]
+        else:
+            brave_web = [f'"{kw}" música' for kw in keywords]
+            tavily_news = artist_base
+            tavily_web = f'{artist_base} música'
+            ddg = [f'{kw} música' for kw in keywords]
 
         return {
             'google_news': google_queries,
@@ -1425,15 +2017,21 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
     q_format_pt = f'{artist_base} {format_kw_pt}'                        # Portuguese format keyword
     q_broad_es = f'{artist_base} estreno OR lanzamiento OR reseña OR entrevista'
 
-    # Google News: cycle query variants across regions
-    # MX/AR get release title, CL gets Spanish format, CO gets broad, BR gets Portuguese
-    google_queries = [
-        (q_release,   'MX', 'es-419'),
-        (q_release,   'AR', 'es-419'),
-        (q_format_pt, 'BR', 'pt-BR'),
-        (q_format_es, 'CL', 'es-419'),
-        (q_broad_es,  'CO', 'es-419'),
-    ]
+    # Google News: keep the query matrix bounded for performance.
+    # Core regions get 2 shapes; extended regions get 1.
+    google_queries = []
+    for gl, hl in core_regions:
+        if hl == 'pt-BR':
+            google_queries.append((q_format_pt, gl, hl))
+            google_queries.append((f'{artist_base} lançamento OR entrevista OR resenha', gl, hl))
+        else:
+            google_queries.append((q_release, gl, hl))
+            google_queries.append((q_broad_es, gl, hl))
+    for gl, hl in extended_regions:
+        if hl == 'pt-BR':
+            google_queries.append((q_format_pt, gl, hl))
+        else:
+            google_queries.append((q_release, gl, hl))
 
     # Brave: release title + format keywords
     brave_news = [f'"{kw}"' for kw in keywords]  # Keep broad for news (it's already filtered by recency)
@@ -1475,6 +2073,50 @@ _QUOTE_MAP = str.maketrans({
 def _normalize_title(title: str) -> str:
     """Normalize a title for dedup: lowercase, strip, normalize quotes."""
     return title.lower().strip().translate(_QUOTE_MAP)
+
+
+def _match_source_name_to_media(source_name: str, press_index):
+    """Best-effort outlet lookup for Google News RSS source labels."""
+    if not source_name:
+        return None
+
+    source_key = source_name.lower().strip()
+    if source_key in press_index:
+        return press_index[source_key]
+
+    source_norm = re.sub(r'[^a-z0-9]', '', _normalize_for_matching(source_key))
+    if not source_norm:
+        return None
+
+    unique_entries = []
+    seen_names = set()
+    for entry in press_index.values():
+        entry_name = (entry.get('name') or '').lower().strip()
+        if not entry_name or entry_name in seen_names:
+            continue
+        seen_names.add(entry_name)
+        entry_norm = re.sub(r'[^a-z0-9]', '', _normalize_for_matching(entry_name))
+        if entry_norm:
+            unique_entries.append((entry_norm, entry))
+
+    exact_matches = [entry for entry_norm, entry in unique_entries if entry_norm == source_norm]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(exact_matches) > 1:
+        return None
+
+    relaxed_matches = []
+    for entry_norm, entry in unique_entries:
+        shorter = min(len(source_norm), len(entry_norm))
+        longer = max(len(source_norm), len(entry_norm))
+        if shorter / longer < 0.55:
+            continue
+        if source_norm.startswith(entry_norm) or entry_norm.startswith(source_norm):
+            relaxed_matches.append(entry)
+
+    if len(relaxed_matches) == 1:
+        return relaxed_matches[0]
+    return None
 
 
 def _group_entries_by_outlet(entries):
@@ -1564,7 +2206,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
 
     # Source tracking for breakdown summary
     source_counts = {
-        'feeds': 0, 'sitemaps': 0, 'google_news': 0,
+        'feeds': 0, 'sitemaps': 0, 'adapter': 0, 'google_news': 0,
         'brave': 0, 'serper': 0, 'tavily': 0, 'ddg': 0,
     }
 
@@ -1591,26 +2233,92 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
             all_results.append(r)
             source_counts['sitemaps'] += 1
 
+    # 0c) Outlet adapters — direct retrieval for priority LATAM outlets without strong feeds
+    print(f"  Scanning outlet adapters...")
+    adapter_results = scan_outlet_adapters(keywords, days=days, cutoff=cutoff)
+    for r in adapter_results:
+        norm_url = _normalize_url(r['link'])
+        if norm_url not in seen_urls:
+            seen_urls.add(norm_url)
+            r['_source'] = 'adapter'
+            all_results.append(r)
+            source_counts['adapter'] += 1
+    if adapter_results:
+        print(f"  Found {len(adapter_results)} results from outlet adapters")
+
     # 1) Google News RSS — free, unlimited, enriched queries per region
-    #    Run all 5 regions concurrently (each region decodes URLs in parallel internally)
+    #    Fetch all regions (raw links) first, deduplicate, then decode in a single pool.
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    from googlenewsdecoder import new_decoderv1
     gn_queries = queries['google_news']
-    gn_labels = [gl for _, gl, _ in gn_queries]
-    print(f"  Google News [{'/'.join(gn_labels)}]: fetching all regions concurrently...")
+    gn_regions = sorted(set(gl for _, gl, _ in gn_queries))
+    print(f"  Google News [{'/'.join(gn_regions)}]: {len(gn_queries)} queries across {len(gn_regions)} regions...")
 
-    def _run_gn(args):
+    def _run_gn_fetch(args):
         query, gl, hl = args
-        return gl, google_news_rss(query, gl=gl, hl=hl, days=days, cutoff=cutoff)
+        return google_news_rss(query, gl=gl, hl=hl, days=days, cutoff=cutoff, decode=False)
 
-    with ThreadPoolExecutor(max_workers=len(gn_queries)) as executor:
-        for gl, results in executor.map(_run_gn, gn_queries):
-            for r in results:
-                norm = _normalize_url(r['link'])
-                if norm not in seen_urls:
-                    seen_urls.add(norm)
-                    r['_source'] = 'google_news'
-                    all_results.append(r)
-                    source_counts['google_news'] += 1
+    raw_items = []
+    if gn_queries:
+        with ThreadPoolExecutor(max_workers=min(len(gn_queries), 20)) as executor:
+            for results in executor.map(_run_gn_fetch, gn_queries):
+                raw_items.extend(results)
+
+    # Deduplicate unique Google News redirect URLs before expensive decoding
+    unique_google_links = {}  # link -> item template
+    for item in raw_items:
+        glink = item['link']
+        if glink not in unique_google_links:
+            unique_google_links[glink] = item
+
+    if unique_google_links:
+        print(f"  Decoding {len(unique_google_links)} unique Google News URLs (from {len(raw_items)} total regional hits)...")
+
+        def _safe_decode(glink):
+            # 1. Try googlenewsdecoder (can hang, but pool is now bounded)
+            try:
+                decoded = new_decoderv1(glink)
+                if decoded.get('status'):
+                    return decoded['decoded_url']
+            except Exception:
+                pass
+            # 2. Fallback: follow redirect chain manually with strict timeout
+            try:
+                import requests as _reqs
+                resp = _reqs.head(glink, allow_redirects=True, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
+                if resp.status_code == 200 and 'news.google.com' not in resp.url:
+                    return resp.url
+            except Exception:
+                pass
+            return glink
+
+        decoded_map = {}
+        # Single bounded pool for all decodes
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            fmap = {executor.submit(_safe_decode, gl): gl for gl in unique_google_links}
+            try:
+                for f in as_completed(fmap, timeout=40):
+                    glink = fmap[f]
+                    try:
+                        decoded_map[glink] = f.result(timeout=1)
+                    except Exception:
+                        decoded_map[glink] = glink
+            except TimeoutError:
+                pass  # Use raw links for remaining
+
+        # Build final results using the decoded URLs
+        for glink, item in unique_google_links.items():
+            final_link = decoded_map.get(glink, glink)
+            norm = _normalize_url(final_link)
+            if norm not in seen_urls:
+                seen_urls.add(norm)
+                item['link'] = final_link
+                # Source name fallback logic (matching news.google.com results to DB)
+                # is handled in Phase 2 of google_news_rss or downstream.
+                # Here we just ensure we preserve the item.
+                item['_source'] = 'google_news'
+                all_results.append(item)
+                source_counts['google_news'] += 1
 
     print(f"  Found {len(all_results)} results from feeds + Google News")
 
@@ -1631,7 +2339,11 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
             print(f"  Brave News: {query[:80]}")
             results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='news')
             for r in results:
-                norm = _normalize_url(r['link'])
+                link = r.get('link') or ''
+                domain = r.get('domain') or extract_domain(link) or ''
+                if _is_skipped_domain(domain) or _is_non_press_url(link):
+                    continue
+                norm = _normalize_url(link)
                 if norm not in seen_urls:
                     seen_urls.add(norm)
                     r['_source'] = 'brave'
@@ -1643,7 +2355,11 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
             print(f"  Brave Web: {query[:80]}")
             results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='web')
             for r in results:
-                norm = _normalize_url(r['link'])
+                link = r.get('link') or ''
+                domain = r.get('domain') or extract_domain(link) or ''
+                if _is_skipped_domain(domain) or _is_non_press_url(link):
+                    continue
+                norm = _normalize_url(link)
                 if norm not in seen_urls:
                     seen_urls.add(norm)
                     r['_source'] = 'brave'
@@ -1698,9 +2414,31 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
             query_parts = [f'"{kw}"' for kw in keywords]
             artist_query = ' OR '.join(query_parts)
 
-            # Batch domains into groups of 8 for site: queries
-            # (25 was too large — Serper returns 400 on very long queries)
-            BATCH_SIZE = 8
+            # Group unmatched outlets by country for locale-aware Serper queries
+            _COUNTRY_LOCALE = {
+                'BRAZIL': ('br', 'pt'),
+                'ARGENTINA': ('ar', 'es'),
+                'MEXICO': ('mx', 'es'),
+                'CHILE': ('cl', 'es'),
+                'COLOMBIA': ('co', 'es'),
+                'PERU': ('pe', 'es'),
+                'ECUADOR': ('ec', 'es'),
+                'URUGUAY': ('uy', 'es'),
+                'VENEZUELA': ('ve', 'es'),
+                'SPAIN': ('es', 'es'),
+            }
+
+            # Sort outlets: group by country for locale-aware batching
+            def _outlet_locale(item):
+                domain, info = item
+                country = (info.get('country') or '').upper().strip().split(',')[0].strip()
+                return _COUNTRY_LOCALE.get(country, ('mx', 'es'))
+
+            no_result_outlets.sort(key=lambda x: _outlet_locale(x)[0])
+
+            # Batch domains into groups of 15 for site: queries
+            # (25 was too large — Serper returns 400; 15 is the tested sweet spot)
+            BATCH_SIZE = 15
             serper_credits_used = 0
             MAX_CREDITS = 3
 
@@ -1712,15 +2450,22 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                 site_parts = ' OR '.join(f'site:{d}' for d, _ in batch)
                 query = f'{artist_query} ({site_parts})'
 
-                print(f"  Serper targeted [{len(batch)} outlets]: {artist_query} + {len(batch)} site: filters")
+                # Use locale of the majority country in this batch
+                locale_counts = {}
+                for d, info in batch:
+                    loc = _outlet_locale((d, info))
+                    locale_counts[loc] = locale_counts.get(loc, 0) + 1
+                batch_locale = max(locale_counts, key=locale_counts.get)
+
+                print(f"  Serper targeted [{len(batch)} outlets, gl={batch_locale[0]}]: {artist_query} + {len(batch)} site: filters")
                 try:
                     # Note: tbs (time filter) is incompatible with multi-site OR
                     # queries on Serper — returns 400. We omit it here; recency
                     # is still handled by the article processing / date checks.
                     payload = {
                         'q': query,
-                        'gl': 'mx',
-                        'hl': 'es',
+                        'gl': batch_locale[0],
+                        'hl': batch_locale[1],
                         'num': 20,
                     }
                     resp = _requests.post(
@@ -1735,7 +2480,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                     for item in resp.json().get('organic', []):
                         link = item.get('link', '')
                         domain = extract_domain(link) or ''
-                        if any(skip in domain for skip in SKIP_DOMAINS):
+                        if _is_skipped_domain(domain):
                             continue
                         if _normalize_url(link) not in seen_urls:
                             seen_urls.add(_normalize_url(link))
@@ -1858,7 +2603,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                 for item in tavily_results:
                     link = item.get('url', '')
                     domain = extract_domain(link) or ''
-                    if any(skip in domain for skip in SKIP_DOMAINS):
+                    if _is_skipped_domain(domain):
                         continue
                     if _normalize_url(link) not in seen_urls:
                         seen_urls.add(_normalize_url(link))
@@ -1889,7 +2634,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                 for item in raw:
                     link = item.get('url', '')
                     domain = extract_domain(link) or ''
-                    if any(skip in domain for skip in SKIP_DOMAINS):
+                    if _is_skipped_domain(domain):
                         continue
                     if _normalize_url(link) not in seen_urls:
                         seen_urls.add(_normalize_url(link))
@@ -1908,6 +2653,97 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
     except ImportError:
         print("  DuckDuckGo: skipped (duckduckgo_search not installed)")
 
+    # 6) Free targeted retries — use Google News RSS with site: queries for
+    #    high-priority outlets that returned 0 results from all previous sources.
+    #    This is completely free (Google News RSS is unlimited).
+    _registry_path = str(Path(__file__).parent.parent / 'data' / 'feed_registry.json')
+    _retry_registry = {}
+    if os.path.exists(_registry_path):
+        try:
+            with open(_registry_path) as _f:
+                _retry_registry = json.load(_f).get('outlets', {})
+        except Exception:
+            pass
+
+    if _retry_registry:
+        domains_with_results = {r.get('domain', '') for r in all_results if r.get('domain')}
+        _SKIP_TERRITORIES = {'LATAM', 'PENDING', 'CANCELLED', ''}
+        unmatched = []
+        for domain, info in _retry_registry.items():
+            country = (info.get('country') or '').upper().strip()
+            country_parts = {p.strip() for p in country.split(',')}
+            if not country_parts - _SKIP_TERRITORIES:
+                continue
+            if domain not in domains_with_results:
+                unmatched.append((domain, info))
+
+        if unmatched:
+            artist_query = ' OR '.join(f'"{kw}"' for kw in keywords)
+            SITE_BATCH = 8
+            MAX_RETRY_OUTLETS = 40  # Cap to prevent excessive requests
+            # Run targeted site: queries across 2 key regions (MX covers most of LATAM, BR for Portuguese)
+            retry_regions = [('MX', 'es-419'), ('BR', 'pt-BR')]
+            retry_added = 0
+            capped_unmatched = unmatched[:MAX_RETRY_OUTLETS]
+
+            for batch_start in range(0, len(capped_unmatched), SITE_BATCH):
+                batch = capped_unmatched[batch_start:batch_start + SITE_BATCH]
+                site_filter = ' OR '.join(f'site:{d}' for d, _ in batch)
+                site_query = f'{artist_query} ({site_filter})'
+
+                def _run_retry_fetch(args):
+                    q, gl, hl = args
+                    return google_news_rss(q, gl=gl, hl=hl, days=days, cutoff=cutoff, decode=False)
+
+                retry_raw = []
+                with ThreadPoolExecutor(max_workers=len(retry_regions)) as ex:
+                    for results in ex.map(_run_retry_fetch, [(site_query, gl, hl) for gl, hl in retry_regions]):
+                        retry_raw.extend(results)
+
+                # Deduplicate unique redirect links from retry pass
+                unique_retry = {}
+                for item in retry_raw:
+                    glink = item['link']
+                    if glink not in unique_retry:
+                        unique_retry[glink] = item
+
+                if unique_retry:
+                    # Reuse simple decode for retry pass
+                    with ThreadPoolExecutor(max_workers=20) as ex:
+                        fmap = {ex.submit(_safe_decode, gl): gl for gl in unique_retry}
+                        for f in as_completed(fmap, timeout=20):
+                            glink = fmap[f]
+                            try:
+                                final_link = f.result()
+                                norm = _normalize_url(final_link)
+                                if norm not in seen_urls:
+                                    seen_urls.add(norm)
+                                    item = unique_retry[glink]
+                                    item['link'] = final_link
+                                    item['_source'] = 'google_news'
+                                    all_results.append(item)
+                                    source_counts['google_news'] += 1
+                                    retry_added += 1
+                            except Exception:
+                                pass
+
+            if retry_added:
+                print(f"  Free targeted retries: {retry_added} new results from {len(capped_unmatched)} outlets (of {len(unmatched)} unmatched)")
+
+    # Final global safety filter pass before AI processing
+    final_safety = []
+    leaked_count = 0
+    for r in all_results:
+        link = r.get('link') or ''
+        domain = r.get('domain') or extract_domain(link) or ''
+        if _is_skipped_domain(domain) or _is_non_press_url(link):
+            leaked_count += 1
+            continue
+        final_safety.append(r)
+    all_results = final_safety
+    if leaked_count > 0:
+        print(f"  Safety filter: removed {leaked_count} non-press or skipped results")
+
     print(f"\nFound {len(all_results)} total unique results")
 
     # AI relevance filter — remove false positives using Groq (free, optional)
@@ -1921,7 +2757,6 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
     country_results = {}
     skipped = 0
     kw_patterns = _make_keyword_patterns(keywords)
-    keywords_lower = [k.lower() for k in keywords]  # kept for social handle substring check
     new_outlets_to_enrich = []  # Collect new outlets for batch AI enrichment
     social_stats = {'known_outlet': 0, 'artist_account': 0, 'unknown': 0}
 
@@ -1929,18 +2764,19 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
         domain = result['domain']
 
         # ── Filter tag/category/index pages (all sources) ──
-        link_lower = result.get('link', '').lower()
-        if any(seg in link_lower for seg in NON_PRESS_PATHS):
+        if _is_non_press_url(result.get('link', '')):
             skipped += 1
             continue
 
         # ── Feed-sourced results: pre-classified, skip DB matching logic ──
         if result.get('feed_media_name'):
-            # For feed/sitemap sources, require keyword in TITLE specifically.
-            # Snippet-only matches from these sources are almost always false
-            # positives (sidebar mentions, related articles, tag clouds).
             source = result.get('_source', '')
-            if source in ('feeds', 'sitemaps'):
+            match_type = result.get('_keyword_match', 'title')
+            if source in ('feeds', 'adapter'):
+                if match_type not in ('title', 'snippet'):
+                    skipped += 1
+                    continue
+            elif source == 'sitemaps':
                 if not _any_keyword_matches(kw_patterns, result['title']):
                     skipped += 1
                     continue
@@ -1983,7 +2819,14 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
             continue
 
         country = detect_country_from_url(result['link'])
+        source_name_match = result.get('_source_name_match')
         media_entry = match_url_to_media(result['link'], press_index)
+        if not media_entry and source_name_match:
+            media_entry = _match_source_name_to_media(source_name_match, press_index)
+
+        effective_domain = domain
+        if media_entry and source_name_match and domain == 'news.google.com':
+            effective_domain = extract_domain(media_entry.get('website', '')) or domain
 
         if media_entry:
             # Known outlet from DB — always include
@@ -2001,7 +2844,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
             # Exclude entirely unless the URL contains LATAM language indicators.
             db_domain = extract_domain(media_entry.get('website', ''))
             if (country != 'LATAM'
-                    and _is_generic_com_domain(domain)
+                    and _is_generic_com_domain(effective_domain)
                     and db_domain and not _is_generic_com_domain(db_domain)
                     and not _has_latam_url_indicators(result['link'])):
                 print(f"  Skipped: {media_name} (US edition) — no LATAM indicators in URL")
@@ -2015,7 +2858,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                 platform_key, handle = handle_info
 
                 # Check if it's the artist's own account
-                if any(kw in handle for kw in keywords_lower):
+                if _handle_matches_artist_keywords(handle, keywords):
                     social_stats['artist_account'] += 1
                     skipped += 1
                     continue
@@ -2122,6 +2965,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
     source_labels = {
         'feeds': 'Outlet Feeds (RSS/WP)',
         'sitemaps': 'Sitemap Mining',
+        'adapter': 'Outlet Adapters',
         'google_news': 'Google News',
         'brave': 'Brave Search',
         'serper': 'Serper (targeted)',

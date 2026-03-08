@@ -1,0 +1,74 @@
+  <div id="tab-dsp" class="tab-panel">
+    <div class="tab-tips">
+      <button class="tab-tips-toggle" onclick="this.nextElementSibling.querySelector('.tab-tips-body').classList.toggle('open')">
+        <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+      </button>
+      <div>
+        <div class="tab-tips-body">
+          <div>
+            <ul class="tab-tips-list">
+              <li>Checks <strong>85+ LATAM editorial playlists</strong> across Spotify, Deezer, Apple Music, Amazon Music, Claro M&uacute;sica, and YouTube Music.</li>
+              <li><strong>"Spotify only"</strong> is significantly faster &mdash; use it when you just need a quick check.</li>
+              <li><strong>"This week's releases"</strong> and <strong>"All releases"</strong> pull from the live release schedule in Google Sheets.</li>
+              <li>Checks <strong>all 6 platforms</strong> automatically &mdash; no API keys required for any of them.</li>
+              <li>Matching uses <strong>fuzzy search</strong>, so minor spelling differences between the release schedule and playlists are handled.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <label>Mode</label>
+    <div class="radio-group">
+      <label><input type="radio" name="dsp-mode" value="artist" checked onchange="dspModeChanged()"><span>Specific artist</span></label>
+      <label><input type="radio" name="dsp-mode" value="week" onchange="dspModeChanged()"><span>This week's releases</span></label>
+      <label><input type="radio" name="dsp-mode" value="all" onchange="dspModeChanged()"><span>All releases</span></label>
+    </div>
+
+    <div id="dsp-artist-field" class="conditional visible">
+      <label for="dsp-artist">Artist Name</label>
+      <input type="text" id="dsp-artist" placeholder="e.g. Bleachers" maxlength="100">
+    </div>
+
+    <div id="dsp-week-field" class="conditional">
+      <label for="dsp-week">Week (release Friday)</label>
+      <input type="date" id="dsp-week">
+    </div>
+
+    <div id="dsp-batch-preview" class="conditional batch-preview"></div>
+
+    <div id="dsp-auto-append-field" class="conditional" style="margin-top:8px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="dsp-auto-append">
+        <label for="dsp-auto-append">Auto-append to Google Docs</label>
+      </div>
+      <p style="font-size:12px; color:var(--text-tertiary); margin:4px 0 0 24px;">
+        Reports will be appended to linked Google Docs. Artists without linked docs will be skipped.
+      </p>
+    </div>
+
+    <label>Platforms</label>
+    <div class="platform-toggle-group">
+      <label><input type="checkbox" class="dsp-platform" value="Spotify" checked><span>Spotify</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="Apple Music" checked><span>Apple Music</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="Deezer" checked><span>Deezer</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="Amazon Music" checked><span>Amazon Music</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="YouTube Music" checked><span>YouTube Music</span></label>
+      <label><input type="checkbox" class="dsp-platform" value="Claro Música" checked><span>Claro M&uacute;sica</span></label>
+    </div>
+
+    <label>Report grouping</label>
+    <div class="radio-group">
+      <label><input type="radio" name="dsp-grouping" value="platform" checked><span>Group by platform</span></label>
+      <label><input type="radio" name="dsp-grouping" value="artist"><span>Group by artist</span></label>
+    </div>
+
+    <button class="btn" id="dsp-btn" onclick="runDsp()">Check Playlists</button>
+
+    <div class="progress-area" id="dsp-progress">
+      <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+      <div class="log-box" id="dsp-log"></div>
+    </div>
+
+    <div class="result-area" id="dsp-result"></div>
+  </div>
