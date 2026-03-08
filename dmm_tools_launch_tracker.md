@@ -291,7 +291,7 @@ These users might check results on their phone during a meeting. It doesn't need
 
 ## Phase 4: Data & Content Quality (Week 2-3)
 
-### Milestone 4.1: Stress Test with Real Artist Roster (Day 14-16)
+### Milestone 4.1: Stress Test with Real Artist Roster (Day 14-16) — DONE
 
 Run every tool against 8-10 real artists from the active release schedule, covering:
 
@@ -306,7 +306,7 @@ Run every tool against 8-10 real artists from the active release schedule, cover
 
 For each: run Radio, Press, DSP, Full Report, Digest. Check output for accuracy, false positives, missing coverage, formatting issues, stale articles. Fix anything that surfaces.
 
-### Milestone 4.2: Report Output Quality (Day 16-17)
+### Milestone 4.2: Report Output Quality (Day 16-17) — DONE
 
 Download and open every .docx the tools produce. Check in Microsoft Word AND Google Docs (DMM team might use either):
 
@@ -320,7 +320,7 @@ Download and open every .docx the tools produce. Check in Microsoft Word AND Goo
 - Social media platform labels appear correctly
 - Press outlet descriptions don't have [NEW — not in DB] markers (those are internal — strip them from client-facing output, or rephrase to something neutral)
 
-### Milestone 4.3: Description Quality for Unknown Outlets (Day 17-18)
+### Milestone 4.3: Description Quality for Unknown Outlets (Day 17-18) — DONE
 
 When the Groq-generated descriptions for new outlets appear in reports, verify quality:
 
@@ -331,7 +331,7 @@ When the Groq-generated descriptions for new outlets appear in reports, verify q
 
 If descriptions aren't reliable enough, consider showing "Independent music publication" as a safe generic fallback instead of a potentially wrong AI-generated description.
 
-### Milestone 4.4: [NEW — not in DB] Cleanup (Day 18)
+### Milestone 4.4: [NEW — not in DB] Cleanup (Day 18) — DONE
 
 The press reports currently mark outlets not in the Notion database with "[NEW — not in DB]". For client-facing reports, this should either:
 - Be removed entirely (just show the Groq-generated description)

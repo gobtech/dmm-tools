@@ -2271,26 +2271,26 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
         if glink not in unique_google_links:
             unique_google_links[glink] = item
 
+    def _safe_decode(glink):
+        # 1. Try googlenewsdecoder (can hang, but pool is now bounded)
+        try:
+            decoded = new_decoderv1(glink)
+            if decoded.get('status'):
+                return decoded['decoded_url']
+        except Exception:
+            pass
+        # 2. Fallback: follow redirect chain manually with strict timeout
+        try:
+            import requests as _reqs
+            resp = _reqs.head(glink, allow_redirects=True, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
+            if resp.status_code == 200 and 'news.google.com' not in resp.url:
+                return resp.url
+        except Exception:
+            pass
+        return glink
+
     if unique_google_links:
         print(f"  Decoding {len(unique_google_links)} unique Google News URLs (from {len(raw_items)} total regional hits)...")
-
-        def _safe_decode(glink):
-            # 1. Try googlenewsdecoder (can hang, but pool is now bounded)
-            try:
-                decoded = new_decoderv1(glink)
-                if decoded.get('status'):
-                    return decoded['decoded_url']
-            except Exception:
-                pass
-            # 2. Fallback: follow redirect chain manually with strict timeout
-            try:
-                import requests as _reqs
-                resp = _reqs.head(glink, allow_redirects=True, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
-                if resp.status_code == 200 and 'news.google.com' not in resp.url:
-                    return resp.url
-            except Exception:
-                pass
-            return glink
 
         decoded_map = {}
         # Single bounded pool for all decodes
@@ -2988,8 +2988,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
         output_lines.append(f"\n{country}")
 
         for entry in entries:
-            db_flag = "" if entry['in_database'] else " [NEW — not in DB]"
-            output_lines.append(f"{entry['media_name']}: {entry['description']}{db_flag}")
+            output_lines.append(f"{entry['media_name']}: {entry['description']}")
             urls = entry['urls']
             if len(urls) == 1:
                 u = urls[0]
@@ -3094,20 +3093,18 @@ def _generate_press_docx(artist, country_results, docx_path):
         country_para.paragraph_format.space_after = Pt(0)
 
         for entry in entries:
-            db_flag = "" if entry['in_database'] else " [NEW — not in DB]"
-
             # Media entry: bold name + normal description
             media_para = doc.add_paragraph()
             name_run = media_para.add_run(f"{entry['media_name']}: ")
             name_run.bold = True
             name_run.font.size = Pt(11)
-            desc_text = f"{entry['description']}{db_flag}"
+            desc_text = entry['description']
             desc_run = media_para.add_run(desc_text)
             desc_run.font.size = Pt(11)
             media_para.paragraph_format.space_before = Pt(0)
             media_para.paragraph_format.space_after = Pt(0)
 
-            # URLs — display raw URL as clickable text
+            # URLs — display article title as clickable hyperlink text
             urls = entry.get('urls', [])
             if len(urls) == 1:
                 u = urls[0]
@@ -3116,7 +3113,8 @@ def _generate_press_docx(artist, country_results, docx_path):
                 if label:
                     prefix_run = url_para.add_run(f"{label}: ")
                     prefix_run.font.size = Pt(11)
-                _add_hyperlink(url_para, u['url'], u['url'])
+                display = u.get('title', '').strip() or u['url']
+                _add_hyperlink(url_para, u['url'], display)
                 url_para.paragraph_format.space_before = Pt(0)
                 url_para.paragraph_format.space_after = Pt(0)
             else:
@@ -3128,7 +3126,8 @@ def _generate_press_docx(artist, country_results, docx_path):
                     else:
                         prefix_run = url_para.add_run("• ")
                     prefix_run.font.size = Pt(11)
-                    _add_hyperlink(url_para, u['url'], u['url'])
+                    display = u.get('title', '').strip() or u['url']
+                    _add_hyperlink(url_para, u['url'], display)
                     url_para.paragraph_format.space_before = Pt(0)
                     url_para.paragraph_format.space_after = Pt(0)
 

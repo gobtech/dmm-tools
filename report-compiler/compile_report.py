@@ -555,13 +555,14 @@ def _generate_full_docx(
                 mp.paragraph_format.space_after = Pt(0)
 
                 # Entries are grouped by outlet — each has a 'urls' list
-                # Display raw URL as clickable text (not article title)
+                # Display article title as clickable hyperlink
                 urls = entry.get('urls', [])
                 if urls:
                     if len(urls) == 1:
                         u = urls[0]
                         url_para = doc.add_paragraph()
-                        _add_hyperlink(url_para, u['url'], u['url'])
+                        display = u.get('title', '').strip() or u['url']
+                        _add_hyperlink(url_para, u['url'], display)
                         url_para.paragraph_format.space_before = Pt(0)
                         url_para.paragraph_format.space_after = Pt(0)
                     else:
@@ -569,13 +570,14 @@ def _generate_full_docx(
                             url_para = doc.add_paragraph()
                             bullet_run = url_para.add_run('\u2022 ')
                             bullet_run.font.size = Pt(11)
-                            _add_hyperlink(url_para, u['url'], u['url'])
+                            display = u.get('title', '').strip() or u['url']
+                            _add_hyperlink(url_para, u['url'], display)
                             url_para.paragraph_format.space_before = Pt(0)
                             url_para.paragraph_format.space_after = Pt(0)
                 elif entry.get('url'):
                     # Fallback for ungrouped entries
                     url_para = doc.add_paragraph()
-                    _add_hyperlink(url_para, entry['url'], entry['url'])
+                    _add_hyperlink(url_para, entry['url'], entry.get('title', '').strip() or entry['url'])
                     url_para.paragraph_format.space_before = Pt(0)
                     url_para.paragraph_format.space_after = Pt(0)
 
