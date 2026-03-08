@@ -42,10 +42,108 @@ if env_file.exists():
                 val = val.strip().strip('"').strip("'")
                 os.environ.setdefault(key, val)
 
-from flask import Flask, request, jsonify, send_file, render_template, make_response
+from flask import Flask, request, jsonify, send_file, render_template, make_response, redirect, url_for
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
+
+# ---------------------------------------------------------------------------
+# Authentication — simple single-user login
+# ---------------------------------------------------------------------------
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+
+# Admin credentials from env (defaults for first-time setup)
+_ADMIN_USER = os.environ.get('DMM_ADMIN_USER', 'admin')
+_ADMIN_PASS = os.environ.get('DMM_ADMIN_PASS', 'dmm2026')
+
+class User(UserMixin):
+    def __init__(self, uid):
+        self.id = uid
+
+@login_manager.user_loader
+def load_user(uid):
+    if uid == _ADMIN_USER:
+        return User(uid)
+    return None
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        if username == _ADMIN_USER and password == _ADMIN_PASS:
+            login_user(User(username), remember=True)
+            return redirect(request.args.get('next') or url_for('index'))
+        return render_template('login.html', error='Invalid username or password.')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+@app.before_request
+def require_login():
+    """Protect all routes except login and static files."""
+    allowed = ('login', 'static')
+    if request.endpoint and request.endpoint in allowed:
+        return
+    if not current_user.is_authenticated:
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required.'}), 401
+        return redirect(url_for('login', next=request.path))
+
+# ---------------------------------------------------------------------------
+# Structured file logging with rotation
+# ---------------------------------------------------------------------------
+import logging
+from logging.handlers import RotatingFileHandler
+
+_log_dir = ROOT_DIR / 'logs'
+_log_dir.mkdir(exist_ok=True)
+_file_handler = RotatingFileHandler(
+    str(_log_dir / 'dmm_tools.log'),
+    maxBytes=5 * 1024 * 1024,  # 5 MB
+    backupCount=5,
+)
+_file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'
+))
+_file_handler.setLevel(logging.INFO)
+app.logger.addHandler(_file_handler)
+app.logger.setLevel(logging.INFO)
+logger = app.logger
+
+# ---------------------------------------------------------------------------
+# Credential sanitizer — redacts sensitive values from log output
+# ---------------------------------------------------------------------------
+_SENSITIVE_ENV_KEYS = [
+    'SOUNDCHARTS_PASSWORD', 'SOUNDCHARTS_EMAIL',
+    'SERPER_API_KEY', 'BRAVE_API_KEY', 'TAVILY_API_KEY',
+    'GROQ_API_KEY', 'GEMINI_API_KEY',
+]
+_REDACT_PATTERNS = []  # list of (value, replacement) tuples
+
+def _build_redact_patterns():
+    """Build redaction patterns from current env values. Call after env is loaded."""
+    _REDACT_PATTERNS.clear()
+    for key in _SENSITIVE_ENV_KEYS:
+        val = os.environ.get(key, '')
+        if val and len(val) >= 6:
+            _REDACT_PATTERNS.append((val, f'[REDACTED:{key[-8:]}]'))
+
+def sanitize_log(text):
+    """Remove any credential values from log text."""
+    for secret, replacement in _REDACT_PATTERNS:
+        if secret in text:
+            text = text.replace(secret, replacement)
+    return text
+
+_build_redact_patterns()
 
 # ---------------------------------------------------------------------------
 # Thread-safe stdout capture
@@ -383,6 +481,7 @@ def make_incremental_logger(job_id):
     def on_write(text):
         if not text:
             return
+        text = sanitize_log(text)
         # Handle multiple lines in one write
         lines = text.splitlines(keepends=True)
         for line in lines:
@@ -399,6 +498,13 @@ def make_incremental_logger(job_id):
 def finish_job(job_id, result=None, output_path=None, error=None):
     if job_id not in jobs:
         return
+    if error:
+        error = sanitize_log(str(error))
+        elapsed = time.time() - jobs[job_id].get('started_at', 0)
+        logger.error('Job %s FAILED (%.1fs): %s', job_id[:8], elapsed, error[:200])
+    else:
+        elapsed = time.time() - jobs[job_id].get('started_at', 0)
+        logger.info('Job %s completed (%.1fs)', job_id[:8], elapsed)
     jobs[job_id]['status'] = 'error' if error else 'done'
     jobs[job_id]['result'] = result
     jobs[job_id]['output_path'] = str(output_path) if output_path else None
@@ -2979,9 +3085,10 @@ def save_credential(service):
         f.writelines(lines)
     os.replace(str(tmp_path), str(env_path))
 
-    # Update running process env
+    # Update running process env + rebuild redact patterns
     for key, val in updates.items():
         os.environ[key] = val
+    _build_redact_patterns()
 
     # Invalidate Soundcharts token cache if credentials changed
     if service == 'soundcharts':
@@ -3492,6 +3599,37 @@ def google_retry_append(artist_name):
         job['append_results'][artist_name] = ar
 
     return jsonify(ar)
+
+
+# ---------------------------------------------------------------------------
+# Backup endpoint — downloads a zip of all data files + history
+# ---------------------------------------------------------------------------
+@app.route('/api/backup')
+def download_backup():
+    import zipfile
+    backup_dir = ROOT_DIR / 'data'
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    zip_path = Path(tempfile.mkdtemp()) / f'dmm_backup_{ts}.zip'
+
+    with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+        # Data files
+        for pattern in ['*.csv', '*.json']:
+            for f in backup_dir.glob(pattern):
+                if f.name.startswith('google_'):
+                    continue  # skip credentials
+                zf.write(str(f), f'data/{f.name}')
+        # History database
+        db_path = backup_dir / 'history.db'
+        if db_path.exists():
+            zf.write(str(db_path), 'data/history.db')
+        # Logs
+        log_dir = ROOT_DIR / 'logs'
+        if log_dir.exists():
+            for f in log_dir.glob('*.log*'):
+                zf.write(str(f), f'logs/{f.name}')
+
+    logger.info('Backup created: %s', zip_path.name)
+    return send_file(str(zip_path), as_attachment=True, download_name=f'dmm_backup_{ts}.zip')
 
 
 # ---------------------------------------------------------------------------

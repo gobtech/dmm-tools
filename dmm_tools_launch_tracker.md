@@ -344,7 +344,7 @@ The DMM team might want to know which outlets are new discoveries, but the clien
 
 ## Phase 5: Security & Operational Hardening (Week 3)
 
-### Milestone 5.1: Credential Security (Day 18-19)
+### Milestone 5.1: Credential Security (Day 18-19) — DONE
 
 Currently API keys are in .env files. For a product:
 
@@ -355,7 +355,7 @@ Currently API keys are in .env files. For a product:
 - No credentials in error messages (sanitize before logging)
 - Git: verify .env and any config files with credentials are in .gitignore
 
-### Milestone 5.2: Access Control (Day 19-20)
+### Milestone 5.2: Access Control (Day 19-20) — DONE
 
 If this is going to run on a network where multiple people access it:
 
@@ -367,7 +367,7 @@ If this is going to run on a network where multiple people access it:
 
 If the service model means YOU maintain it remotely, you need SSH or a VPN to their machine. Document this requirement.
 
-### Milestone 5.3: Logging & Diagnostics (Day 20-21)
+### Milestone 5.3: Logging & Diagnostics (Day 20-21) — DONE
 
 For the service model, you need to be able to diagnose issues remotely:
 
@@ -377,7 +377,7 @@ For the service model, you need to be able to diagnose issues remotely:
 - Each tool run gets a unique ID logged so you can trace issues
 - Optional: error notification (email or Slack webhook) when a critical failure occurs — so you know before the client tells you
 
-### Milestone 5.4: Backup & Recovery (Day 21)
+### Milestone 5.4: Backup & Recovery (Day 21) — DONE
 
 - Automated backup of history.db (contains all dashboard snapshots, schedule runs)
 - Automated backup of data/ directory (feed registry, social handles, databases)
