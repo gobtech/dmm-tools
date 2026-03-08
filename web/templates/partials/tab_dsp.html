@@ -20,9 +20,9 @@
 
     <label>Mode</label>
     <div class="radio-group">
-      <label><input type="radio" name="dsp-mode" value="artist" checked onchange="dspModeChanged()"><span>Specific artist</span></label>
-      <label><input type="radio" name="dsp-mode" value="week" onchange="dspModeChanged()"><span>This week's releases</span></label>
-      <label><input type="radio" name="dsp-mode" value="all" onchange="dspModeChanged()"><span>All releases</span></label>
+      <label title="Check playlists for a single artist"><input type="radio" name="dsp-mode" value="artist" checked onchange="dspModeChanged()"><span>Specific artist</span></label>
+      <label title="Check playlists for all artists releasing this week"><input type="radio" name="dsp-mode" value="week" onchange="dspModeChanged()"><span>This week's releases</span></label>
+      <label title="Check playlists for every artist in the release schedule"><input type="radio" name="dsp-mode" value="all" onchange="dspModeChanged()"><span>All releases</span></label>
     </div>
 
     <div id="dsp-artist-field" class="conditional visible">
@@ -59,8 +59,8 @@
 
     <label>Report grouping</label>
     <div class="radio-group">
-      <label><input type="radio" name="dsp-grouping" value="platform" checked><span>Group by platform</span></label>
-      <label><input type="radio" name="dsp-grouping" value="artist"><span>Group by artist</span></label>
+      <label title="Organize results by platform (Spotify, Deezer, etc.)"><input type="radio" name="dsp-grouping" value="platform" checked><span>Group by platform</span></label>
+      <label title="Organize results by artist name"><input type="radio" name="dsp-grouping" value="artist"><span>Group by artist</span></label>
     </div>
 
     <button class="btn" id="dsp-btn" onclick="runDsp()">Check Playlists</button>

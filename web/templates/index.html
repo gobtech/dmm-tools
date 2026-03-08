@@ -11,13 +11,6 @@
 </head>
 <body>
 
-<div class="disclaimer-banner" id="disclaimer-banner">
-  <span>This is an early prototype — features may change or break.</span>
-  <a href="/disclaimer">Read disclaimer</a>
-</div>
-
-<a href="/disclaimer" class="prototype-pill" title="View prototype disclaimer">Prototype</a>
-
 <button onclick="toggleSearch(true)" class="floating-search-btn" title="Search (⌘K)">
   <span class="search-icon">&#128269;</span>
   <span>Search</span>
@@ -63,23 +56,9 @@
   <!-- TOOL VIEW: Tabs + Panels (hidden until a tool is selected) -->
   <!-- ================================================================== -->
   <div id="tool-view" style="display:none;">
-    <div style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
       <button onclick="goToLanding()" style="background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:13px;padding:4px 0;display:flex;align-items:center;gap:4px;transition:color .2s;" onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color='var(--text-tertiary)'">&larr; All Tools</button>
-    </div>
-
-    <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('radio')">Radio Report</button>
-      <button class="tab-btn" onclick="switchTab('press')">Press Pickup</button>
-      <button class="tab-btn" onclick="switchTab('dsp')">DSP Pickup</button>
-      <button class="tab-btn" onclick="switchTab('report')">Full Report</button>
-      <button class="tab-btn" onclick="switchTab('proposal')">Proposal <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
-      <button class="tab-btn" onclick="switchTab('digest')">Weekly Digest <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
-      <button class="tab-btn" onclick="switchTab('discovery')">Discovery <span style="font-size:10px;opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;">(WIP)</span></button>
-      <button class="tab-btn" onclick="switchTab('pr')">PR Translator</button>
-      <button class="tab-btn" onclick="switchTab('schedules')">Schedules</button>
-      <button class="tab-btn" onclick="window.location.href='/dashboard'" style="color:#4a9eff">Dashboard</button>
-      <button class="tab-btn" onclick="window.location.href='/oracle'" style="color:var(--accent)">O.R.A.C.L.E.</button>
-      <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+      <span id="tool-title" style="font-family:var(--font-heading);font-size:24px;font-weight:400;letter-spacing:.01em;"></span>
     </div>
 
   <!-- ================================================================== -->
@@ -134,7 +113,7 @@
   </div><!-- /tool-view -->
 
   <div class="footer-note">
-    Dorado Music Marketing &copy; 2026 &mdash; Internal use only. Confidential.
+    Dorado Music Marketing &copy; 2026
     <button class="help-btn" onclick="startWalkthrough()" title="Replay walkthrough tour">?</button>
     <div style="margin-top:14px;">
       <a href="/licensing" class="licensing-link">Licensing &amp; Attribution</a>

@@ -1831,10 +1831,6 @@ def licensing():
     return render_template('licensing.html')
 
 
-@app.route('/disclaimer')
-def disclaimer():
-    return render_template('disclaimer.html')
-
 
 @app.route('/oracle')
 def oracle():

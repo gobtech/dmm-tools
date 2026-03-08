@@ -21,9 +21,9 @@
 
     <label>Mode</label>
     <div class="radio-group">
-      <label><input type="radio" name="radio-batch-mode" value="artist" checked onchange="radioBatchModeChanged()"><span>Specific artist</span></label>
-      <label><input type="radio" name="radio-batch-mode" value="week" onchange="radioBatchModeChanged()"><span>This week's releases</span></label>
-      <label><input type="radio" name="radio-batch-mode" value="all" onchange="radioBatchModeChanged()"><span>All releases</span></label>
+      <label title="Run for a single artist"><input type="radio" name="radio-batch-mode" value="artist" checked onchange="radioBatchModeChanged()"><span>Specific artist</span></label>
+      <label title="Run for all artists releasing this week"><input type="radio" name="radio-batch-mode" value="week" onchange="radioBatchModeChanged()"><span>This week's releases</span></label>
+      <label title="Run for every artist in the release schedule"><input type="radio" name="radio-batch-mode" value="all" onchange="radioBatchModeChanged()"><span>All releases</span></label>
     </div>
 
     <div id="radio-week-field" class="conditional">
@@ -57,14 +57,14 @@
 
       <label>Region</label>
       <div class="radio-group">
-        <label><input type="radio" name="radio-region" value="latam" checked><span>LATAM</span></label>
-        <label><input type="radio" name="radio-region" value="all"><span>All Countries</span></label>
+        <label title="Latin American radio stations only"><input type="radio" name="radio-region" value="latam" checked><span>LATAM</span></label>
+        <label title="Worldwide radio stations including US, Europe, etc."><input type="radio" name="radio-region" value="all"><span>All Countries</span></label>
       </div>
 
       <label>Time Range</label>
       <div class="radio-group">
         <label><input type="radio" name="radio-range" value="7d" onchange="radioRangeChanged()"><span>7 Days</span></label>
-        <label><input type="radio" name="radio-range" value="7d_prev" onchange="radioRangeChanged()"><span>Prev 7 Days</span></label>
+        <label title="The 7-day window before the most recent 7 days"><input type="radio" name="radio-range" value="7d_prev" onchange="radioRangeChanged()"><span>Prev 7 Days</span></label>
         <label><input type="radio" name="radio-range" value="28d" checked onchange="radioRangeChanged()"><span>28 Days</span></label>
         <label><input type="radio" name="radio-range" value="1y" onchange="radioRangeChanged()"><span>1 Year</span></label>
         <label><input type="radio" name="radio-range" value="custom" onchange="radioRangeChanged()"><span>Custom Range</span></label>

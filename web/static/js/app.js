@@ -40,16 +40,13 @@ function goToLanding() {
 // =====================================================================
 // Tabs
 // =====================================================================
+const TOOL_TITLES = {radio:'Radio Report',press:'Press Pickup',dsp:'DSP Pickup',report:'Full Report',proposal:'Proposal Generator',digest:'Weekly Digest',discovery:'Discovery',pr:'PR Translator',schedules:'Schedules',settings:'Settings'};
 function switchTab(name) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('tab-' + name);
   panel.classList.add('active');
-  const tabs = ['radio', 'press', 'dsp', 'report', 'proposal', 'digest', 'discovery', 'pr', 'schedules', 'settings'];
-  const idx = tabs.indexOf(name);
-  if (idx >= 0 && document.querySelectorAll('.tab-btn')[idx]) {
-    document.querySelectorAll('.tab-btn')[idx].classList.add('active');
-  }
+  const titleEl = document.getElementById('tool-title');
+  if (titleEl) titleEl.textContent = TOOL_TITLES[name] || name;
   // Re-trigger entrance animation
   panel.style.animation = 'none';
   panel.offsetHeight; // reflow
@@ -336,12 +333,113 @@ function colorizeLog(text) {
 }
 
 // =====================================================================
+// Progress Stepper
+// =====================================================================
+const STEP_CONFIGS = {
+  press: [
+    { label: 'Scanning RSS feeds', pattern: /Scanning outlet feeds/ },
+    { label: 'Mining sitemaps', pattern: /Mining outlet sitemaps/ },
+    { label: 'Scanning outlet adapters', pattern: /Scanning outlet adapters/ },
+    { label: 'Google News', pattern: /Google News/ },
+    { label: 'Brave Search', pattern: /Brave (News|Web):/ },
+    { label: 'Serper Search', pattern: /Serper targeted/ },
+    { label: 'Tavily + DuckDuckGo', pattern: /Tavily|DuckDuckGo/ },
+    { label: 'AI relevance filter', pattern: /AI relevance filter/ },
+  ],
+  radio: [
+    { label: 'Connecting to Soundcharts', pattern: /Searching Soundcharts/ },
+    { label: 'Fetching airplay data', pattern: /Fetching airplay/ },
+    { label: 'Generating report', pattern: /Generating|report saved/ },
+  ],
+  dsp: [
+    { label: 'Loading playlists', pattern: /Playlists to check/ },
+    { label: 'Checking Spotify', pattern: /Checking:.*\[?Spotify/ },
+    { label: 'Checking Deezer', pattern: /Checking:.*Deezer/ },
+    { label: 'Checking Apple Music', pattern: /Checking:.*Apple/ },
+    { label: 'Checking Amazon Music', pattern: /Checking:.*Amazon/ },
+    { label: 'Checking Claro Música', pattern: /Checking:.*Claro/ },
+    { label: 'Checking YouTube Music', pattern: /Checking:.*YouTube/ },
+    { label: 'Generating report', pattern: /DSP report saved|Generating proof/ },
+  ],
+  report: [
+    { label: 'Loading releases', pattern: /Loading release schedule/ },
+    { label: 'Running Radio Report', pattern: /── Radio Report/ },
+    { label: 'Running Press Pickup', pattern: /── Press Pickup/ },
+    { label: 'Running DSP Pickup', pattern: /── DSP Pickup/ },
+    { label: 'Compiling report', pattern: /Compiling|report saved/ },
+  ],
+  digest: [
+    { label: 'Fetching radio data', pattern: /Radio Report|Soundcharts/ },
+    { label: 'Running press search', pattern: /Press Pickup|Searching press/ },
+    { label: 'Checking playlists', pattern: /DSP Pickup|Playlists to check/ },
+    { label: 'AI campaign analysis', pattern: /campaign analysis|Groq/ },
+    { label: 'Generating digest', pattern: /Generating digest|digest saved/ },
+  ],
+};
+
+function createStepper(progressEl, toolName) {
+  const config = STEP_CONFIGS[toolName];
+  if (!config) return null;
+  // Remove old stepper if any
+  const old = progressEl.querySelector('.progress-stepper');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.className = 'progress-stepper';
+  config.forEach((step, i) => {
+    const row = document.createElement('div');
+    row.className = 'step-row';
+    row.innerHTML = `<span class="step-icon">○</span><span class="step-label">${step.label}</span><span class="step-detail"></span>`;
+    el.appendChild(row);
+  });
+  // Insert before log-box
+  const logBox = progressEl.querySelector('.log-box');
+  if (logBox) progressEl.insertBefore(el, logBox);
+  else progressEl.appendChild(el);
+  return { el, config, currentStep: -1 };
+}
+
+function updateStepper(stepper, logLines) {
+  if (!stepper) return;
+  const { el, config } = stepper;
+  const fullLog = logLines.join('\n');
+  let lastMatch = -1;
+  const details = {};
+  config.forEach((step, i) => {
+    if (step.pattern.test(fullLog)) {
+      lastMatch = i;
+      // Extract counts from log for this step
+      const countMatch = fullLog.match(new RegExp(step.pattern.source + '.*?(\\d+)\\s*(article|result|track|playlist|station|entries|placement)'));
+      if (countMatch) details[i] = countMatch[1] + ' ' + countMatch[2] + 's';
+    }
+  });
+  const rows = el.querySelectorAll('.step-row');
+  rows.forEach((row, i) => {
+    const icon = row.querySelector('.step-icon');
+    const detail = row.querySelector('.step-detail');
+    row.classList.remove('done', 'active');
+    if (i < lastMatch) {
+      row.classList.add('done');
+      icon.textContent = '✓';
+    } else if (i === lastMatch) {
+      row.classList.add('active');
+      icon.textContent = '●';
+    } else {
+      icon.textContent = '○';
+    }
+    if (details[i]) detail.textContent = details[i];
+  });
+  stepper.currentStep = lastMatch;
+}
+
+// =====================================================================
 // Polling helper
 // =====================================================================
-function pollJob(jobId, logEl, progressEl, resultEl, onDone) {
+function pollJob(jobId, logEl, progressEl, resultEl, toolName, onDone) {
+  if (typeof toolName === 'function') { onDone = toolName; toolName = null; }
   progressEl.classList.add('visible');
   resultEl.classList.remove('visible');
   resultEl.innerHTML = '';
+  const stepper = createStepper(progressEl, toolName);
   let settled = false;
   const startTime = Date.now();
   let hintShown = false;
@@ -363,6 +461,9 @@ function pollJob(jobId, logEl, progressEl, resultEl, onDone) {
       const resp = await fetch('/api/status/' + jobId);
       const data = await resp.json();
 
+      // Update stepper from raw log
+      if (stepper) updateStepper(stepper, data.log);
+
       // Update log with colorization
       const rawLog = data.log.map(l => escapeHtml(l)).join('\n');
       logEl.innerHTML = colorizeLog(rawLog);
@@ -372,6 +473,14 @@ function pollJob(jobId, logEl, progressEl, resultEl, onDone) {
         if (settled) return;
         settled = true;
         clearInterval(interval);
+        // Mark all steps done on success
+        if (stepper && data.status === 'done') {
+          stepper.el.querySelectorAll('.step-row').forEach(r => {
+            r.classList.remove('active');
+            r.classList.add('done');
+            r.querySelector('.step-icon').textContent = '✓';
+          });
+        }
         progressEl.classList.remove('visible');
         onDone(data);
       }
@@ -597,7 +706,7 @@ async function runRadioBatch(batchMode) {
       return;
     }
 
-    pollJob(runId, logEl, progressEl, resultEl, (result) => {
+    pollJob(runId, logEl, progressEl, resultEl, 'radio', (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
@@ -827,7 +936,7 @@ async function fetchRadioSongs() {
       return;
     }
 
-    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+    pollJob(data.job_id, logEl, progressEl, resultEl, 'radio', (result) => {
       setLoading(btn, false);
       if (result.status === 'error') {
           showError(resultEl, result.error);
@@ -917,7 +1026,7 @@ async function generateRadioReport() {
       return;
     }
 
-    pollJob(runId, logEl, progressEl, resultEl, (result) => {
+    pollJob(runId, logEl, progressEl, resultEl, 'radio', (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
@@ -968,7 +1077,7 @@ async function runRadioCsv(btn, logEl, progressEl, resultEl) {
       return;
     }
 
-    pollJob(runId, logEl, progressEl, resultEl, (result) => {
+    pollJob(runId, logEl, progressEl, resultEl, 'radio', (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
@@ -1071,7 +1180,7 @@ async function runPress() {
       return;
     }
 
-    pollJob(runId, logEl, progressEl, resultEl, (result) => {
+    pollJob(runId, logEl, progressEl, resultEl, 'press', (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
@@ -1165,7 +1274,7 @@ async function runDsp() {
       return;
     }
 
-    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+    pollJob(data.job_id, logEl, progressEl, resultEl, 'dsp', (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
@@ -1347,7 +1456,7 @@ async function runReport() {
       return;
     }
 
-    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+    pollJob(data.job_id, logEl, progressEl, resultEl, 'report', (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
@@ -1699,7 +1808,7 @@ async function runDigest() {
       return;
     }
 
-    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+    pollJob(data.job_id, logEl, progressEl, resultEl, 'digest', (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
@@ -1863,7 +1972,7 @@ async function runBatchDigest() {
       return;
     }
 
-    pollJob(data.job_id, logEl, progressEl, resultEl, (result) => {
+    pollJob(data.job_id, logEl, progressEl, resultEl, 'digest', (result) => {
       setLoading(btn, false);
       resultEl.classList.add('visible');
       if (result.status === 'error') {
@@ -2469,14 +2578,14 @@ function copyPrCurrent() {
 // Walkthrough
 // =====================================================================
 const walkthroughSteps = [
-  { target: null, text: 'Welcome to DMM Tools! This quick tour will show you how to use the three reporting tools. Click Next to begin.' },
-  { target: '.tabs', text: 'These four tabs are your tools: Radio Report, Press Pickup, DSP Pickup for individual reports \u2014 and Full Report to compile everything into a single client-facing document.' },
-  { target: '#radio-artist', tab: 'radio', text: 'Start by typing an artist name. The tool will search Soundcharts for their airplay data.' },
-  { target: 'input[name="radio-range"]', tab: 'radio', text: 'Pick a time range for the report \u2014 7 days, 28 days, up to 1 year, or a custom date range.', targetParent: true },
+  { target: null, text: 'Welcome to DMM Tools! This quick tour shows you the core reporting workflow. Click Next to begin.' },
+  { target: '.landing-grid', text: 'This is your toolkit. Each card is a tool \u2014 click any card to open it. The three most-used tools are Radio Report, Press Pickup, and DSP Pickup.', goLanding: true },
+  { target: '#radio-artist', tab: 'radio', text: 'Start by typing an artist name. The tool searches Soundcharts for their airplay data across LATAM radio stations.' },
+  { target: 'input[name="radio-range"]', tab: 'radio', text: 'Pick a time range \u2014 7 days, 28 days, up to 1 year, or a custom date range.', targetParent: true },
   { target: '#radio-fetch-btn', tab: 'radio', text: 'Click here to fetch songs. You\u2019ll then pick which songs to include and generate a downloadable Word report.' },
-  { target: '#press-artist', tab: 'press', text: 'Press Pickup searches 5 sources (Google News, Brave, Serper, Tavily, DuckDuckGo) for press coverage. Enter an artist name, pick a date range, and click Search.' },
-  { target: 'input[name="dsp-mode"]', tab: 'dsp', text: 'DSP Pickup checks 80+ LATAM editorial playlists for your artists. Search by artist, check this week\u2019s releases, or scan all releases at once.', targetParent: true },
-  { target: null, text: 'You\u2019re all set! Click the ? button at the bottom anytime to replay this tour.' },
+  { target: '#press-artist', tab: 'press', text: 'Press Pickup searches 7 sources (RSS feeds, sitemaps, Google News, Brave, Serper, Tavily, DuckDuckGo) for press coverage across LATAM.' },
+  { target: 'input[name="dsp-mode"]', tab: 'dsp', text: 'DSP Pickup checks 99+ editorial playlists across Spotify, Apple Music, Deezer, Amazon, Claro M\u00fasica, and YouTube Music.', targetParent: true },
+  { target: null, text: 'You\u2019re all set! Use the \u2190 All Tools button to return to the homepage. Click ? at the bottom to replay this tour anytime.' },
 ];
 
 let wtStep = 0;
@@ -2486,8 +2595,7 @@ let wtPrevTarget = null;
 
 function startWalkthrough() {
   wtStep = 0;
-  // Ensure tool view is visible for the walkthrough
-  goToTool('radio');
+  goToLanding();
   // Create backdrop
   if (!wtBackdrop) {
     wtBackdrop = document.createElement('div');
@@ -2518,8 +2626,9 @@ function showWtStep() {
     wtPrevTarget = null;
   }
 
-  // Switch tab if needed
-  if (step.tab) switchTab(step.tab);
+  // Switch view if needed
+  if (step.goLanding) goToLanding();
+  else if (step.tab) goToTool(step.tab);
 
   // Build tooltip content
   wtTooltip.innerHTML = `

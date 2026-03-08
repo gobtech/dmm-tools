@@ -210,7 +210,7 @@ Show a subtle warning banner on relevant tools when data is >30 days old: "Press
 
 ## Phase 3: UI/UX Polish for Non-Technical Users (Week 2)
 
-### Milestone 3.1: Tool Readiness Audit (Day 10-11)
+### Milestone 3.1: Tool Readiness Audit (Day 10-11) — DONE
 
 Go through every tool and classify:
 
@@ -220,7 +220,7 @@ Go through every tool and classify:
 
 For tools classified as "Not ready": remove from the homepage card grid and the tab bar. Add them back when they're ready. 8 polished tools > 12 tools where 4 are broken. Consider hiding the WIP badges entirely — either a tool works or it doesn't appear.
 
-### Milestone 3.2: Remove Prototype Framing (Day 11)
+### Milestone 3.2: Remove Prototype Framing (Day 11) — DONE
 
 - Remove the "PROTOTYPE" badge from the top-left
 - Remove the "This is an early prototype — features may change or break" disclaimer
@@ -230,7 +230,7 @@ For tools classified as "Not ready": remove from the homepage card grid and the 
 
 This is a presentation change, not a code change. But it shifts the perception from "experiment" to "product."
 
-### Milestone 3.3: Navigation Improvements (Day 11-12)
+### Milestone 3.3: Navigation Improvements (Day 11-12) — DONE
 
 The tab bar with 11+ items is getting crowded. Consider:
 
@@ -246,7 +246,7 @@ The tab bar with 11+ items is getting crowded. Consider:
 
 Recommendation: Option B. The homepage cards are already the strongest UI element. Let them be the navigation.
 
-### Milestone 3.4: Loading & Progress Experience (Day 12-13)
+### Milestone 3.4: Loading & Progress Experience (Day 12-13) — DONE
 
 Every tool that takes >2 seconds needs real-time feedback:
 
@@ -266,7 +266,7 @@ Every tool that takes >2 seconds needs real-time feedback:
 
 This turns waiting time into a feature demonstration. The user watches their data being assembled in real time.
 
-### Milestone 3.5: Help & Tooltips (Day 13-14)
+### Milestone 3.5: Help & Tooltips (Day 13-14) — DONE
 
 Non-technical users will have questions. Add lightweight guidance:
 
@@ -275,7 +275,7 @@ Non-technical users will have questions. Add lightweight guidance:
 - Empty states: when a tool returns 0 results, show helpful context: "No press coverage found for [Artist] in the last 7 days. Try expanding to 28 days, or check that the artist name is spelled correctly."
 - First-time user experience: consider a subtle "Welcome" overlay on first visit that shows the 3 most important tools and what they do (dismissible, remembers via localStorage)
 
-### Milestone 3.6: Mobile Responsiveness Check (Day 14)
+### Milestone 3.6: Mobile Responsiveness Check (Day 14) — DONE
 
 The screenshots show a desktop layout. Check on tablet/phone:
 

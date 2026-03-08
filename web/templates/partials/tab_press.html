@@ -21,9 +21,9 @@
 
     <label>Mode</label>
     <div class="radio-group">
-      <label><input type="radio" name="press-mode" value="artist" checked onchange="pressModeChanged()"><span>Specific artist</span></label>
-      <label><input type="radio" name="press-mode" value="week" onchange="pressModeChanged()"><span>This week's releases</span></label>
-      <label><input type="radio" name="press-mode" value="all" onchange="pressModeChanged()"><span>All releases</span></label>
+      <label title="Search for a single artist"><input type="radio" name="press-mode" value="artist" checked onchange="pressModeChanged()"><span>Specific artist</span></label>
+      <label title="Search for all artists releasing this week"><input type="radio" name="press-mode" value="week" onchange="pressModeChanged()"><span>This week's releases</span></label>
+      <label title="Search for every artist in the release schedule"><input type="radio" name="press-mode" value="all" onchange="pressModeChanged()"><span>All releases</span></label>
     </div>
 
     <div id="press-week-field" class="conditional">
