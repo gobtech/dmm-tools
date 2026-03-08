@@ -195,7 +195,7 @@ When a dependency is down, the tool should still work with whatever's available:
 - Google Sheets unreachable → Release Calendar shows cached version with "Last updated: [date]. Live data temporarily unavailable."
 - No internet at all → Show clear message on every tool: "No internet connection detected. These tools require internet access to fetch data."
 
-### Milestone 2.3: Data Freshness Monitoring (Day 9-10)
+### Milestone 2.3: Data Freshness Monitoring (Day 9-10) — DONE
 
 Add visible indicators for data that can go stale:
 

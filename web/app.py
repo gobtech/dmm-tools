@@ -3014,6 +3014,7 @@ def get_data_sources():
         result['press_db'] = {
             'total': len(rows),
             'with_url': sum(1 for r in rows if r.get('WEBSITE', r.get('website', '')).strip()),
+            'updated': os.path.getmtime(p),
         }
     except Exception as e:
         result['press_db'] = {'error': str(e)[:100]}
@@ -3024,7 +3025,7 @@ def get_data_sources():
         import csv
         with open(pl_path, encoding='utf-8') as f:
             rows = list(csv.DictReader(f))
-        result['playlists'] = {'total': len(rows)}
+        result['playlists'] = {'total': len(rows), 'updated': os.path.getmtime(pl_path)}
     except Exception as e:
         result['playlists'] = {'error': str(e)[:100]}
 
@@ -3037,7 +3038,10 @@ def get_data_sources():
             outlets = registry.get('outlets', {})
             rss = sum(1 for o in outlets.values() if o.get('feed_url') and o.get('feed_type') == 'rss')
             wp = sum(1 for o in outlets.values() if o.get('wp_api_url'))
-            result['feed_registry'] = {'scanned': len(outlets), 'rss': rss, 'wp': wp, 'none': len(outlets) - rss - wp}
+            result['feed_registry'] = {
+                'scanned': len(outlets), 'rss': rss, 'wp': wp, 'none': len(outlets) - rss - wp,
+                'generated': registry.get('generated'),
+            }
         else:
             result['feed_registry'] = {'error': 'feed_registry.json not found'}
     except Exception as e:
@@ -3051,7 +3055,10 @@ def get_data_sources():
                 sh = json.load(f)
             outlets = sh.get('outlets', {})
             with_any = sum(1 for o in outlets.values() if any(o.get(k) for k in ('instagram', 'facebook', 'twitter')))
-            result['social_handles'] = {'scanned': len(outlets), 'with_handles': with_any}
+            result['social_handles'] = {
+                'scanned': len(outlets), 'with_handles': with_any,
+                'generated': sh.get('generated'),
+            }
         else:
             result['social_handles'] = {'error': 'social_handle_registry.json not found'}
     except Exception as e:

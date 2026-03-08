@@ -3853,11 +3853,34 @@ async function saveCredential(serviceId) {
   }
 }
 
+function formatDataDate(ts) {
+  // Accept epoch seconds or ISO string
+  const d = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
+  if (isNaN(d)) return null;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function dataDaysAgo(ts) {
+  const d = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
+  if (isNaN(d)) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
+function staleTag(days, label) {
+  if (days === null) return '';
+  if (days > 30) return `<div style="margin-top:4px;font-size:11px;color:var(--error,#c43030);">Updated ${days}d ago — re-scan recommended</div>`;
+  return '';
+}
+
 async function loadSettingsDataSources() {
   const container = document.getElementById('settings-data-sources');
   try {
     const resp = await fetch('/api/settings/data-sources');
     const data = await resp.json();
+
+    // Store for stale banners on other tabs
+    window._dataFreshness = data;
+    updateStaleBanners(data);
 
     let html = '<div class="settings-stats-grid">';
 
@@ -3869,6 +3892,10 @@ async function loadSettingsDataSources() {
     } else {
       html += `<div style="font-size:24px;font-weight:700;">${(pdb.total || 0).toLocaleString()}</div>`;
       html += `<div style="font-size:11px;color:var(--text-tertiary);">${(pdb.with_url || 0).toLocaleString()} with URLs</div>`;
+      if (pdb.updated) {
+        html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">Updated: ${formatDataDate(pdb.updated)}</div>`;
+        html += staleTag(dataDaysAgo(pdb.updated));
+      }
     }
     html += `</div>`;
 
@@ -3880,6 +3907,10 @@ async function loadSettingsDataSources() {
     } else {
       html += `<div style="font-size:24px;font-weight:700;">${(pl.total || 0).toLocaleString()}</div>`;
       html += `<div style="font-size:11px;color:var(--text-tertiary);">editorial playlists</div>`;
+      if (pl.updated) {
+        html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">Updated: ${formatDataDate(pl.updated)}</div>`;
+        html += staleTag(dataDaysAgo(pl.updated));
+      }
     }
     html += `</div>`;
 
@@ -3891,6 +3922,10 @@ async function loadSettingsDataSources() {
     } else {
       html += `<div style="font-size:24px;font-weight:700;">${(fr.rss || 0) + (fr.wp || 0)}</div>`;
       html += `<div style="font-size:11px;color:var(--text-tertiary);">${fr.rss || 0} RSS + ${fr.wp || 0} WP of ${(fr.scanned || 0).toLocaleString()} scanned</div>`;
+      if (fr.generated) {
+        html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">Scanned: ${formatDataDate(fr.generated)}</div>`;
+        html += staleTag(dataDaysAgo(fr.generated));
+      }
     }
     html += `</div>`;
 
@@ -3902,6 +3937,10 @@ async function loadSettingsDataSources() {
     } else {
       html += `<div style="font-size:24px;font-weight:700;">${(sh.with_handles || 0).toLocaleString()}</div>`;
       html += `<div style="font-size:11px;color:var(--text-tertiary);">of ${(sh.scanned || 0).toLocaleString()} outlets with social</div>`;
+      if (sh.generated) {
+        html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">Scanned: ${formatDataDate(sh.generated)}</div>`;
+        html += staleTag(dataDaysAgo(sh.generated));
+      }
     }
     html += `</div>`;
 
@@ -3912,7 +3951,7 @@ async function loadSettingsDataSources() {
       html += `<div style="color:var(--error);font-size:12px;">${escapeHtml(rs.error)}</div>`;
     } else {
       html += `<div style="font-size:24px;font-weight:700;">${(rs.total || 0).toLocaleString()}</div>`;
-      html += `<div style="font-size:11px;color:var(--text-tertiary);">releases (from Google Sheets)</div>`;
+      html += `<div style="font-size:11px;color:var(--text-tertiary);">releases (live from Google Sheets)</div>`;
     }
     html += `</div>`;
 
@@ -3922,3 +3961,36 @@ async function loadSettingsDataSources() {
     container.innerHTML = `<span style="color:var(--error);">Failed to load data sources: ${escapeHtml(e.message)}</span>`;
   }
 }
+
+function updateStaleBanners(data) {
+  const STALE_DAYS = 30;
+  const banners = [
+    { id: 'stale-banner-press', tab: 'tab-press', source: data.press_db, label: 'Press database', dateKey: 'updated' },
+    { id: 'stale-banner-dsp', tab: 'tab-dsp', source: data.playlists, label: 'Playlist database', dateKey: 'updated' },
+  ];
+  for (const b of banners) {
+    // Remove old banner if any
+    const old = document.getElementById(b.id);
+    if (old) old.remove();
+
+    const src = b.source || {};
+    const ts = src[b.dateKey] || src.generated;
+    if (!ts) continue;
+    const days = dataDaysAgo(ts);
+    if (days === null || days <= STALE_DAYS) continue;
+
+    const tabEl = document.getElementById(b.tab);
+    if (!tabEl) continue;
+    const banner = document.createElement('div');
+    banner.id = b.id;
+    banner.style.cssText = 'padding:10px 14px;margin-bottom:14px;border-radius:8px;font-size:12px;background:rgba(196,48,48,0.08);border:1px solid rgba(196,48,48,0.2);color:var(--text-secondary);';
+    banner.innerHTML = `${b.label} hasn't been updated in <strong>${days} days</strong>. Some new entries may be missing. <a href="#" onclick="switchTab('settings');return false;" style="color:var(--accent);">Check Settings</a>`;
+    tabEl.insertBefore(banner, tabEl.children[1]); // after tips
+  }
+}
+
+// Fetch freshness data on page load (for stale banners)
+fetch('/api/settings/data-sources').then(r => r.json()).then(data => {
+  window._dataFreshness = data;
+  updateStaleBanners(data);
+}).catch(() => {});
