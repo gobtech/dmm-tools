@@ -420,19 +420,65 @@
       padding: 8px 0;
     }
 
-    /* ── Collect log ── */
-    .collect-log {
-      background: var(--bg-input);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-xs);
-      padding: 12px 16px;
-      font-family: 'Courier New', monospace;
-      font-size: 12px;
-      color: var(--text-secondary);
-      max-height: 240px;
-      overflow-y: auto;
+    /* ── Collect progress ── */
+    .collect-progress {
       margin: 16px 0;
       display: none;
+    }
+    .progress-stepper {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 14px;
+      padding: 14px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm, 10px);
+      font-family: var(--font-label, 'Raleway', sans-serif);
+      font-size: 13px;
+    }
+    .step-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 5px 0;
+      color: var(--text-tertiary);
+      transition: color .25s;
+    }
+    .step-row.active { color: var(--text-primary); font-weight: 600; }
+    .step-row.done { color: var(--text-secondary); }
+    .step-icon {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 13px;
+    }
+    .step-row.done .step-icon { color: #16a34a; }
+    .step-row.active .step-icon { color: var(--accent); }
+    .step-detail {
+      margin-left: auto;
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text-tertiary);
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+    .step-row.active .step-icon { animation: pulse-dot 1.2s ease-in-out infinite; }
+    .collect-log {
+      background: #1e1e24;
+      border: none;
+      color: #b0b0b8;
+      font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+      font-size: 11px;
+      border-radius: var(--radius-xs, 8px);
+      padding: 14px 16px;
+      max-height: 180px;
+      overflow-y: auto;
       white-space: pre-wrap;
       line-height: 1.5;
     }
@@ -637,7 +683,10 @@
     </div>
   </div>
 
-  <pre class="collect-log" id="collect-log"></pre>
+  <div class="collect-progress" id="collect-progress">
+    <div id="collect-stepper"></div>
+    <pre class="collect-log" id="collect-log"></pre>
+  </div>
 </main>
 
 <script>
@@ -1075,16 +1124,80 @@ function updateActionButtons(artist) {
   document.getElementById('btn-compare').href = '/compare?artists=' + e;
 }
 
+// ── Collect data stepper ──
+const COLLECT_STEPS = [
+  { label: 'Fetching radio data',  pattern: /Radio Report|Searching Soundcharts|Soundcharts/ },
+  { label: 'Running press search', pattern: /Press Pickup|Scanning outlet feeds/ },
+  { label: 'Checking playlists',   pattern: /DSP Pickup|Playlists to check/ },
+  { label: 'Processing results',   pattern: /campaign analysis|Generating digest|Snapshot|Done/ },
+];
+
+function createCollectStepper() {
+  const container = document.getElementById('collect-stepper');
+  container.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'progress-stepper';
+  COLLECT_STEPS.forEach(step => {
+    const row = document.createElement('div');
+    row.className = 'step-row';
+    row.innerHTML = '<span class="step-icon">\u25CB</span><span class="step-label">' + step.label + '</span><span class="step-detail"></span>';
+    el.appendChild(row);
+  });
+  container.appendChild(el);
+  return el;
+}
+
+function updateCollectStepper(stepperEl, logLines) {
+  if (!stepperEl) return;
+  const fullLog = logLines.join('\n');
+  let lastMatch = -1;
+  const details = {};
+  COLLECT_STEPS.forEach((step, i) => {
+    if (step.pattern.test(fullLog)) {
+      lastMatch = i;
+      const countMatch = fullLog.match(new RegExp(step.pattern.source + '.*?(\\d+)\\s*(article|result|track|playlist|station|entries|placement)'));
+      if (countMatch) details[i] = countMatch[1] + ' ' + countMatch[2] + 's';
+    }
+  });
+  const rows = stepperEl.querySelectorAll('.step-row');
+  rows.forEach((row, i) => {
+    const icon = row.querySelector('.step-icon');
+    const detail = row.querySelector('.step-detail');
+    row.classList.remove('done', 'active');
+    if (i < lastMatch) {
+      row.classList.add('done');
+      icon.textContent = '\u2713';
+    } else if (i === lastMatch) {
+      row.classList.add('active');
+      icon.textContent = '\u25CF';
+    } else {
+      icon.textContent = '\u25CB';
+    }
+    if (details[i]) detail.textContent = details[i];
+  });
+}
+
+function markStepperDone(stepperEl) {
+  if (!stepperEl) return;
+  stepperEl.querySelectorAll('.step-row').forEach(row => {
+    row.classList.remove('active');
+    row.classList.add('done');
+    row.querySelector('.step-icon').textContent = '\u2713';
+  });
+}
+
 // ── Collect data ──
 async function collectData() {
   if (!currentArtist) return;
   const btn = document.getElementById('collect-btn');
+  const progressEl = document.getElementById('collect-progress');
   const logEl = document.getElementById('collect-log');
 
   btn.disabled = true;
   btn.textContent = 'Collecting\u2026';
-  logEl.style.display = 'block';
-  logEl.textContent = 'Starting data collection for ' + currentArtist + '...\n';
+  progressEl.style.display = 'block';
+  logEl.textContent = '';
+  const stepperEl = createCollectStepper();
 
   try {
     const resp = await fetch('/api/dashboard/collect', {
@@ -1093,7 +1206,7 @@ async function collectData() {
       body: JSON.stringify({ artist: currentArtist }),
     });
     const result = await resp.json();
-    if (result.error) { logEl.textContent += '\nError: ' + result.error; btn.disabled = false; btn.textContent = 'Collect Data'; return; }
+    if (result.error) { logEl.textContent += 'Error: ' + result.error; btn.disabled = false; btn.textContent = 'Collect Data'; return; }
 
     const jobId = result.job_id;
     while (true) {
@@ -1106,12 +1219,14 @@ async function collectData() {
         const lines = Array.isArray(st.log) ? st.log : [st.log];
         logEl.textContent = lines.join('\n');
         logEl.scrollTop = logEl.scrollHeight;
+        updateCollectStepper(stepperEl, lines);
       }
       if (st.status === 'done') {
+        markStepperDone(stepperEl);
         logEl.textContent += '\n\nDone — refreshing dashboard...';
-        await loadArtists();  // refresh artist list (snapshot count changed)
+        await loadArtists();
         await selectArtist(currentArtist);
-        setTimeout(() => { logEl.style.display = 'none'; }, 4000);
+        setTimeout(() => { progressEl.style.display = 'none'; }, 4000);
         break;
       }
       if (st.status === 'error') {
@@ -1211,7 +1326,7 @@ async function exportDashboard(format) {
     }
 
     // 2. Hide excluded sections
-    const hideSelectors = ['.actions-row', '.notes-section', '#compare-row', '.collect-log'];
+    const hideSelectors = ['.actions-row', '.notes-section', '#compare-row', '.collect-progress'];
     for (const sel of hideSelectors) {
       const el = dashboard.querySelector(sel) || document.querySelector(sel);
       if (el) {
