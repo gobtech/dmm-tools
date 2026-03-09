@@ -394,7 +394,24 @@ def _generate_full_docx(
 
     # ─── Radio Plays ──────────────────────────────────────────
     if radio_data:
-        _add_section_header(doc, 'Radio Plays', RED)
+        # Compute date range for heading
+        from datetime import datetime as _dt, timedelta as _td
+        _today = _dt.now()
+        if radio_time_range == 'custom' and radio_start_date and radio_end_date:
+            try:
+                _s = _dt.strptime(radio_start_date, '%Y-%m-%d')
+                _e = _dt.strptime(radio_end_date, '%Y-%m-%d')
+            except ValueError:
+                _s, _e = _today - _td(days=28), _today
+        else:
+            _days = {'7d': 7, '7d_prev': 14, '28d': 28, '1y': 365}.get(radio_time_range, 28)
+            _s = _today - _td(days=_days)
+            _e = _today - _td(days=7) if radio_time_range == '7d_prev' else _today
+        if _s.year == _e.year:
+            _range_str = f"{_s.strftime('%b %-d')} – {_e.strftime('%b %-d, %Y')}"
+        else:
+            _range_str = f"{_s.strftime('%b %-d, %Y')} – {_e.strftime('%b %-d, %Y')}"
+        _add_section_header(doc, f'Radio Plays ({_range_str})', RED)
 
         # Group by country -> station -> songs
         country_stations = {}
@@ -555,14 +572,13 @@ def _generate_full_docx(
                 mp.paragraph_format.space_after = Pt(0)
 
                 # Entries are grouped by outlet — each has a 'urls' list
-                # Display article title as clickable hyperlink
+                # Display as raw clickable links
                 urls = entry.get('urls', [])
                 if urls:
                     if len(urls) == 1:
                         u = urls[0]
                         url_para = doc.add_paragraph()
-                        display = u.get('title', '').strip() or u['url']
-                        _add_hyperlink(url_para, u['url'], display)
+                        _add_hyperlink(url_para, u['url'], u['url'])
                         url_para.paragraph_format.space_before = Pt(0)
                         url_para.paragraph_format.space_after = Pt(0)
                     else:
@@ -570,14 +586,13 @@ def _generate_full_docx(
                             url_para = doc.add_paragraph()
                             bullet_run = url_para.add_run('\u2022 ')
                             bullet_run.font.size = Pt(11)
-                            display = u.get('title', '').strip() or u['url']
-                            _add_hyperlink(url_para, u['url'], display)
+                            _add_hyperlink(url_para, u['url'], u['url'])
                             url_para.paragraph_format.space_before = Pt(0)
                             url_para.paragraph_format.space_after = Pt(0)
                 elif entry.get('url'):
                     # Fallback for ungrouped entries
                     url_para = doc.add_paragraph()
-                    _add_hyperlink(url_para, entry['url'], entry.get('title', '').strip() or entry['url'])
+                    _add_hyperlink(url_para, entry['url'], entry['url'])
                     url_para.paragraph_format.space_before = Pt(0)
                     url_para.paragraph_format.space_after = Pt(0)
 

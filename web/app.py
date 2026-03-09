@@ -42,49 +42,47 @@ if env_file.exists():
                 val = val.strip().strip('"').strip("'")
                 os.environ.setdefault(key, val)
 
-from flask import Flask, request, jsonify, send_file, render_template, make_response, redirect, url_for
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask import Flask, request, jsonify, send_file, render_template, make_response, redirect, url_for, session
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dmm-tools-dev-key-change-in-production')
+app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 30  # 30 days
 
 # ---------------------------------------------------------------------------
-# Authentication — simple single-user login
+# Authentication — two-password model
+#   DMM_TEAM_PASS  → shared password for the whole team (access all tools)
+#   DMM_ADMIN_PASS → separate password for Settings page (API keys, config)
 # ---------------------------------------------------------------------------
-login_manager = LoginManager(app)
-login_manager.login_view = 'login'
-
-# Admin credentials from env (defaults for first-time setup)
-_ADMIN_USER = os.environ.get('DMM_ADMIN_USER', 'admin')
-_ADMIN_PASS = os.environ.get('DMM_ADMIN_PASS', 'dmm2026')
-
-class User(UserMixin):
-    def __init__(self, uid):
-        self.id = uid
-
-@login_manager.user_loader
-def load_user(uid):
-    if uid == _ADMIN_USER:
-        return User(uid)
-    return None
+_TEAM_PASS = os.environ.get('DMM_TEAM_PASS', 'dmm2026')
+_ADMIN_PASS = os.environ.get('DMM_ADMIN_PASS', 'dmmadmin2026')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        if username == _ADMIN_USER and password == _ADMIN_PASS:
-            login_user(User(username), remember=True)
+        if password == _TEAM_PASS:
+            session.permanent = True
+            session['authenticated'] = True
             return redirect(request.args.get('next') or url_for('index'))
-        return render_template('login.html', error='Invalid username or password.')
+        return render_template('login.html', error='Wrong password.')
     return render_template('login.html')
 
 @app.route('/logout')
-@login_required
 def logout():
-    logout_user()
+    session.clear()
     return redirect(url_for('login'))
+
+@app.route('/api/admin/auth', methods=['POST'])
+def admin_auth():
+    """Verify admin password to unlock Settings."""
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Authentication required.'}), 401
+    data = request.get_json(silent=True) or {}
+    if data.get('password') == _ADMIN_PASS:
+        session['is_admin'] = True
+        return jsonify({'ok': True})
+    return jsonify({'error': 'Wrong admin password.'}), 403
 
 @app.before_request
 def require_login():
@@ -92,10 +90,14 @@ def require_login():
     allowed = ('login', 'static')
     if request.endpoint and request.endpoint in allowed:
         return
-    if not current_user.is_authenticated:
+    if not session.get('authenticated'):
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Authentication required.'}), 401
         return redirect(url_for('login', next=request.path))
+    # Settings API routes require admin auth
+    if request.path.startswith('/api/settings/') or request.path == '/api/backup':
+        if not session.get('is_admin'):
+            return jsonify({'error': 'Admin access required.'}), 403
 
 # ---------------------------------------------------------------------------
 # Structured file logging with rotation
@@ -123,7 +125,7 @@ logger = app.logger
 # ---------------------------------------------------------------------------
 _SENSITIVE_ENV_KEYS = [
     'SOUNDCHARTS_PASSWORD', 'SOUNDCHARTS_EMAIL',
-    'SERPER_API_KEY', 'BRAVE_API_KEY', 'TAVILY_API_KEY',
+    'SERPER_API_KEY', 'TAVILY_API_KEY',
     'GROQ_API_KEY', 'GEMINI_API_KEY',
 ]
 _REDACT_PATTERNS = []  # list of (value, replacement) tuples
@@ -303,6 +305,8 @@ def _execute_schedule(schedule_id, job_id=None):
                             radio_data=result.get('radio_data'),
                             dsp_data=result.get('dsp_data'),
                             press_data=result.get('press_data'),
+                            radio_date_range=compute_radio_date_range(
+                                schedule.get('radio_time_range', '7d')),
                         )
                         details[artist]['append'] = ar['status']
                         if ar['status'] == 'appended':
@@ -404,7 +408,8 @@ def validate_artist(name):
 
 
 def _batch_auto_append(artist_name, doc_id, radio_data=None, dsp_data=None,
-                       press_data=None, proof_image_paths=None, date_label=None):
+                       press_data=None, proof_image_paths=None, date_label=None,
+                       radio_date_range=None):
     """Auto-append report data to a Google Doc. Used by batch endpoints.
 
     Returns dict: {status: 'appended'|'skipped'|'error', detail: str, doc_title: str}
@@ -426,7 +431,7 @@ def _batch_auto_append(artist_name, doc_id, radio_data=None, dsp_data=None,
             artist_name=artist_name,
             date_label=date_label,
             proof_image_paths=proof_image_paths,
-            skip_if_duplicate=True,
+            radio_date_range=radio_date_range,
         )
 
         if result.get('skipped'):
@@ -852,7 +857,7 @@ def radio_soundcharts():
                 '--artist', artist,
                 '--input', str(upload_dir),
                 '--output', str(output_path),
-                '--period', 'last 28 days',
+                '--period', compute_radio_date_range('28d'),
             ]
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -907,6 +912,27 @@ def format_custom_period(start_date, end_date):
         return f"{s.strftime('%b %-d, %Y')} - {e.strftime('%b %-d, %Y')}"
     except (ValueError, TypeError):
         return f"{start_date} - {end_date}"
+
+
+def compute_radio_date_range(time_range, start_date=None, end_date=None):
+    """Compute a human-readable date range string for any radio time range.
+
+    Returns e.g. 'Mar 1 - Mar 8, 2026' for 7d, or the custom range for custom.
+    """
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    if time_range == 'custom' and start_date and end_date:
+        return format_custom_period(start_date, end_date)
+    days_map = {'7d': 7, '7d_prev': 14, '28d': 28, '1y': 365}
+    delta = days_map.get(time_range, 28)
+    s = today - timedelta(days=delta)
+    if time_range == '7d_prev':
+        e = today - timedelta(days=7)
+    else:
+        e = today
+    if s.year == e.year:
+        return f"{s.strftime('%b %-d')} - {e.strftime('%b %-d, %Y')}"
+    return f"{s.strftime('%b %-d, %Y')} - {e.strftime('%b %-d, %Y')}"
 
 
 @app.route('/api/radio/soundcharts/fetch', methods=['POST'])
@@ -1110,10 +1136,7 @@ def radio_soundcharts_generate():
 
             # Run the existing Node.js report generator
             log_line(job_id, 'Generating Word document...')
-            if time_range == 'custom':
-                period_title = format_custom_period(start_date, end_date)
-            else:
-                period_title = RANGE_PERIOD_TITLES.get(time_range, 'last 28 days')
+            period_title = compute_radio_date_range(time_range, start_date, end_date)
             cmd = [
                 'node',
                 str(ROOT_DIR / 'airplay-report' / 'generate_report.js'),
@@ -1133,6 +1156,8 @@ def radio_soundcharts_generate():
             # Store structured data for Google Docs append
             jobs[job_id]['artist'] = artist
             jobs[job_id]['radio_data'] = filtered
+            jobs[job_id]['radio_date_range'] = compute_radio_date_range(
+                time_range, start_date, end_date)
 
             if proc.returncode != 0:
                 finish_job(job_id, error='Report generation failed.')
@@ -1264,10 +1289,7 @@ def radio_soundcharts_batch():
                     safe_art = art.lower().replace(' ', '_')
                     output_path = REPORT_DIR / f'{safe_art}_radio.docx'
 
-                    if time_range == 'custom':
-                        period_title = format_custom_period(start_date, end_date)
-                    else:
-                        period_title = RANGE_PERIOD_TITLES.get(time_range, 'last 28 days')
+                    period_title = compute_radio_date_range(time_range, start_date, end_date)
 
                     cmd = [
                         'node',
@@ -1294,7 +1316,8 @@ def radio_soundcharts_batch():
                             jobs[batch_id]['batch_artist_data'][art] = {'radio_data': airplay}
                             doc = get_artist_doc(art)
                             if doc:
-                                ar = _batch_auto_append(art, doc['doc_id'], radio_data=airplay)
+                                ar = _batch_auto_append(art, doc['doc_id'], radio_data=airplay,
+                                                        radio_date_range=compute_radio_date_range(time_range, start_date, end_date))
                                 jobs[batch_id]['append_results'][art] = ar
                                 if ar['status'] == 'appended':
                                     log_line(batch_id, f'  \u2713 Appended to Google Doc: {ar["doc_title"]}')
@@ -2131,6 +2154,8 @@ def report_compile():
             jobs[job_id]['radio_data'] = result.get('radio_data')
             jobs[job_id]['press_data'] = result.get('press_data')
             jobs[job_id]['dsp_data'] = result.get('dsp_data')
+            jobs[job_id]['radio_date_range'] = compute_radio_date_range(
+                radio_time_range, radio_start_date, radio_end_date)
 
             finish_job(job_id, result=summary, output_path=output_path)
 
@@ -2896,11 +2921,12 @@ CREDENTIAL_SERVICES = {
         'label': 'Serper.dev',
         'used_by': 'Press Pickup (Google SERP)',
     },
-    'brave': {
-        'keys': ['BRAVE_API_KEY'],
-        'labels': {'BRAVE_API_KEY': 'API Key'},
-        'label': 'Brave Search',
-        'used_by': 'Press Pickup, Outlet Discovery',
+    'searxng': {
+        'keys': ['SEARXNG_URL'],
+        'labels': {'SEARXNG_URL': 'URL'},
+        'defaults': {'SEARXNG_URL': 'http://localhost:8888'},
+        'label': 'SearXNG (self-hosted)',
+        'used_by': 'Press Pickup (Web Search)',
     },
     'groq': {
         'keys': ['GROQ_API_KEY'],
@@ -2938,7 +2964,8 @@ def get_credentials():
     for sid, info in CREDENTIAL_SERVICES.items():
         fields = []
         for key in info['keys']:
-            val = os.environ.get(key, '').strip()
+            default = info.get('defaults', {}).get(key, '')
+            val = os.environ.get(key, default).strip()
             fields.append({
                 'key': key,
                 'label': info['labels'].get(key, key),
@@ -2990,15 +3017,14 @@ def test_credential(service):
             resp.raise_for_status()
             return jsonify({'ok': True, 'message': 'Connected. Uses 1 credit per test.'})
 
-        elif service == 'brave':
-            key = os.environ.get('BRAVE_API_KEY', '').strip()
-            if not key:
-                return jsonify({'ok': False, 'error': 'API key not configured.'})
-            resp = req.get('https://api.search.brave.com/res/v1/web/search',
-                           headers={'X-Subscription-Token': key, 'Accept': 'application/json'},
-                           params={'q': 'test', 'count': 1}, timeout=10)
+        elif service == 'searxng':
+            url = os.environ.get('SEARXNG_URL', 'http://localhost:8888').strip()
+            resp = req.get(f'{url}/search',
+                           params={'q': 'test', 'format': 'json'}, timeout=10)
             resp.raise_for_status()
-            return jsonify({'ok': True, 'message': 'Connected successfully.'})
+            data = resp.json()
+            count = len(data.get('results', []))
+            return jsonify({'ok': True, 'message': f'Connected. Test returned {count} results.'})
 
         elif service == 'groq':
             key = os.environ.get('GROQ_API_KEY', '').strip()
@@ -3349,6 +3375,7 @@ def google_append(artist_name):
     radio_data = data.get('radio_data')
     press_data = data.get('press_data')
     date_label = data.get('date_label')
+    radio_date_range = data.get('radio_date_range')
 
     if not dsp_data and not radio_data and not press_data:
         return jsonify({'error': 'No data provided to append.'}), 400
@@ -3362,6 +3389,7 @@ def google_append(artist_name):
             press_data=press_data,
             artist_name=artist_name,
             date_label=date_label,
+            radio_date_range=radio_date_range,
         )
 
         status = 'success' if result['success'] else f'error: {result["error"]}'
@@ -3404,7 +3432,9 @@ def google_append_from_job(job_id):
     dsp_data = job.get('dsp_data')
     radio_data = job.get('radio_data')
     press_data = job.get('press_data')
-    date_label = (request.get_json(silent=True) or {}).get('date_label')
+    req_data = request.get_json(silent=True) or {}
+    date_label = req_data.get('date_label')
+    radio_date_range = req_data.get('radio_date_range') or job.get('radio_date_range')
 
     # Check for actual data (not just None/empty)
     has_dsp = dsp_data and any(
@@ -3443,6 +3473,7 @@ def google_append_from_job(job_id):
             artist_name=artist_name,
             date_label=date_label,
             proof_image_paths=proof_image_paths if proof_image_paths else None,
+            radio_date_range=radio_date_range,
         )
 
         status = 'success' if result['success'] else f'error: {result["error"]}'
@@ -3592,7 +3623,8 @@ def google_retry_append(artist_name):
         return jsonify({'error': 'No cached data found for this artist in the batch.'}), 404
 
     ar = _batch_auto_append(artist_name, doc['doc_id'],
-                            radio_data=radio_data, press_data=press_data, dsp_data=dsp_data)
+                            radio_data=radio_data, press_data=press_data, dsp_data=dsp_data,
+                            radio_date_range=artist_data.get('radio_date_range'))
 
     # Update batch append_results
     if 'append_results' in job:

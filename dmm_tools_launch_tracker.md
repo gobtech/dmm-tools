@@ -31,7 +31,7 @@ Go through every tool in the web UI and deliberately try to break it. Document e
 - Artist name that matches common English words (e.g., "The", "Future")
 - No internet connection during search
 - Serper API key expired or invalid
-- Brave API key expired or invalid
+- SearXNG container down or unreachable
 - Groq API key expired or invalid (relevance filter should fail open)
 - feed_registry.json missing or corrupted
 - social_handle_registry.json missing or corrupted
@@ -76,7 +76,7 @@ Go through every tool in the web UI and deliberately try to break it. Document e
 - No genre selected
 - No region selected
 - Groq unavailable
-- Brave API exhausted
+- SearXNG container down
 
 **Release Calendar — test these scenarios:**
 - Google Sheets URL unreachable
@@ -160,7 +160,7 @@ Create a `/settings` page accessible from the main nav. Sections:
 **API Credentials**
 - Soundcharts: email + password fields (masked). Test button that attempts login and shows "Connected ✓" or "Login failed ✗" with the specific error
 - Serper: API key field (masked). Shows remaining credits count. Test button
-- Brave: API key field (masked). Shows monthly usage / quota. Test button  
+- SearXNG: URL field (default localhost:8888). Health check test button
 - Groq: API key field (masked). Test button
 - Tavily: API key field (masked). Test button
 - Gemini: API key field (masked). Test button

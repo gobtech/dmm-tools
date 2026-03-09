@@ -7,7 +7,7 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | Tool | What it does | Manual time saved |
 |------|-------------|-------------------|
 | **Radio Report** | Auto-fetches airplay data from Soundcharts and generates formatted Word reports (LATAM-focused). Batch mode: run all artists from this week's releases or full schedule in one click | ~1-2 hrs/artist |
-| **Press Pickup** | 7-source pipeline (RSS feeds, sitemaps, Google News, Brave, Serper, Tavily, DuckDuckGo) for Spanish/Portuguese press coverage. Smart social media classification via handle registry (known outlet posts included, artist/unknown excluded). US edition exclusion for multi-regional outlets. Results grouped by outlet with article titles and title-based dedup. Batch mode: run all artists from release schedule. Downloadable .docx or .zip | ~2-3 hrs/artist |
+| **Press Pickup** | 7-source pipeline (RSS feeds, sitemaps, Google News, SearXNG, Serper, Tavily, DuckDuckGo) for Spanish/Portuguese press coverage. Smart social media classification via handle registry (known outlet posts included, artist/unknown excluded). US edition exclusion for multi-regional outlets. Results grouped by outlet with article titles and title-based dedup. Batch mode: run all artists from release schedule. Downloadable .docx or .zip | ~2-3 hrs/artist |
 | **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
 | **Full Report** | Compiles Radio + DSP + Press into a single client-facing .docx with release timeline, proof images, press coverage with article title hyperlinks (grouped by outlet), and optional efforts summary | ~2-3 hrs/artist |
 | **Weekly Digest** | Generates lightweight email-ready summaries (HTML + plain text) with AI campaign analysis (Groq) and copy-to-clipboard for pasting into Gmail/Outlook. Batch mode runs multiple artists in one click with snapshot-only option for fast dashboard updates | ~30-60 min/artist/week |
@@ -28,7 +28,7 @@ python web/app.py
 
 The web UI provides:
 - **Radio Report**: Type an artist name → auto-fetches from Soundcharts → downloads .docx (LATAM or all countries, with custom date range support). **Batch mode**: switch to "This week's releases" or "All releases" to run radio reports for every artist in the release schedule — generates individual .docx files bundled as a downloadable .zip
-- **Press Pickup**: Type an artist name + date range (7/14/28 days or custom From/To) → 7-source pipeline (RSS feeds, sitemaps, Google News, Brave, Serper, Tavily, DuckDuckGo) → AI relevance filter → smart social media classification (outlet posts included, artist/unknown excluded) → displays formatted report → downloadable .docx. **Batch mode**: switch to "This week's releases" or "All releases" to run press searches for every artist — combined text report + individual .docx files as .zip
+- **Press Pickup**: Type an artist name + date range (7/14/28 days or custom From/To) → 7-source pipeline (RSS feeds, sitemaps, Google News, SearXNG web search, Serper, Tavily, DuckDuckGo) → AI relevance filter → smart social media classification (outlet posts included, artist/unknown excluded) → displays formatted report → downloadable .docx. **Batch mode**: switch to "This week's releases" or "All releases" to run press searches for every artist — combined text report + individual .docx files as .zip
 - **DSP Pickup**: Search by artist, week, or all releases → checks playlists across platforms → generates proof images and downloadable .docx report
 - **Full Report**: Enter an artist name → configure independent time ranges for Radio (7D/28D/1Y/Custom Range) and Press (7/14/28 days or custom From/To) → runs all three tools automatically → compiles a single client-facing .docx with release timeline, radio plays, playlist highlights (with proof images), and press coverage (grouped by outlet with article title hyperlinks)
 - **Proposal Generator**: Select artist, genre, target countries, radio stations, budget options → generates complete proposal .docx with campaign overview, genre-filtered press/radio targets, DSP pitching strategies, AI-generated Goal/Strategy and Digital Marketing sections (Groq — leave fields blank for auto-generation), and budget breakdown with real-time preview
@@ -52,7 +52,6 @@ cp Untitled_*_all.csv data/playlist_database.csv
 
 # 3. Set API keys in .env
 export SERPER_API_KEY="..."         # Serper.dev (for Press Pickup — Google results)
-export BRAVE_API_KEY="..."          # Brave Search (supplementary, for Press Pickup)
 export SOUNDCHARTS_EMAIL="..."      # Soundcharts login (for Radio Report)
 export SOUNDCHARTS_PASSWORD="..."
 export GEMINI_API_KEY="..."         # Google Gemini (optional, for PR Translator AI mode — free tier)
@@ -106,7 +105,7 @@ python dsp-pickup/dsp_pickup.py --all --spotify-only --output reports/dsp_full.t
 ```
 dmm-tools/
 ├── README.md
-├── .env                            ← API keys (SERPER_API_KEY, BRAVE_API_KEY, SOUNDCHARTS_EMAIL/PASSWORD)
+├── .env                            ← API keys (SERPER_API_KEY, SOUNDCHARTS_EMAIL/PASSWORD, etc.)
 ├── data/
 │   ├── press_database.csv          ← Notion export (media outlets)
 │   ├── press_database_enriched.csv ← Enriched DB with 834 outlet URLs
@@ -134,7 +133,9 @@ dmm-tools/
 │   ├── press_pickup.py             ← Press pickup automation (7-source pipeline, social handle classification, .docx reports)
 │   ├── discover_feeds.py           ← RSS/WP feed discovery (saves feed_registry.json)
 │   ├── discover_social_handles.py  ← Social handle discovery (saves social_handle_registry.json)
-│   └── enrich_outlet_urls.py       ← Brave Search URL enrichment for outlets missing websites
+│   ├── enrich_outlet_urls.py       ← Brave Search URL enrichment for outlets missing websites
+│   ├── setup_searxng.sh            ← SearXNG Docker management (start/stop/restart/status)
+│   └── searxng_settings.yml        ← SearXNG config (enables JSON API format)
 ├── dsp-pickup/
 │   └── dsp_pickup.py               ← DSP playlist checker (proof images + .docx reports)
 ├── report-compiler/
@@ -159,12 +160,15 @@ dmm-tools/
 
 > Press Pickup uses up to 3 Serper credits per artist search (targeted site: queries against known outlets that weren't covered by other sources).
 
-### Brave Search (supplementary for Press Pickup)
-1. Go to [brave.com/search/api](https://brave.com/search/api/)
-2. Sign up and create an API key
-3. Add to `.env`: `export BRAVE_API_KEY="BSAM..."`
+### SearXNG (self-hosted web search for Press Pickup)
+SearXNG is a free, self-hosted metasearch engine used as a supplementary search source. It runs as a Docker container:
 
-> Free tier: 2,000 queries/month (recurring). Used as a supplementary source alongside Google News RSS and Serper.
+```bash
+cd press-pickup
+bash setup_searxng.sh start
+```
+
+> Requires Docker. The container runs on port 8888 and is auto-started by `start.sh`. Zero API cost — unlimited searches.
 
 ### Soundcharts (for Radio Report)
 The Radio Report auto-fetches airplay data using your Soundcharts account credentials (no paid API tier required — uses the internal web API with your existing paid account). Authentication is fully automatic — the app logs in programmatically and refreshes the token before it expires.

@@ -62,11 +62,18 @@ function switchTab(name) {
     loadSchedules();
     loadScheduleHistory();
   }
-  // Load settings on visit
+  // Settings: show admin gate or load content if already unlocked
   if (name === 'settings') {
-    refreshGoogleSettings();
-    loadSettingsCredentials();
-    loadSettingsDataSources();
+    if (window._adminUnlocked) {
+      document.getElementById('settings-admin-gate').style.display = 'none';
+      document.getElementById('settings-content').style.display = '';
+      refreshGoogleSettings();
+      loadSettingsCredentials();
+      loadSettingsDataSources();
+    } else {
+      document.getElementById('settings-admin-gate').style.display = '';
+      document.getElementById('settings-content').style.display = 'none';
+    }
   }
 }
 
@@ -341,7 +348,7 @@ const STEP_CONFIGS = {
     { label: 'Mining sitemaps', pattern: /Mining outlet sitemaps/ },
     { label: 'Scanning outlet adapters', pattern: /Scanning outlet adapters/ },
     { label: 'Google News', pattern: /Google News/ },
-    { label: 'Brave Search', pattern: /Brave (News|Web):/ },
+    { label: 'Web Search', pattern: /Web Search( News)?:/ },
     { label: 'Serper Search', pattern: /Serper targeted/ },
     { label: 'Tavily + DuckDuckGo', pattern: /Tavily|DuckDuckGo/ },
     { label: 'AI relevance filter', pattern: /AI relevance filter/ },
@@ -2583,7 +2590,7 @@ const walkthroughSteps = [
   { target: '#radio-artist', tab: 'radio', text: 'Start by typing an artist name. The tool searches Soundcharts for their airplay data across LATAM radio stations.' },
   { target: 'input[name="radio-range"]', tab: 'radio', text: 'Pick a time range \u2014 7 days, 28 days, up to 1 year, or a custom date range.', targetParent: true },
   { target: '#radio-fetch-btn', tab: 'radio', text: 'Click here to fetch songs. You\u2019ll then pick which songs to include and generate a downloadable Word report.' },
-  { target: '#press-artist', tab: 'press', text: 'Press Pickup searches 7 sources (RSS feeds, sitemaps, Google News, Brave, Serper, Tavily, DuckDuckGo) for press coverage across LATAM.' },
+  { target: '#press-artist', tab: 'press', text: 'Press Pickup searches 7 sources (RSS feeds, sitemaps, Google News, Web Search, Serper, Tavily, DuckDuckGo) for press coverage across LATAM.' },
   { target: 'input[name="dsp-mode"]', tab: 'dsp', text: 'DSP Pickup checks 99+ editorial playlists across Spotify, Apple Music, Deezer, Amazon, Claro M\u00fasica, and YouTube Music.', targetParent: true },
   { target: null, text: 'You\u2019re all set! Use the \u2190 All Tools button to return to the homepage. Click ? at the bottom to replay this tour anytime.' },
 ];
@@ -3845,8 +3852,40 @@ async function appendToGoogleDoc(artistName) {
 }
 
 // =====================================================================
-// Settings — API Credentials & Data Sources
+// Settings — Admin Gate & Data Loading
 // =====================================================================
+
+window._adminUnlocked = false;
+
+async function unlockSettings() {
+  const input = document.getElementById('admin-pass-input');
+  const errEl = document.getElementById('admin-gate-error');
+  errEl.style.display = 'none';
+  try {
+    const resp = await fetch('/api/admin/auth', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: input.value})
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      window._adminUnlocked = true;
+      document.getElementById('settings-admin-gate').style.display = 'none';
+      document.getElementById('settings-content').style.display = '';
+      refreshGoogleSettings();
+      loadSettingsCredentials();
+      loadSettingsDataSources();
+    } else {
+      errEl.textContent = data.error || 'Wrong password.';
+      errEl.style.display = '';
+      input.value = '';
+      input.focus();
+    }
+  } catch (e) {
+    errEl.textContent = 'Connection error. Try again.';
+    errEl.style.display = '';
+  }
+}
 
 async function loadSettingsCredentials() {
   const container = document.getElementById('settings-credentials');

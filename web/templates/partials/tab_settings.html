@@ -1,6 +1,25 @@
 <div id="tab-settings" class="tab-panel">
   <h2>Settings</h2>
 
+  <!-- Admin password gate -->
+  <div id="settings-admin-gate" class="card" style="text-align:center;padding:40px 24px;">
+    <div style="font-size:28px;margin-bottom:8px;">&#128274;</div>
+    <div style="font-weight:600;font-size:15px;margin-bottom:4px;">Admin Access Required</div>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">
+      Enter the admin password to view and manage settings.
+    </p>
+    <div style="max-width:300px;margin:0 auto;">
+      <input type="password" id="admin-pass-input" placeholder="Admin password"
+        style="width:100%;padding:10px 14px;border:1.5px solid var(--border-strong);border-radius:8px;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-body);font-size:14px;margin-bottom:10px;"
+        onkeydown="if(event.key==='Enter')unlockSettings()">
+      <button class="btn btn-small" onclick="unlockSettings()" style="width:100%;padding:10px;">Unlock</button>
+      <div id="admin-gate-error" style="color:#b91c1c;font-size:13px;margin-top:8px;display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Settings content (hidden until admin auth) -->
+  <div id="settings-content" style="display:none;">
+
   <!-- API Credentials -->
   <h3 style="margin-bottom:4px;">API Credentials</h3>
   <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">
@@ -49,4 +68,6 @@
     </p>
     <a href="/api/backup" class="btn btn-small" download>Download Backup (.zip)</a>
   </div>
+
+  </div><!-- /settings-content -->
 </div>

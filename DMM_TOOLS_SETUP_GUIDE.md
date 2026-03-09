@@ -10,7 +10,7 @@ This toolkit replaces that manual work with three tools:
 
 - **Radio Report Generator** — Auto-fetches airplay data directly from Soundcharts (using your existing paid account session) and produces formatted Word documents with radio play data grouped by country and station. Defaults to LATAM-only data, with an option for all countries. What used to involve manual CSV downloads and copy-pasting into Google Docs now runs in seconds with zero transcription errors.
 
-- **Press Pickup Tool** — Searches for Spanish and Portuguese-language press coverage using a 7-source pipeline: RSS/WordPress feed scanning (430 feeds), XML sitemap mining (333 outlets), Google News RSS (free, unlimited — 5 LATAM regions concurrent), Brave Search (free, 2,000/month), Serper.dev (targeted site: queries against known outlets), Tavily (free 1,000/month — AI-optimized search), and DuckDuckGo News (free, unlimited). A Groq AI relevance filter removes false positives (robust JSON parsing handles malformed LLM responses). Results are matched against DMM's internal media database (1,500+ outlets), grouped by outlet (multiple URLs from the same outlet merge into one entry with article titles), and formatted into reports sorted by country. Social media posts are intelligently classified using a handle registry (536 outlets with discovered handles): posts from known press outlets are included with the outlet's name and description, artist's own accounts are excluded, and unknown accounts are filtered out. US editions of multi-regional outlets (e.g. rollingstone.com) are excluded entirely when the article URL has no LATAM language indicators. Title-based dedup within outlet groups catches near-duplicates with different URLs but identical content (unicode-normalized comparison). URL normalization (amp stripping, tracking param removal) applied consistently across all 7 sources. New outlet descriptions are auto-generated via Groq AI. Reports include article titles and are downloadable as formatted .docx files.
+- **Press Pickup Tool** — Searches for Spanish and Portuguese-language press coverage using a 7-source pipeline: RSS/WordPress feed scanning (430 feeds), XML sitemap mining (333 outlets), Google News RSS (free, unlimited — 5 LATAM regions concurrent), SearXNG web search (self-hosted, free, unlimited), Serper.dev (targeted site: queries against known outlets), Tavily (free 1,000/month — AI-optimized search), and DuckDuckGo News (free, unlimited). A Groq AI relevance filter removes false positives (robust JSON parsing handles malformed LLM responses). Results are matched against DMM's internal media database (1,500+ outlets), grouped by outlet (multiple URLs from the same outlet merge into one entry with article titles), and formatted into reports sorted by country. Social media posts are intelligently classified using a handle registry (536 outlets with discovered handles): posts from known press outlets are included with the outlet's name and description, artist's own accounts are excluded, and unknown accounts are filtered out. US editions of multi-regional outlets (e.g. rollingstone.com) are excluded entirely when the article URL has no LATAM language indicators. Title-based dedup within outlet groups catches near-duplicates with different URLs but identical content (unicode-normalized comparison). URL normalization (amp stripping, tracking param removal) applied consistently across all 7 sources. New outlet descriptions are auto-generated via Groq AI. Reports include article titles and are downloadable as formatted .docx files.
 
 - **DSP Pickup Tool** — Checks 99 LATAM editorial playlists across Spotify, Deezer, Apple Music, Amazon Music, Claro Música, and YouTube Music against DMM's release schedule (pulled live from a shared Google Sheet) to find artist placements. All 6 platforms are fully automated with no API keys required: Spotify uses public embed page scraping (50 playlists), Deezer uses its public API (6 playlists), Apple Music uses public page scraping (16 playlists), Amazon Music uses public embed page scraping (6 playlists), Claro Música uses anonymous login with server-side rendered state parsing (4 playlists), and YouTube Music uses the innertube API for clean song titles (16 playlists). Each match includes the playlist link for quick verification. The tool generates composite proof images (showing playlist cover art, track position, and platform badge) and a formatted .docx report with platform headers, country labels, playlist metadata, and embedded proof images — ready to share with clients.
 
@@ -59,13 +59,16 @@ pip install requests googlenewsdecoder python-docx Pillow
 
 > New accounts get 2,500 free credits (one-time). Press Pickup uses only 3 credits per artist search (1 news query + 2 organic queries), so this lasts ~830 searches. Serper provides actual Google results including social media posts that Google News RSS and Brave miss.
 
-### Brave Search (supplementary for Press Pickup)
+### SearXNG (self-hosted web search for Press Pickup)
 
-1. Go to [brave.com/search/api](https://brave.com/search/api/)
-2. Sign up and create an API key
-3. Copy the key — this is your `BRAVE_API_KEY`
+SearXNG is a free, self-hosted metasearch engine that replaces Brave Search as a supplementary search source. It runs as a Docker container:
 
-> Free tier: 2,000 queries/month (recurring). Used as a supplementary source — the bulk of press results come from Google News RSS (free, unlimited) and Serper.
+```bash
+cd press-pickup
+bash setup_searxng.sh start
+```
+
+> Requires Docker Desktop (on WSL2) or Docker Engine (on Linux). Runs on port 8888. Zero API cost — unlimited searches. Auto-started by `start.sh`.
 
 ### Soundcharts (for Radio Report)
 
@@ -86,7 +89,6 @@ Fill in your keys:
 
 ```bash
 export SERPER_API_KEY="..."                # Serper.dev (Google results for Press Pickup)
-export BRAVE_API_KEY="BSAM..."             # Brave Search (supplementary for Press Pickup)
 export SOUNDCHARTS_EMAIL="your@email.com"  # Soundcharts (for Radio Report)
 export SOUNDCHARTS_PASSWORD="your-password"
 export TAVILY_API_KEY="tvly-..."           # Tavily (optional, for Press Pickup — free 1000/mo)
@@ -229,7 +231,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 | Task | Status |
 |------|--------|
 | Radio play reports (Soundcharts auto-fetch) | Fully automated (LATAM default, all countries optional) |
-| Press pickup (7-source pipeline) | Fully automated (RSS feeds + sitemaps + Google News + Brave + Serper + Tavily + DDG News, smart social media classification via handle registry, .docx download) |
+| Press pickup (7-source pipeline) | Fully automated (RSS feeds + sitemaps + Google News + SearXNG + Serper + Tavily + DDG News, smart social media classification via handle registry, .docx download) |
 | DSP pickup — Spotify playlists (50) | Fully automated (embed scraping, no API key) |
 | DSP pickup — Deezer playlists (6) | Fully automated (public API, no key) |
 | DSP pickup — Apple Music playlists (16) | Fully automated (page scraping, no API key) |
@@ -252,7 +254,7 @@ python3 dsp-pickup/dsp_pickup.py --all --spotify-only --output ./reports/dsp_ful
 → Make sure the venv is activated: `source ~/projects/dmm-tools/.venv/bin/activate`, then run `pip install requests googlenewsdecoder python-docx Pillow`
 
 **Press pickup returns few or no results**
-→ Try broadening the date range with `--days 30` or `--days 90`. Check that your API keys are valid: Serper credits at [serper.dev/dashboard](https://serper.dev/dashboard), Brave quota at [api-dashboard.search.brave.com](https://api-dashboard.search.brave.com). Google News RSS is free and unlimited, so at minimum you should always get press articles
+→ Try broadening the date range with `--days 30` or `--days 90`. Check that your API keys are valid: Serper credits at [serper.dev/dashboard](https://serper.dev/dashboard). Make sure SearXNG is running (`bash press-pickup/setup_searxng.sh status`). Google News RSS is free and unlimited, so at minimum you should always get press articles
 
 **Spotify playlist says "Could not parse playlist"**
 → Some playlist types (mood mixes, personalized playlists) use a different embed format that doesn't include track data. These are rare among editorial playlists — the tool will skip them and continue.

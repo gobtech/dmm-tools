@@ -15,7 +15,7 @@ Requirements:
 
 Setup:
   Press articles: No API key required (Google News RSS + DuckDuckGo).
-  Social media supplement (optional): export BRAVE_API_KEY="your-brave-api-key"
+  Web search (SearXNG, self-hosted): docker run -d --name searxng -p 8888:8080 searxng/searxng
   Additional search source (optional): export TAVILY_API_KEY="tvly-..."  # Free 1000/month
   DuckDuckGo: No API key needed (pip install duckduckgo_search)
 
@@ -902,44 +902,39 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
     return results
 
 
-def brave_search(query, api_key, num_results=20, freshness=None, search_type='web'):
+def _search_searxng(query, num_results=30, categories='general'):
     """
-    Brave Search for organic or news results.
-    search_type: 'web' for organic, 'news' for news articles.
+    Search via local SearXNG instance (metasearch: Google, Bing, DuckDuckGo, etc).
+    categories: 'general' for web results, 'news' for news articles.
     Returns list of { title, link, snippet, domain }.
     """
     import requests
 
-    endpoint = f'https://api.search.brave.com/res/v1/{search_type}/search'
+    searxng_url = os.environ.get('SEARXNG_URL', 'http://localhost:8888')
     params = {
         'q': query,
-        'count': num_results,
-        'search_lang': 'es',
-        'text_decorations': 'false',
+        'format': 'json',
+        'categories': categories,
+        'language': 'es',
+        'pageno': 1,
     }
-    if freshness:
-        params['freshness'] = freshness
 
     try:
         resp = requests.get(
-            endpoint,
-            headers={'X-Subscription-Token': api_key, 'Accept': 'application/json'},
+            f'{searxng_url}/search',
             params=params,
+            timeout=15,
         )
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        print(f"    Brave search failed: {e}")
+        print(f"    SearXNG search failed: {e}")
         return []
 
-    # News endpoint returns 'results' directly, web returns 'web.results'
-    if search_type == 'news':
-        raw_items = data.get('results', [])
-    else:
-        raw_items = data.get('web', {}).get('results', [])
+    raw_items = data.get('results', [])
 
     results = []
-    for item in raw_items:
+    for item in raw_items[:num_results]:
         link = item.get('url', '')
         domain = extract_domain(link) or ''
 
@@ -952,7 +947,7 @@ def brave_search(query, api_key, num_results=20, freshness=None, search_type='we
         results.append({
             'title': item.get('title', ''),
             'link': link,
-            'snippet': item.get('description', ''),
+            'snippet': item.get('content', ''),
             'domain': domain,
         })
 
@@ -1877,8 +1872,8 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
     Returns a dict with query sets for different search sources:
     {
       'google_news': [(query, gl, hl), ...],   # 5 region-specific queries
-      'brave_news':  [query, ...],
-      'brave_web':   [query, ...],
+      'web_news':  [query, ...],
+      'web_search':   [query, ...],
       'tavily_news': query_str,
       'tavily_web':  query_str,
       'ddg':         [query, ...],
@@ -1971,22 +1966,22 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
             else:
                 google_queries.append((q_base, gl, hl))
 
-        brave_news = [f'"{kw}"' for kw in keywords]
+        web_news = [f'"{kw}"' for kw in keywords]
         if is_ambiguous:
-            brave_web = [f'"{kw}" música banda entrevista lanzamiento' for kw in keywords]
+            web_search = [f'"{kw}" música banda entrevista lanzamiento' for kw in keywords]
             tavily_news = q_press_es
             tavily_web = q_music_strict_es
             ddg = [f'{kw} música banda entrevista' for kw in keywords]
         else:
-            brave_web = [f'"{kw}" música' for kw in keywords]
+            web_search = [f'"{kw}" música' for kw in keywords]
             tavily_news = artist_base
             tavily_web = f'{artist_base} música'
             ddg = [f'{kw} música' for kw in keywords]
 
         return {
             'google_news': google_queries,
-            'brave_news': brave_news,
-            'brave_web': brave_web,
+            'web_news': web_news,
+            'web_search': web_search,
             'tavily_news': tavily_news,
             'tavily_web': tavily_web,
             'ddg': ddg,
@@ -2033,9 +2028,9 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
         else:
             google_queries.append((q_release, gl, hl))
 
-    # Brave: release title + format keywords
-    brave_news = [f'"{kw}"' for kw in keywords]  # Keep broad for news (it's already filtered by recency)
-    brave_web = [
+    # SearXNG: release title + format keywords
+    web_news = [f'"{kw}"' for kw in keywords]  # Keep broad for news (it's already filtered by recency)
+    web_search = [
         f'{artist_base} "{release_title}"',
         f'{artist_base} {format_kw_es}',
     ]
@@ -2052,8 +2047,8 @@ def _build_enriched_queries(keywords, release_schedule_url=None):
 
     return {
         'google_news': google_queries,
-        'brave_news': brave_news,
-        'brave_web': brave_web,
+        'web_news': web_news,
+        'web_search': web_search,
         'tavily_news': tavily_news,
         'tavily_web': tavily_web,
         'ddg': ddg,
@@ -2207,7 +2202,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
     # Source tracking for breakdown summary
     source_counts = {
         'feeds': 0, 'sitemaps': 0, 'adapter': 0, 'google_news': 0,
-        'brave': 0, 'serper': 0, 'tavily': 0, 'ddg': 0,
+        'searxng': 0, 'serper': 0, 'tavily': 0, 'ddg': 0,
     }
 
     # 0) Feed scan — RSS feeds + WordPress APIs from known outlets (instant, free)
@@ -2322,22 +2317,20 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
 
     print(f"  Found {len(all_results)} results from feeds + Google News")
 
-    # 2) Brave organic search — catches social media, blogs (free tier: 2000/month)
-    brave_key = os.environ.get('BRAVE_API_KEY')
-    if brave_key:
-        if days <= 1:
-            freshness = 'pd'
-        elif days <= 7:
-            freshness = 'pw'
-        elif days <= 30:
-            freshness = 'pm'
-        else:
-            freshness = 'py'
+    # 2) SearXNG metasearch — self-hosted, aggregates Google/Bing/DuckDuckGo (free, no API key)
+    searxng_available = False
+    try:
+        import requests as _req_check
+        _req_check.get(os.environ.get('SEARXNG_URL', 'http://localhost:8888'), timeout=3)
+        searxng_available = True
+    except Exception:
+        print("  SearXNG not available — skipping web search source")
 
-        # Brave News — enriched queries
-        for query in queries['brave_news']:
-            print(f"  Brave News: {query[:80]}")
-            results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='news')
+    if searxng_available:
+        # SearXNG News — enriched queries
+        for query in queries['web_news']:
+            print(f"  Web Search News: {query[:80]}")
+            results = _search_searxng(query, num_results=20, categories='news')
             for r in results:
                 link = r.get('link') or ''
                 domain = r.get('domain') or extract_domain(link) or ''
@@ -2346,14 +2339,14 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                 norm = _normalize_url(link)
                 if norm not in seen_urls:
                     seen_urls.add(norm)
-                    r['_source'] = 'brave'
+                    r['_source'] = 'searxng'
                     all_results.append(r)
-                    source_counts['brave'] += 1
+                    source_counts['searxng'] += 1
 
-        # Brave Organic — enriched queries with release context
-        for query in queries['brave_web']:
-            print(f"  Brave Web: {query[:80]}")
-            results = brave_search(query, brave_key, num_results=20, freshness=freshness, search_type='web')
+        # SearXNG Web — enriched queries with release context
+        for query in queries['web_search']:
+            print(f"  Web Search: {query[:80]}")
+            results = _search_searxng(query, num_results=20, categories='general')
             for r in results:
                 link = r.get('link') or ''
                 domain = r.get('domain') or extract_domain(link) or ''
@@ -2362,9 +2355,9 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                 norm = _normalize_url(link)
                 if norm not in seen_urls:
                     seen_urls.add(norm)
-                    r['_source'] = 'brave'
+                    r['_source'] = 'searxng'
                     all_results.append(r)
-                    source_counts['brave'] += 1
+                    source_counts['searxng'] += 1
 
     # 3) Serper — targeted site: queries against high-priority outlets with no results yet
     #    Instead of broad queries (old approach), we identify which known outlets from the
@@ -2967,7 +2960,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
         'sitemaps': 'Sitemap Mining',
         'adapter': 'Outlet Adapters',
         'google_news': 'Google News',
-        'brave': 'Brave Search',
+        'searxng': 'Web Search',
         'serper': 'Serper (targeted)',
         'tavily': 'Tavily',
         'ddg': 'DuckDuckGo',
@@ -3104,7 +3097,7 @@ def _generate_press_docx(artist, country_results, docx_path):
             media_para.paragraph_format.space_before = Pt(0)
             media_para.paragraph_format.space_after = Pt(0)
 
-            # URLs — display article title as clickable hyperlink text
+            # URLs — display as raw clickable links
             urls = entry.get('urls', [])
             if len(urls) == 1:
                 u = urls[0]
@@ -3113,8 +3106,7 @@ def _generate_press_docx(artist, country_results, docx_path):
                 if label:
                     prefix_run = url_para.add_run(f"{label}: ")
                     prefix_run.font.size = Pt(11)
-                display = u.get('title', '').strip() or u['url']
-                _add_hyperlink(url_para, u['url'], display)
+                _add_hyperlink(url_para, u['url'], u['url'])
                 url_para.paragraph_format.space_before = Pt(0)
                 url_para.paragraph_format.space_after = Pt(0)
             else:
@@ -3126,8 +3118,7 @@ def _generate_press_docx(artist, country_results, docx_path):
                     else:
                         prefix_run = url_para.add_run("• ")
                     prefix_run.font.size = Pt(11)
-                    display = u.get('title', '').strip() or u['url']
-                    _add_hyperlink(url_para, u['url'], display)
+                    _add_hyperlink(url_para, u['url'], u['url'])
                     url_para.paragraph_format.space_before = Pt(0)
                     url_para.paragraph_format.space_after = Pt(0)
 

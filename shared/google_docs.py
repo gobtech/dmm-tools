@@ -133,25 +133,6 @@ def _extract_paragraphs(doc):
     return paragraphs
 
 
-def check_duplicate_report(doc_id, date_label=None):
-    """Check if a DMM Report with the given date already exists in the doc.
-
-    Returns: {duplicate: bool, date_label: str}
-    """
-    if not date_label:
-        date_label = datetime.now().strftime('%b %d, %Y')
-
-    service = get_docs_service()
-    doc = service.documents().get(documentId=doc_id).execute()
-    paragraphs = _extract_paragraphs(doc)
-
-    search = f'DMM Report [{date_label}]'
-    for para in paragraphs:
-        if search in para['text']:
-            return {'duplicate': True, 'date_label': date_label}
-
-    return {'duplicate': False, 'date_label': date_label}
-
 
 def get_document_title(doc_id):
     """Fetch and return a Google Doc's title."""
@@ -213,7 +194,7 @@ def scan_document_for_insertion_point(doc_id):
 # Part C: Report Formatter for Google Docs
 # ---------------------------------------------------------------------------
 
-def _format_radio_section(radio_data, play_key='plays_28d'):
+def _format_radio_section(radio_data, play_key='plays_28d', radio_date_range=None):
     """Format radio data into plain text + formatting ranges.
 
     Returns: (text, formatting_ranges)
@@ -248,7 +229,10 @@ def _format_radio_section(radio_data, play_key='plays_28d'):
         return '', []
 
     # Section header (bold, red, 14pt — matching .docx)
-    header = 'Radio Plays\n'
+    if radio_date_range:
+        header = f'Radio Plays ({radio_date_range})\n'
+    else:
+        header = 'Radio Plays\n'
     start = 0
     formats.append({'start': start, 'end': start + len(header) - 1, 'bold': True, 'font_size': 14, 'color': '#C43030'})
     text_parts.append(header)
@@ -448,7 +432,7 @@ def format_report_for_docs(dsp_data, radio_data, press_data, artist_name,
 
     # Radio section
     if radio_data:
-        radio_text, radio_fmt = _format_radio_section(radio_data)
+        radio_text, radio_fmt = _format_radio_section(radio_data, radio_date_range=radio_date_range)
         if radio_text:
             sections.append((radio_text, radio_fmt))
 
@@ -637,12 +621,12 @@ def _upload_proof_images(proof_image_paths, dsp_data):
 
 def append_report_to_doc(doc_id, dsp_data=None, radio_data=None, press_data=None,
                          artist_name='', date_label=None, proof_image_paths=None,
-                         skip_if_duplicate=False):
+                         skip_if_duplicate=False, radio_date_range=None):
     """Append a formatted report to a Google Doc.
 
     Args:
         proof_image_paths: list of local file paths to proof images (uploaded to Drive)
-        skip_if_duplicate: if True, silently skip when a report for this date already exists
+        skip_if_duplicate: unused, kept for backward compatibility
 
     Insertion strategy (in order):
     1. Look for our own divider "--- DMM Report" -> insert ABOVE the most recent one
@@ -665,18 +649,8 @@ def append_report_to_doc(doc_id, dsp_data=None, radio_data=None, press_data=None
         doc = service.documents().get(documentId=doc_id).execute()
         paragraphs = _extract_paragraphs(doc)
 
-        # Duplicate check
         if not date_label:
             date_label = datetime.now().strftime('%b %d, %Y')
-        dup_search = f'DMM Report [{date_label}]'
-        for para in paragraphs:
-            if dup_search in para['text']:
-                if skip_if_duplicate:
-                    return {'success': True, 'inserted_at': None,
-                            'characters_inserted': 0, 'error': None,
-                            'skipped': True, 'reason': f'Report for {date_label} already exists'}
-                # Single-artist mode: warn but still allow (caller decides)
-                break
 
         insert_at = None
 

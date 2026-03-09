@@ -6,7 +6,7 @@ DMM (Dorado Music Marketing) is a LATAM-focused music marketing company managing
 
 Three reporting workflows have already been automated in `dmm-tools`:
 1. **Radio Report** — Soundcharts airplay data → formatted .docx
-2. **Press Pickup** — 7-source pipeline (RSS feeds + sitemaps + Google News RSS + Brave + Serper + Tavily + DuckDuckGo News) → AI relevance filter → social handle classification → DB matching → grouped .docx
+2. **Press Pickup** — 7-source pipeline (RSS feeds + sitemaps + Google News RSS + SearXNG + Serper + Tavily + DuckDuckGo News) → AI relevance filter → social handle classification → DB matching → grouped .docx
 3. **DSP Pickup** — 6-platform playlist checker → proof images → .docx
 
 This document identifies the next wave of automation opportunities based on analysis of:
@@ -61,7 +61,7 @@ A fourth tool — **"Report Compiler"** — that:
 ### Data Sources
 - Soundcharts API (radio plays) — already integrated
 - Spotify/Deezer/Apple/Amazon/Claro/YouTube (playlist checks) — already integrated
-- Google News/Brave/Serper (press) — already integrated
+- Google News/SearXNG/Serper (press) — already integrated
 - Google Sheets release schedule — already integrated
 - User input for efforts summary and any editorial additions
 
@@ -311,7 +311,7 @@ A **Discovery Assistant** that:
 ### Implementation Path
 
 1. **New module**: `discovery/discover_outlets.py`
-2. **Search strategy**: Use the same Brave/Serper/Google News sources already integrated, but with discovery-focused queries:
+2. **Search strategy**: Use the same SearXNG/Serper/Google News sources already integrated, but with discovery-focused queries:
    - `"blog" OR "magazine" OR "podcast" "música electrónica" site:.mx`
    - `"entrevista" OR "reseña" "indie rock" site:.com.br`
 3. **Deduplication**: Check each found domain against the existing `press_database.csv`
