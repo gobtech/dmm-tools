@@ -7,7 +7,7 @@ Automation suite for Dorado Music Marketing workflows. Replaces manual press pic
 | Tool | What it does | Manual time saved |
 |------|-------------|-------------------|
 | **Radio Report** | Auto-fetches airplay data from Soundcharts and generates formatted Word reports (LATAM-focused). Batch mode: run all artists from this week's releases or full schedule in one click | ~1-2 hrs/artist |
-| **Press Pickup** | 7-source pipeline (RSS feeds, sitemaps, Google News, SearXNG, Serper, Tavily, DuckDuckGo) for Spanish/Portuguese press coverage. Smart social media classification via handle registry (known outlet posts included, artist/unknown excluded). US edition exclusion for multi-regional outlets. Results grouped by outlet with article titles and title-based dedup. Batch mode: run all artists from release schedule. Downloadable .docx or .zip | ~2-3 hrs/artist |
+| **Press Pickup** | 7-source pipeline (RSS feeds, sitemaps, Google News, SearXNG, Serper, Tavily, DuckDuckGo) for Spanish/Portuguese press coverage. Date-verified results: article publish dates extracted from HTML metadata/JSON-LD, verified against custom date windows, undated results resolved via article page fetches. Smart social media classification via handle registry (known outlet posts included, artist/unknown excluded). US edition exclusion for multi-regional outlets. Results grouped by outlet with article titles and title-based dedup. Batch mode: run all artists from release schedule. Downloadable .docx or .zip | ~2-3 hrs/artist |
 | **DSP Pickup** | Checks 99 LATAM editorial playlists for artist releases across Spotify/Deezer/Apple Music/Amazon Music/Claro Música/YouTube Music. Generates proof images and formatted .docx reports | ~3-4 hrs/week |
 | **Full Report** | Compiles Radio + DSP + Press into a single client-facing .docx with release timeline, proof images, press coverage with article title hyperlinks (grouped by outlet), and optional efforts summary | ~2-3 hrs/artist |
 | **Weekly Digest** | Generates lightweight email-ready summaries (HTML + plain text) with AI campaign analysis (Groq) and copy-to-clipboard for pasting into Gmail/Outlook. Batch mode runs multiple artists in one click with snapshot-only option for fast dashboard updates | ~30-60 min/artist/week |
@@ -38,6 +38,7 @@ The web UI provides:
 - **Release Calendar** (`/calendar`): Visual timeline of all releases grouped by week, color-coded by phase (Pre-Pitch → Release Week → Reporting), with quick-action buttons to run DSP/Press/Report for any artist
 - **Artist Dashboard** (`/dashboard`): Per-artist metrics dashboard with 4 KPI cards (radio plays, press articles, playlists, markets), trend/country/platform charts, activity feed, campaign notes, and snapshot comparison. **Export to PNG or PDF** — client-side rendering via html2canvas + jsPDF with branded header, chart snapshots, and theme-aware background
 - **Playlist Database** (`/playlists`): Browse, search, and filter all 99+ tracked editorial playlists with platform badges, mood tags, and sortable columns. Add new playlists (auto-detects platform from URL) or remove existing ones — changes sync directly with the DSP Pickup database
+- **Google Docs Integration**: Link artists to Google Docs (including artists outside the release schedule). Reports auto-append with formatted sections (DSP, Radio, Press) directly into each artist's document. Batch mode appends all linked docs in one pass. Settings page provides manual artist linking, bulk linking (dashboard + release schedule artists), and per-doc management
 
 ## Quick Setup
 
@@ -115,7 +116,11 @@ dmm-tools/
 │   └── djo/                        ← Manual Soundcharts CSVs (optional fallback)
 ├── shared/
 │   ├── database.py                 ← Shared data loaders + press matching (name-normalized dedup)
-│   └── soundcharts.py              ← Soundcharts API client (auto-login, search, airplay fetch)
+│   ├── soundcharts.py              ← Soundcharts API client (auto-login, search, airplay fetch)
+│   ├── google_docs.py              ← Google Docs API integration (report formatting + auto-append)
+│   ├── google_auth.py              ← Google OAuth2 authentication (Docs/Drive API)
+│   ├── history.py                  ← SQLite storage (snapshots, notes, schedules, artist-doc mappings)
+│   └── capture.py                  ← Thread-safe stdout proxy for job log capture
 ├── web/
 │   ├── app.py                      ← Flask web server
 │   └── templates/
@@ -148,6 +153,8 @@ dmm-tools/
 │   └── discover_outlets.py         ← Outlet discovery assistant (genre search + DB dedup + Groq AI enrichment)
 ├── pr-generator/
 │   └── generate_pr.py              ← PR translator (paste or .docx → ES/PT, format-preserving)
+├── tests/
+│   └── test_press_pickup.py        ← Press Pickup test suite (date helpers, window filtering, adapters, integration)
 └── reports/                        ← Generated output (.docx, .txt, .json, proof images)
 ```
 

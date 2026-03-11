@@ -48,6 +48,9 @@ app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dmm-tools-dev-key-change-in-production')
 app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 30  # 30 days
+app.config['SESSION_COOKIE_NAME'] = os.environ.get('DMM_SESSION_COOKIE_NAME', 'dmm_tools_session')
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # ---------------------------------------------------------------------------
 # Authentication — two-password model
@@ -64,14 +67,20 @@ def login():
         if password == _TEAM_PASS:
             session.permanent = True
             session['authenticated'] = True
-            return redirect(request.args.get('next') or url_for('index'))
+            resp = redirect(request.args.get('next') or url_for('index'))
+            # Clear Flask's legacy default cookie name so old localhost sessions
+            # don't keep shadowing the new dedicated DMM cookie.
+            resp.delete_cookie('session')
+            return resp
         return render_template('login.html', error='Wrong password.')
     return render_template('login.html')
 
 @app.route('/logout')
 def logout():
     session.clear()
-    return redirect(url_for('login'))
+    resp = redirect(url_for('login'))
+    resp.delete_cookie('session')
+    return resp
 
 @app.route('/api/admin/auth', methods=['POST'])
 def admin_auth():
@@ -91,6 +100,17 @@ def require_login():
     if request.endpoint and request.endpoint in allowed:
         return
     if not session.get('authenticated'):
+        if request.path.startswith('/api/status/'):
+            cookie_names = sorted(request.cookies.keys())
+            logger.warning(
+                'AUTH 401 status poll path=%s host=%s endpoint=%s cookie_names=%s session_keys=%s ua=%s',
+                request.path,
+                request.host,
+                request.endpoint,
+                cookie_names,
+                sorted(session.keys()),
+                request.headers.get('User-Agent', '')[:160],
+            )
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Authentication required.'}), 401
         return redirect(url_for('login', next=request.path))

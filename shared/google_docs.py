@@ -406,7 +406,7 @@ def _format_press_section(press_data):
 
 
 def format_report_for_docs(dsp_data, radio_data, press_data, artist_name,
-                           date_label=None, proof_images=None):
+                           date_label=None, proof_images=None, radio_date_range=None):
     """Build the complete report text and Google Docs API formatting requests.
 
     Args:
@@ -681,6 +681,7 @@ def append_report_to_doc(doc_id, dsp_data=None, radio_data=None, press_data=None
         full_text, all_formats = format_report_for_docs(
             dsp_data, radio_data, press_data, artist_name, date_label,
             proof_images=proof_images if proof_images else None,
+            radio_date_range=radio_date_range,
         )
 
         # Build and execute the batch request

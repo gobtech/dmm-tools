@@ -466,6 +466,14 @@ function pollJob(jobId, logEl, progressEl, resultEl, toolName, onDone) {
 
     try {
       const resp = await fetch('/api/status/' + jobId);
+      if (resp.status === 401) {
+        if (settled) return;
+        settled = true;
+        clearInterval(interval);
+        progressEl.classList.remove('visible');
+        onDone({ status: 'error', error: 'Your login session expired or was replaced. Please sign in again and retry.' });
+        return;
+      }
       const data = await resp.json();
 
       // Update stepper from raw log
@@ -3184,6 +3192,28 @@ async function pollJobStatus(jobId) {
 
   try {
     const resp = await fetch(`/api/status/${jobId}`);
+    if (resp.status === 401) {
+      const job = activeJobs.get(jobId);
+      if (job) {
+        const statusEl = job.element.querySelector('.job-item-status');
+        if (statusEl) {
+          statusEl.textContent = 'Signed out: log in again to resume status updates';
+          statusEl.title = statusEl.textContent;
+          statusEl.style.color = 'var(--error)';
+        }
+      }
+      setTimeout(() => {
+        if (!activeJobs.has(jobId)) return;
+        const job = activeJobs.get(jobId);
+        if (job) job.element.remove();
+        activeJobs.delete(jobId);
+        updateJobBadge();
+        if (activeJobs.size === 0) {
+          document.getElementById('job-list').innerHTML = '<div class="job-empty">No active tasks</div>';
+        }
+      }, 8000);
+      return;
+    }
     
     // Handle stale jobs (server restart or expired)
     if (resp.status === 404) {
@@ -3502,6 +3532,76 @@ async function disconnectGoogle() {
   } catch (e) { showToast('Failed to disconnect.'); }
 }
 
+function buildGoogleDocsSettingsActionsHtml() {
+  let html = '';
+  html += '<div style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card, var(--bg-secondary));">';
+  html += '<div style="font-size:13px;font-weight:600;margin-bottom:4px;">Link Any Artist</div>';
+  html += '<p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px 0;">Add artists outside the current release schedule, including older releases that still need updates.</p>';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+  html += '<input type="text" id="google-doc-manual-artist" placeholder="Artist name" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg-primary);color:var(--text-primary);">';
+  html += '<input type="text" id="google-doc-manual-url" placeholder="https://docs.google.com/document/d/..." style="flex:2;min-width:280px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg-primary);color:var(--text-primary);">';
+  html += '<button class="btn btn-small" id="google-doc-manual-save" onclick="saveManualGoogleDocLink()">Link Artist</button>';
+  html += '</div>';
+  html += '<div id="google-doc-manual-result" style="margin-top:8px;font-size:12px;"></div>';
+  html += '</div>';
+  html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+  html += '<button class="btn btn-small btn-secondary" onclick="showBulkLinkUI()">Bulk Link Artists</button>';
+  html += '</div>';
+  return html;
+}
+
+async function saveManualGoogleDocLink() {
+  const artistInput = document.getElementById('google-doc-manual-artist');
+  const urlInput = document.getElementById('google-doc-manual-url');
+  const saveBtn = document.getElementById('google-doc-manual-save');
+  const resultEl = document.getElementById('google-doc-manual-result');
+  if (!artistInput || !urlInput) return;
+
+  const artistName = artistInput.value.trim();
+  const docUrl = urlInput.value.trim();
+  if (!artistName) return showToast('Please enter an artist name.');
+  if (!docUrl) return showToast('Please paste a Google Doc URL.');
+  if (!docUrl.includes('docs.google.com/document/d/')) {
+    return showToast('Invalid Google Doc URL. Must contain docs.google.com/document/d/');
+  }
+
+  artistInput.disabled = true;
+  urlInput.disabled = true;
+  if (saveBtn) saveBtn.disabled = true;
+  if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-secondary);">Linking artist...</span>';
+
+  try {
+    const resp = await fetch('/api/settings/google/docs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artist_name: artistName, doc_url: docUrl }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      if (resultEl) {
+        resultEl.innerHTML = `<span style="color:var(--success, #22c55e);">Linked ${escapeHtml(artistName)} to "${escapeHtml(data.doc_title || 'Google Doc')}".</span>`;
+      }
+      showToast(`Linked to "${data.doc_title}"`);
+      await refreshGoogleSettings();
+      return;
+    }
+
+    if (resultEl) {
+      resultEl.innerHTML = `<span style="color:var(--accent);">${escapeHtml(data.error || 'Failed to link document.')}</span>`;
+    }
+    showToast(data.error || 'Failed to link document.');
+  } catch (e) {
+    if (resultEl) {
+      resultEl.innerHTML = `<span style="color:var(--accent);">${escapeHtml(e.message)}</span>`;
+    }
+    showToast('Failed to link: ' + e.message);
+  } finally {
+    artistInput.disabled = false;
+    urlInput.disabled = false;
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
 async function refreshGoogleSettings() {
   const statusEl = document.getElementById('google-status');
   const docsEl = document.getElementById('google-linked-docs');
@@ -3522,8 +3622,7 @@ async function refreshGoogleSettings() {
     const resp = await fetch('/api/settings/google/docs');
     const docs = await resp.json();
     if (!docs.length) {
-      docsEl.innerHTML = `<p style="color:var(--text-secondary);font-size:13px;">No Google Docs linked yet. Link docs from any tool's results page, or use bulk linking below.</p>
-        <button class="btn btn-small" onclick="showBulkLinkUI()" style="margin-top:8px;">Bulk Link Artists</button>`;
+      docsEl.innerHTML = `<p style="color:var(--text-secondary);font-size:13px;">No Google Docs linked yet. Link docs from any tool's results page, add an artist manually below, or use bulk linking.</p>${buildGoogleDocsSettingsActionsHtml()}`;
       return;
     }
     let html = '<table style="width:100%;font-size:13px;border-collapse:collapse;">';
@@ -3545,7 +3644,7 @@ async function refreshGoogleSettings() {
       </tr>`;
     }
     html += '</table>';
-    html += '<button class="btn btn-small btn-secondary" onclick="showBulkLinkUI()" style="margin-top:12px;">Bulk Link Artists</button>';
+    html += buildGoogleDocsSettingsActionsHtml();
     docsEl.innerHTML = html;
   } catch { docsEl.innerHTML = '<p style="color:var(--accent)">Failed to load linked docs.</p>'; }
 }
@@ -3591,23 +3690,6 @@ async function showBulkLinkUI() {
   const docsEl = document.getElementById('google-linked-docs');
   if (!docsEl) return;
 
-  // Fetch all artists from release schedule / dashboard
-  let artists = [];
-  try {
-    const resp = await fetch('/api/dashboard/artists');
-    const data = await resp.json();
-    // API returns {from_schedule: [...], from_dashboard: [...]} — merge and dedupe
-    let raw = [];
-    if (data.from_schedule) raw = raw.concat(data.from_schedule);
-    if (data.from_dashboard) raw = raw.concat(data.from_dashboard);
-    if (!raw.length) raw = data.artists || (Array.isArray(data) ? data : []);
-    raw = [...new Set(raw)].sort();
-    artists = raw.map(a => typeof a === 'string' ? { name: a } : a);
-  } catch {
-    showToast('Could not load artist list.');
-    return;
-  }
-
   // Also get already-linked docs
   let linkedDocs = {};
   try {
@@ -3616,9 +3698,37 @@ async function showBulkLinkUI() {
     for (const d of docs) linkedDocs[d.artist_name] = d.doc_url;
   } catch {}
 
+  // Fetch artists from dashboard/history + release schedule, then merge linked docs.
+  const artistMap = new Map();
+  const addArtistOption = (artist) => {
+    const rawName = typeof artist === 'string'
+      ? artist
+      : (artist && (artist.name || artist.artist_name || artist.artist));
+    const name = (rawName || '').trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (!artistMap.has(key)) artistMap.set(key, { name });
+  };
+
+  try {
+    const resp = await fetch('/api/dashboard/artists');
+    const data = await resp.json();
+    for (const item of data.with_data || []) addArtistOption(item);
+    for (const item of data.from_dashboard || []) addArtistOption(item);
+    for (const item of data.from_schedule || []) addArtistOption(item);
+    if (!artistMap.size) {
+      for (const item of data.artists || (Array.isArray(data) ? data : [])) addArtistOption(item);
+    }
+  } catch {
+    showToast('Could not load saved artist list.');
+  }
+
+  for (const name of Object.keys(linkedDocs)) addArtistOption(name);
+  const artists = Array.from(artistMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+
   let html = '<div style="margin-top:16px;padding:16px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card, var(--bg-secondary));">';
   html += '<h4 style="margin:0 0 12px 0;font-size:14px;">Bulk Link Google Docs</h4>';
-  html += '<p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Paste a Google Doc URL next to each artist. Already-linked artists are pre-filled.</p>';
+  html += '<p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Paste a Google Doc URL next to each artist. Already-linked artists are pre-filled, and artists from dashboard history are included alongside the release schedule.</p>';
   html += '<input type="text" id="bulk-link-search" placeholder="Filter artists..." oninput="filterBulkLinkTable()" style="width:100%;padding:6px 10px;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg-primary);color:var(--text-primary);">';
   html += '<div style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;">';
   html += '<table id="bulk-link-table" style="width:100%;font-size:13px;border-collapse:collapse;">';

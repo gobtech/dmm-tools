@@ -338,6 +338,384 @@ class TestSerperDateWithin:
         assert press_pickup_mod._serper_date_within("some weird string", self._cutoff()) is True
 
 
+# ── SearXNG date helpers ──
+
+class TestSearxngDateHelpers:
+    def test_parse_structured_published_date(self, press_pickup_mod):
+        dt = press_pickup_mod._parse_searxng_result_date({
+            "publishedDate": "2025-06-17T00:01:00",
+        })
+        assert dt == datetime(2025, 6, 17, 0, 1, 0, tzinfo=timezone.utc)
+
+    def test_parse_metadata_date(self, press_pickup_mod):
+        dt = press_pickup_mod._parse_searxng_result_date({
+            "metadata": "17/6/2025 | La Tercera",
+        })
+        assert dt == datetime(2025, 6, 17, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_parse_url_date_fallback(self, press_pickup_mod):
+        dt = press_pickup_mod._parse_searxng_result_date({
+            "url": "https://jenesaispop.com/2025/09/27/505967/the-hives-entrevista/",
+        })
+        assert dt == datetime(2025, 9, 27, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_date_within_window_honors_upper_bound(self, press_pickup_mod):
+        cutoff = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        end = datetime(2025, 6, 30, 23, 59, 59, tzinfo=timezone.utc)
+        assert press_pickup_mod._date_within_window(
+            datetime(2025, 6, 17, tzinfo=timezone.utc), cutoff, end
+        ) is True
+        assert press_pickup_mod._date_within_window(
+            datetime(2025, 7, 1, tzinfo=timezone.utc), cutoff, end
+        ) is False
+
+    def test_search_result_window_rejects_old_url_dated_search_hit(self, press_pickup_mod):
+        cutoff = datetime(2026, 3, 3, tzinfo=timezone.utc)
+        result = {
+            "_source": "searxng",
+            "link": "https://site.com/2024/10/07/the-hives-feature/",
+        }
+        assert press_pickup_mod._search_result_within_window(
+            result, cutoff=cutoff, require_date_evidence=True
+        ) is False
+
+    def test_search_result_window_requires_date_evidence_when_strict(self, press_pickup_mod):
+        cutoff = datetime(2026, 3, 3, tzinfo=timezone.utc)
+        result = {
+            "_source": "serper",
+            "link": "https://site.com/the-hives-feature",
+        }
+        assert press_pickup_mod._search_result_within_window(
+            result, cutoff=cutoff, require_date_evidence=True
+        ) is False
+        assert press_pickup_mod._search_result_within_window(
+            result, cutoff=cutoff, require_date_evidence=False
+        ) is True
+
+    def test_extract_article_date_from_html_meta(self, press_pickup_mod):
+        html = """
+        <html><head>
+        <meta property="article:published_time" content="2026-03-08T14:30:00Z">
+        </head><body></body></html>
+        """
+        dt = press_pickup_mod._extract_article_date_from_html(html)
+        assert dt == datetime(2026, 3, 8, 14, 30, 0, tzinfo=timezone.utc)
+
+    def test_extract_article_date_from_html_json_ld(self, press_pickup_mod):
+        html = """
+        <html><head>
+        <script type="application/ld+json">
+        {"@context":"https://schema.org","datePublished":"2026-03-05T10:15:00Z"}
+        </script>
+        </head><body></body></html>
+        """
+        dt = press_pickup_mod._extract_article_date_from_html(html)
+        assert dt == datetime(2026, 3, 5, 10, 15, 0, tzinfo=timezone.utc)
+
+    def test_resolve_missing_result_dates_uses_article_fetch(self, press_pickup_mod, monkeypatch):
+        monkeypatch.setattr(
+            press_pickup_mod,
+            "_fetch_article_publish_date",
+            lambda url, timeout=8: datetime(2026, 3, 7, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        results = [{
+            "_source": "searxng",
+            "link": "https://site.com/the-hives-feature",
+        }]
+        resolved, unresolved = press_pickup_mod._resolve_missing_result_dates(results, log_fn=lambda _msg: None)
+        assert resolved == 1
+        assert unresolved == 0
+        assert results[0]["published_date"].startswith("2026-03-07T12:00:00")
+
+    def test_search_result_window_rejects_sitemap_lastmod_without_article_verification(self, press_pickup_mod):
+        cutoff = datetime(2026, 2, 19, tzinfo=timezone.utc)
+        end_date_dt = datetime(2026, 3, 10, 23, 59, 59, tzinfo=timezone.utc)
+        result = {
+            "_source": "sitemaps",
+            "link": "https://rarozine.com.br/the-hives-confirma-show-no-brasil",
+            "published_date": "2026-03-09T20:11:17+00:00",
+            "date_verified": "sitemap",
+        }
+        assert press_pickup_mod._search_result_within_window(
+            result,
+            cutoff=cutoff,
+            end_date_dt=end_date_dt,
+            require_date_evidence=True,
+        ) is False
+
+    def test_resolve_missing_result_dates_force_overwrites_sitemap_lastmod(self, press_pickup_mod, monkeypatch):
+        monkeypatch.setattr(
+            press_pickup_mod,
+            "_fetch_article_publish_date",
+            lambda url, timeout=8: datetime(2024, 4, 22, 16, 8, 57, tzinfo=timezone.utc),
+        )
+        results = [{
+            "_source": "sitemaps",
+            "link": "https://rarozine.com.br/the-hives-confirma-show-no-brasil",
+            "published_date": "2026-03-09T20:11:17+00:00",
+            "date_verified": "sitemap",
+        }]
+        resolved, unresolved = press_pickup_mod._resolve_missing_result_dates(
+            results,
+            log_fn=lambda _msg: None,
+            force=True,
+        )
+        assert resolved == 1
+        assert unresolved == 0
+        assert results[0]["published_date"].startswith("2024-04-22T16:08:57")
+        assert results[0]["date_verified"] == "article_html"
+
+
+# ── Exact date windows across collectors ──
+
+class TestExactDateWindows:
+    def test_google_news_rss_respects_end_date(self, press_pickup_mod, monkeypatch):
+        import requests
+
+        xml = """
+        <rss>
+          <channel>
+            <item>
+              <title>The Hives entrevista - Billboard Brasil</title>
+              <link>https://news.google.com/articles/in-range</link>
+              <source>Billboard Brasil</source>
+              <description>Interview</description>
+              <pubDate>Thu, 05 Mar 2026 12:00:00 GMT</pubDate>
+            </item>
+            <item>
+              <title>The Hives entrevista - Billboard Brasil</title>
+              <link>https://news.google.com/articles/out-of-range</link>
+              <source>Billboard Brasil</source>
+              <description>Interview</description>
+              <pubDate>Sun, 15 Mar 2026 12:00:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """.strip().encode("utf-8")
+
+        class FakeGetResponse:
+            content = xml
+
+            def raise_for_status(self):
+                return None
+
+        monkeypatch.setattr(requests, "get", lambda *args, **kwargs: FakeGetResponse())
+
+        cutoff = datetime(2026, 2, 19, tzinfo=timezone.utc)
+        end_date_dt = datetime(2026, 3, 10, 23, 59, 59, tzinfo=timezone.utc)
+        results = press_pickup_mod.google_news_rss(
+            "The Hives",
+            cutoff=cutoff,
+            end_date_dt=end_date_dt,
+            decode=False,
+        )
+
+        assert len(results) == 1
+        assert results[0]["link"] == "https://news.google.com/articles/in-range"
+        assert results[0]["published_date"].startswith("2026-03-05T12:00:00")
+
+    def test_scan_outlet_feeds_wordpress_respects_end_date(self, press_pickup_mod, monkeypatch, tmp_path):
+        import json
+        import requests
+
+        registry_path = tmp_path / "feed_registry.json"
+        registry_path.write_text(json.dumps({
+            "outlets": {
+                "example.com": {
+                    "feed_type": "wordpress",
+                    "wp_api_url": "https://example.com/wp-json/wp/v2/posts",
+                    "country": "BRAZIL",
+                    "description": "Test outlet",
+                    "name": "Example Outlet",
+                }
+            }
+        }), encoding="utf-8")
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return [
+                    {
+                        "title": {"rendered": "The Hives no Brasil"},
+                        "excerpt": {"rendered": "<p>The Hives confirm show.</p>"},
+                        "link": "https://example.com/in-range",
+                        "date_gmt": "2026-03-05T12:00:00",
+                    },
+                    {
+                        "title": {"rendered": "The Hives no Brasil"},
+                        "excerpt": {"rendered": "<p>The Hives confirm show.</p>"},
+                        "link": "https://example.com/out-of-range",
+                        "date_gmt": "2026-03-15T12:00:00",
+                    },
+                ]
+
+        class FakeSession:
+            def __init__(self):
+                self.headers = {}
+
+            def get(self, url, params=None, timeout=None):
+                assert url == "https://example.com/wp-json/wp/v2/posts"
+                assert params["before"].startswith("2026-03-10T23:59:59")
+                return FakeResponse()
+
+        monkeypatch.setitem(sys.modules, "feedparser", types.SimpleNamespace(parse=lambda *args, **kwargs: None))
+        monkeypatch.setattr(requests, "Session", lambda: FakeSession())
+
+        cutoff = datetime(2026, 2, 19, tzinfo=timezone.utc)
+        end_date_dt = datetime(2026, 3, 10, 23, 59, 59, tzinfo=timezone.utc)
+        results = press_pickup_mod.scan_outlet_feeds(
+            ["The Hives"],
+            feed_registry_path=str(registry_path),
+            cutoff=cutoff,
+            end_date_dt=end_date_dt,
+        )
+
+        assert len(results) == 1
+        assert results[0]["link"] == "https://example.com/in-range"
+        assert results[0]["published_date"].startswith("2026-03-05T12:00:00")
+
+    def test_scan_outlet_adapters_wordpress_respects_end_date(self, press_pickup_mod, monkeypatch):
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return [
+                    {
+                        "title": {"rendered": "The Hives entrevista"},
+                        "excerpt": {"rendered": "<p>The Hives talk tour plans.</p>"},
+                        "link": "https://example.com/in-range",
+                        "date_gmt": "2026-03-05T12:00:00",
+                    },
+                    {
+                        "title": {"rendered": "The Hives entrevista"},
+                        "excerpt": {"rendered": "<p>The Hives talk tour plans.</p>"},
+                        "link": "https://example.com/out-of-range",
+                        "date_gmt": "2026-03-15T12:00:00",
+                    },
+                ]
+
+        class FakeSession:
+            def get(self, url, params=None, timeout=None):
+                assert url == "https://example.com/wp-json/wp/v2/posts"
+                assert params["before"].startswith("2026-03-10T23:59:59")
+                return FakeResponse()
+
+            def close(self):
+                return None
+
+        spec = press_pickup_mod.OutletAdapterSpec(
+            adapter_id="test-wp",
+            pattern_type="wordpress",
+            outlet_name="Test Outlet",
+            country="BRAZIL",
+            description="Test description",
+            domain="example.com",
+            website="https://example.com",
+            wp_api_url="https://example.com/wp-json/wp/v2/posts",
+        )
+
+        monkeypatch.setattr(press_pickup_mod, "_build_adapter_session", lambda: FakeSession())
+
+        cutoff = datetime(2026, 2, 19, tzinfo=timezone.utc)
+        end_date_dt = datetime(2026, 3, 10, 23, 59, 59, tzinfo=timezone.utc)
+        results = press_pickup_mod.scan_outlet_adapters(
+            ["The Hives"],
+            cutoff=cutoff,
+            end_date_dt=end_date_dt,
+            adapter_specs=(spec,),
+        )
+
+        assert len(results) == 1
+        assert results[0]["link"] == "https://example.com/in-range"
+        assert results[0]["published_date"].startswith("2026-03-05T12:00:00")
+
+    def test_run_press_pickup_filters_undated_adapter_and_sitemap_results_by_article_date(
+        self, press_pickup_mod, fixture_press_csv, monkeypatch
+    ):
+        monkeypatch.delenv("SERPER_API_KEY", raising=False)
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+        original_exists = press_pickup_mod.os.path.exists
+
+        def fake_exists(path):
+            path_str = str(path)
+            if path_str.endswith("social_handle_registry.json"):
+                return False
+            if path_str.endswith("feed_registry.json"):
+                return False
+            return original_exists(path)
+
+        monkeypatch.setattr(press_pickup_mod.os.path, "exists", fake_exists)
+        monkeypatch.setattr(press_pickup_mod, "scan_outlet_feeds", lambda *args, **kwargs: [])
+        monkeypatch.setattr(
+            press_pickup_mod,
+            "mine_outlet_sitemaps",
+            lambda *args, **kwargs: [{
+                "title": "The Hives recap",
+                "link": "https://www.clarin.com/espectaculos/the-hives-recap",
+                "snippet": "",
+                "domain": "clarin.com",
+                "source": "Clarín",
+                "feed_country": "ARGENTINA",
+                "feed_description": "Major newspaper",
+                "feed_media_name": "Clarín",
+                "published_date": "2026-03-09T20:11:17+00:00",
+                "date_verified": "sitemap",
+            }],
+        )
+        monkeypatch.setattr(
+            press_pickup_mod,
+            "scan_outlet_adapters",
+            lambda *args, **kwargs: [{
+                "title": "The Hives entrevista",
+                "link": "https://www.rollingstone.com.mx/musica/the-hives-entrevista",
+                "snippet": "",
+                "domain": "rollingstone.com.mx",
+                "source": "Rolling Stone México",
+                "feed_country": "MÉXICO",
+                "feed_description": "Music magazine",
+                "feed_media_name": "Rolling Stone México",
+            }],
+        )
+        monkeypatch.setattr(
+            press_pickup_mod,
+            "_build_enriched_queries",
+            lambda _keywords: {
+                "google_news": [],
+                "web_news": [],
+                "web_search": [],
+                "brave_news": [],
+                "brave_web": [],
+                "tavily_news": "",
+                "tavily_web": "",
+                "ddg": [],
+                "releases": [],
+            },
+        )
+        monkeypatch.setattr(
+            press_pickup_mod,
+            "_fetch_article_publish_date",
+            lambda url, timeout=8: (
+                datetime(2026, 2, 10, 12, 0, 0, tzinfo=timezone.utc)
+                if "clarin.com" in url
+                else datetime(2026, 3, 5, 12, 0, 0, tzinfo=timezone.utc)
+            ),
+        )
+        monkeypatch.setattr(press_pickup_mod, "_groq_filter_relevance", lambda results, *args, **kwargs: results)
+        monkeypatch.setattr(press_pickup_mod, "_groq_enrich_descriptions", lambda *args, **kwargs: {})
+
+        result = press_pickup_mod.run_press_pickup(
+            "The Hives",
+            start_date="2026-02-19",
+            end_date="2026-03-10",
+            press_db_path=str(fixture_press_csv),
+        )
+
+        assert "MEXICO" in result
+        assert result["MEXICO"][0]["media_name"] == "Rolling Stone México"
+        assert "ARGENTINA" not in result
+
+
 # ── _build_enriched_queries ──
 
 class TestBuildEnrichedQueries:
@@ -430,6 +808,7 @@ class TestOutletAdapters:
                     "title": {"rendered": "<h1>Festival recap</h1>"},
                     "excerpt": {"rendered": "<p>Shakira surprised the audience.</p>"},
                     "link": "https://example.com/article-1",
+                    "date_gmt": "2026-03-05T12:00:00",
                 }]
 
         class FakeSession:
@@ -464,6 +843,7 @@ class TestOutletAdapters:
         assert results[0]["feed_media_name"] == "Test Outlet"
         assert results[0]["_source"] == "adapter"
         assert results[0]["_keyword_match"] == "snippet"
+        assert results[0]["published_date"].startswith("2026-03-05T12:00:00")
         assert results[0]["snippet"] == "Shakira surprised the audience."
 
     def test_scan_outlet_adapters_returns_preclassified_html_hits(self, press_pickup_mod, monkeypatch):
@@ -513,6 +893,8 @@ class TestOutletAdapters:
     def test_run_press_pickup_keeps_adapter_snippet_match_for_known_outlet(
         self, press_pickup_mod, fixture_press_csv, monkeypatch
     ):
+        monkeypatch.delenv("SERPER_API_KEY", raising=False)
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         original_exists = press_pickup_mod.os.path.exists
 
         def fake_exists(path):
@@ -538,6 +920,7 @@ class TestOutletAdapters:
                 "feed_country": "MÉXICO",
                 "feed_description": "Music magazine",
                 "feed_media_name": "Rolling Stone México",
+                "published_date": "2026-03-05T12:00:00+00:00",
                 "_keyword_match": "snippet",
                 "_source": "adapter",
             }],
@@ -547,6 +930,8 @@ class TestOutletAdapters:
             "_build_enriched_queries",
             lambda _keywords: {
                 "google_news": [],
+                "web_news": [],
+                "web_search": [],
                 "brave_news": [],
                 "brave_web": [],
                 "tavily_news": "",
@@ -622,6 +1007,8 @@ class TestSourceNameMatching:
     def test_run_press_pickup_uses_source_name_fallback_for_google_news_links(
         self, press_pickup_mod, fixture_press_csv, monkeypatch
     ):
+        monkeypatch.delenv("SERPER_API_KEY", raising=False)
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         original_exists = press_pickup_mod.os.path.exists
 
         def fake_exists(path):
@@ -640,6 +1027,8 @@ class TestSourceNameMatching:
             "_build_enriched_queries",
             lambda _keywords: {
                 "google_news": [('"Shakira"', "MX", "es-419")],
+                "web_news": [],
+                "web_search": [],
                 "brave_news": [],
                 "brave_web": [],
                 "tavily_news": "",
@@ -657,6 +1046,7 @@ class TestSourceNameMatching:
                 "snippet": "Shakira aparece en portada.",
                 "domain": "news.google.com",
                 "source": "Rolling Stone México",
+                "published_date": "2026-03-07T12:00:00+00:00",
                 "_source_name_match": "Rolling Stone México",
             }],
         )
@@ -675,6 +1065,8 @@ class TestSourceNameMatching:
     def test_run_press_pickup_keeps_feed_snippet_match_for_known_outlet(
         self, press_pickup_mod, fixture_press_csv, monkeypatch
     ):
+        monkeypatch.delenv("SERPER_API_KEY", raising=False)
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
         original_exists = press_pickup_mod.os.path.exists
 
         def fake_exists(path):
@@ -698,6 +1090,7 @@ class TestSourceNameMatching:
                 "feed_country": "MÉXICO",
                 "feed_description": "Music magazine",
                 "feed_media_name": "Rolling Stone México",
+                "published_date": "2026-03-05T12:00:00+00:00",
                 "_keyword_match": "snippet",
             }],
         )
@@ -707,6 +1100,8 @@ class TestSourceNameMatching:
             "_build_enriched_queries",
             lambda _keywords: {
                 "google_news": [],
+                "web_news": [],
+                "web_search": [],
                 "brave_news": [],
                 "brave_web": [],
                 "tavily_news": "",

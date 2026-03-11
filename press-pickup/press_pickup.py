@@ -33,7 +33,7 @@ import os
 import re
 import sys
 import unicodedata
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote_plus, unquote, urljoin, urlsplit
 
@@ -534,9 +534,17 @@ def _adapter_domain_matches(domain: str, expected_domain: str) -> bool:
     return domain == expected_domain or domain.endswith('.' + expected_domain)
 
 
-def _adapter_result(spec: OutletAdapterSpec, link: str, title: str, snippet: str, match_type: str) -> dict:
+def _adapter_result(
+    spec: OutletAdapterSpec,
+    link: str,
+    title: str,
+    snippet: str,
+    match_type: str,
+    published_date: str = '',
+    date_verified: str = '',
+) -> dict:
     """Build a preclassified adapter result entry."""
-    return {
+    result = {
         'title': title.strip(),
         'link': link,
         'snippet': snippet.strip()[:300],
@@ -548,6 +556,11 @@ def _adapter_result(spec: OutletAdapterSpec, link: str, title: str, snippet: str
         '_keyword_match': match_type,
         '_source': 'adapter',
     }
+    if published_date:
+        result['published_date'] = published_date
+    if date_verified:
+        result['date_verified'] = date_verified
+    return result
 
 
 def _extract_listing_links(html: str, base_url: str, expected_domain: str) -> list[tuple[str, str]]:
@@ -594,18 +607,29 @@ def _run_listing_surface(session, spec: OutletAdapterSpec, surface_url: str, kw_
     return hits
 
 
-def _run_wordpress_adapter(session, spec: OutletAdapterSpec, keywords: list[str], kw_patterns, cutoff) -> list[dict]:
+def _run_wordpress_adapter(
+    session,
+    spec: OutletAdapterSpec,
+    keywords: list[str],
+    kw_patterns,
+    cutoff,
+    end_date_dt=None,
+) -> list[dict]:
     """Search a WordPress outlet directly via REST API, with HTML fallbacks."""
     hits = []
     seen = set()
     cutoff_iso = cutoff.strftime('%Y-%m-%dT%H:%M:%S')
+    end_date_iso = end_date_dt.strftime('%Y-%m-%dT%H:%M:%S') if end_date_dt is not None else None
 
     if spec.wp_api_url:
         for keyword in keywords:
             try:
+                params = {'search': keyword, 'per_page': 10, 'after': cutoff_iso}
+                if end_date_iso:
+                    params['before'] = end_date_iso
                 resp = session.get(
                     spec.wp_api_url,
-                    params={'search': keyword, 'per_page': 10, 'after': cutoff_iso},
+                    params=params,
                     timeout=8,
                 )
                 if resp.status_code != 200:
@@ -627,6 +651,11 @@ def _run_wordpress_adapter(session, spec: OutletAdapterSpec, keywords: list[str]
                     continue
                 if _is_non_press_url(link):
                     continue
+                published_dt = _coerce_result_datetime(post.get('date_gmt') or post.get('date'))
+                if (cutoff is not None or end_date_dt is not None) and (
+                    published_dt is None or not _date_within_window(published_dt, cutoff, end_date_dt)
+                ):
+                    continue
                 match_type = _keyword_match_type(kw_patterns, title, excerpt)
                 if not match_type:
                     continue
@@ -634,7 +663,15 @@ def _run_wordpress_adapter(session, spec: OutletAdapterSpec, keywords: list[str]
                 if norm in seen:
                     continue
                 seen.add(norm)
-                hits.append(_adapter_result(spec, link, title, excerpt, match_type))
+                hits.append(_adapter_result(
+                    spec,
+                    link,
+                    title,
+                    excerpt,
+                    match_type,
+                    published_date=published_dt.isoformat() if published_dt else '',
+                    date_verified='wordpress_api',
+                ))
 
     # Fallback to the public search page and category listings for freshness/index lag.
     for keyword in keywords:
@@ -680,7 +717,7 @@ def _run_html_adapter(session, spec: OutletAdapterSpec, keywords: list[str], kw_
     return hits
 
 
-def scan_outlet_adapters(artist_keywords, days=28, cutoff=None, adapter_specs=None):
+def scan_outlet_adapters(artist_keywords, days=28, cutoff=None, end_date_dt=None, adapter_specs=None):
     """Run deterministic outlet-specific retrieval adapters for priority LATAM outlets."""
     import time as _time
 
@@ -699,7 +736,14 @@ def scan_outlet_adapters(artist_keywords, days=28, cutoff=None, adapter_specs=No
     try:
         for spec in specs:
             if spec.pattern_type == 'wordpress':
-                hits = _run_wordpress_adapter(session, spec, artist_keywords, kw_patterns, cutoff)
+                hits = _run_wordpress_adapter(
+                    session,
+                    spec,
+                    artist_keywords,
+                    kw_patterns,
+                    cutoff,
+                    end_date_dt=end_date_dt,
+                )
             else:
                 hits = _run_html_adapter(session, spec, artist_keywords, kw_patterns)
 
@@ -719,7 +763,7 @@ def scan_outlet_adapters(artist_keywords, days=28, cutoff=None, adapter_specs=No
     return all_hits
 
 
-def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cutoff=None, decode=True):
+def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cutoff=None, end_date_dt=None, decode=True):
     """
     Search Google News via free RSS feed. No API key required.
 
@@ -751,7 +795,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
         cutoff = datetime.now().astimezone() - timedelta(days=days)
 
     # ── Phase 1: Parse RSS items ──────────────────────────────────────────
-    pending = []  # (index, title, google_link, source_name, snippet)
+    pending = []  # (index, title, google_link, source_name, snippet, pub_dt)
     items = root.findall('.//item')[:max_results]
 
     for item in items:
@@ -765,21 +809,25 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
         google_link = link_el.text if link_el is not None else ''
         source_name = source_el.text if source_el is not None else ''
         snippet = desc_el.text if desc_el is not None else ''
+        pub_dt = None
 
-        # Filter by date if cutoff is set
-        if cutoff and pub_el is not None and pub_el.text:
+        # Filter by date if a window is set
+        if (cutoff or end_date_dt) and pub_el is not None and pub_el.text:
             try:
                 pub_dt = parsedate_to_datetime(pub_el.text)
-                if pub_dt < cutoff:
+                if pub_dt.tzinfo is None:
+                    pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+                pub_dt = pub_dt.astimezone(timezone.utc)
+                if not _date_within_window(pub_dt, cutoff, end_date_dt):
                     continue
             except Exception:
-                pass
+                pub_dt = None
 
         # Strip source name suffix from title
         if source_name and title.endswith(f' - {source_name}'):
             title = title[: -len(f' - {source_name}')]
 
-        pending.append((len(pending), title, google_link, source_name, snippet))
+        pending.append((len(pending), title, google_link, source_name, snippet, pub_dt))
 
     if not pending:
         return []
@@ -793,6 +841,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
                 'snippet': p[4],
                 'domain': 'news.google.com',
                 'source': p[3],
+                'published_date': p[5].isoformat() if p[5] else '',
                 '_source_name_match': p[3],
             }
             for p in pending
@@ -843,7 +892,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
         executor.shutdown(wait=False, cancel_futures=True)
 
     # Fill in any undecoded URLs with the original google links
-    for idx, _title, google_link, _src, _snip in pending:
+    for idx, _title, google_link, _src, _snip, _pub_dt in pending:
         if idx not in decoded_urls:
             decoded_urls[idx] = google_link
             decode_stats['failed'] += 1
@@ -851,7 +900,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
     # Phase 2b: For URLs still pointing to news.google.com, try source-name
     # matching against the press database to preserve the hit
     _source_name_matches = {}  # index → source_name (for results that failed URL decode)
-    for idx, _title, google_link, source_name, _snip in pending:
+    for idx, _title, google_link, source_name, _snip, _pub_dt in pending:
         url = decoded_urls.get(idx, google_link)
         if 'news.google.com' in url and source_name:
             _source_name_matches[idx] = source_name
@@ -867,7 +916,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
     results = []
     seen_urls = set()
 
-    for idx, title, google_link, source_name, snippet in pending:
+    for idx, title, google_link, source_name, snippet, pub_dt in pending:
         link = decoded_urls.get(idx, google_link)
 
         # For unresolved Google News URLs, preserve the hit with source-name metadata
@@ -893,6 +942,7 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
                 'snippet': snippet,
                 'domain': domain,
                 'source': source_name,
+                'published_date': pub_dt.isoformat() if pub_dt else '',
             }
             # Tag source-name-matched results so downstream can match by outlet name
             if is_name_matched:
@@ -902,7 +952,348 @@ def google_news_rss(query, gl='MX', hl='es-419', max_results=50, days=None, cuto
     return results
 
 
-def _search_searxng(query, num_results=30, categories='general'):
+def _parse_searxng_result_date(item):
+    """Extract the best available publish date from a SearXNG result.
+
+    Tries structured result fields first, then metadata snippets, then common
+    URL date patterns used by news sites.
+    """
+    for key in ('publishedDate', 'pubdate'):
+        raw = item.get(key)
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except Exception:
+            pass
+
+    metadata = item.get('metadata') or ''
+    m = re.search(r'(?<!\d)(\d{1,2})/(\d{1,2})/(\d{4})(?!\d)', metadata)
+    if m:
+        day, month, year = map(int, m.groups())
+        try:
+            return datetime(year, month, day, tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    url = item.get('url') or ''
+    for pattern in (
+        r'/(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2})(?:/|$)',
+        r'/(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})(?:/|$)',
+    ):
+        m = re.search(pattern, url)
+        if not m:
+            continue
+        try:
+            return datetime(
+                int(m.group('year')),
+                int(m.group('month')),
+                int(m.group('day')),
+                tzinfo=timezone.utc,
+            )
+        except ValueError:
+            pass
+
+    return None
+
+
+def _date_within_window(dt, cutoff=None, end_date_dt=None):
+    """Check whether a datetime falls within the requested window."""
+    if dt is None:
+        return False
+    if cutoff is not None and dt < cutoff:
+        return False
+    if end_date_dt is not None and dt > end_date_dt:
+        return False
+    return True
+
+
+def _coerce_result_datetime(raw):
+    """Parse common publish date strings into UTC datetimes."""
+    if not raw:
+        return None
+
+    if isinstance(raw, datetime):
+        dt = raw
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    raw = str(raw).strip()
+    if not raw:
+        return None
+
+    try:
+        dt = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        pass
+
+    lower = raw.lower()
+
+    rel_match = re.match(r'(?:hace\s+|)(\d+)\s+(hora|horas|día|días|semana|semanas|mes|min|mins|minuto|minutos)', lower)
+    if rel_match:
+        num = int(rel_match.group(1))
+        unit = rel_match.group(2)
+        now = datetime.now(timezone.utc)
+        if unit.startswith(('min', 'hora')):
+            return now - timedelta(hours=0 if unit.startswith('min') else num)
+        if unit.startswith('día'):
+            return now - timedelta(days=num)
+        if unit.startswith('semana'):
+            return now - timedelta(weeks=num)
+        if unit.startswith('mes'):
+            return now - timedelta(days=num * 30)
+
+    dmY = re.search(r'(?<!\d)(\d{1,2})/(\d{1,2})/(\d{4})(?!\d)', raw)
+    if dmY:
+        day, month, year = map(int, dmY.groups())
+        try:
+            return datetime(year, month, day, tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    month_map = {
+        'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
+        'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12,
+        'jan': 1, 'apr': 4, 'aug': 8, 'dec': 12,
+    }
+    abs_match = re.search(r'(?<!\d)(\d{1,2})\s+([a-záéíóú]{3,})\s+(\d{4})(?!\d)', lower)
+    if abs_match:
+        day = int(abs_match.group(1))
+        month = month_map.get(abs_match.group(2)[:3])
+        year = int(abs_match.group(3))
+        if month:
+            try:
+                return datetime(year, month, day, tzinfo=timezone.utc)
+            except ValueError:
+                pass
+
+    return None
+
+
+def _extract_result_datetime(result):
+    """Extract the best available publish date from a normalized result entry."""
+    for key in ('published_date', 'publishedDate', 'pubdate', 'date'):
+        dt = _coerce_result_datetime(result.get(key))
+        if dt is not None:
+            return dt
+
+    return _parse_searxng_result_date({
+        'metadata': result.get('metadata', ''),
+        'url': result.get('link') or result.get('url') or '',
+    })
+
+
+def _search_result_within_window(result, cutoff=None, end_date_dt=None, require_date_evidence=False):
+    """Apply a recency gate to already-normalized search results."""
+    if require_date_evidence and result.get('date_verified') == 'sitemap':
+        return False
+    dt = _extract_result_datetime(result)
+    if dt is not None:
+        result.setdefault('published_date', dt.isoformat())
+        return _date_within_window(dt, cutoff, end_date_dt)
+    return not require_date_evidence
+
+
+def _extract_article_date_from_html(html_text):
+    """Extract a publish date from article HTML metadata or JSON-LD."""
+    if not html_text:
+        return None
+
+    html_sample = html_text[:400000]
+
+    primary_meta_keys = {
+        'article:published_time',
+        'og:published_time',
+        'parsely-pub-date',
+        'pubdate',
+        'publish-date',
+        'publish_date',
+        'datepublished',
+        'datecreated',
+        'citation_publication_date',
+        'dc.date',
+        'dc.date.issued',
+        'sailthru.date',
+    }
+    secondary_meta_keys = {
+        'article:modified_time',
+        'og:updated_time',
+        'datemodified',
+    }
+
+    def _meta_tag_dates(candidate_keys):
+        for tag in re.findall(r'<meta\b[^>]*>', html_sample, re.IGNORECASE):
+            attrs = {
+                key.lower(): value
+                for key, _quote, value in re.findall(
+                    r'([a-zA-Z_:.-]+)\s*=\s*(["\'])(.*?)\2',
+                    tag,
+                    re.IGNORECASE | re.DOTALL,
+                )
+            }
+            lookup_key = (
+                attrs.get('property')
+                or attrs.get('name')
+                or attrs.get('itemprop')
+                or ''
+            ).lower()
+            content = attrs.get('content', '')
+            if lookup_key in candidate_keys:
+                dt = _coerce_result_datetime(content)
+                if dt is not None:
+                    return dt
+        return None
+
+    dt = _meta_tag_dates(primary_meta_keys)
+    if dt is not None:
+        return dt
+
+    for match in re.finditer(
+        r'<time\b[^>]*\bdatetime\s*=\s*(["\'])(.*?)\1',
+        html_sample,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        dt = _coerce_result_datetime(match.group(2))
+        if dt is not None:
+            return dt
+
+    def _walk_json_ld(node):
+        if isinstance(node, dict):
+            for key in ('datePublished', 'dateCreated', 'uploadDate'):
+                dt = _coerce_result_datetime(node.get(key))
+                if dt is not None:
+                    return dt
+            for value in node.values():
+                dt = _walk_json_ld(value)
+                if dt is not None:
+                    return dt
+        elif isinstance(node, list):
+            for value in node:
+                dt = _walk_json_ld(value)
+                if dt is not None:
+                    return dt
+        return None
+
+    for block in re.findall(
+        r'<script\b[^>]*type\s*=\s*(["\'])application/ld\+json\1[^>]*>(.*?)</script>',
+        html_sample,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        raw_json = unescape(block[1]).strip()
+        if not raw_json:
+            continue
+        try:
+            payload = json.loads(raw_json)
+        except Exception:
+            continue
+        dt = _walk_json_ld(payload)
+        if dt is not None:
+            return dt
+
+    dt = _meta_tag_dates(secondary_meta_keys)
+    if dt is not None:
+        return dt
+
+    for regex in (
+        r'"datePublished"\s*:\s*"([^"]+)"',
+        r'"dateCreated"\s*:\s*"([^"]+)"',
+        r'"uploadDate"\s*:\s*"([^"]+)"',
+    ):
+        match = re.search(regex, html_sample, re.IGNORECASE)
+        if match:
+            dt = _coerce_result_datetime(match.group(1))
+            if dt is not None:
+                return dt
+
+    return None
+
+
+def _fetch_article_publish_date(url, timeout=8):
+    """Fetch an article page and try to extract its publish date."""
+    import requests
+
+    if not url:
+        return None
+
+    try:
+        resp = requests.get(
+            url,
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        resp.raise_for_status()
+    except Exception:
+        return None
+
+    content_type = (resp.headers.get('Content-Type') or '').lower()
+    if content_type and not any(token in content_type for token in ('html', 'xml', 'text/')):
+        return None
+
+    return _extract_article_date_from_html(resp.text)
+
+
+def _resolve_missing_result_dates(results, log_fn=print, force=False):
+    """Resolve missing publish dates for undated candidate results via article pages."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if not results:
+        return 0, 0
+
+    pending = {}
+    for result in results:
+        if not force and _extract_result_datetime(result) is not None:
+            continue
+        link = result.get('link') or result.get('url') or ''
+        if not link:
+            continue
+        pending.setdefault(_normalize_url(link), link)
+
+    if not pending:
+        return 0, 0
+
+    resolved = {}
+    workers = min(10, len(pending))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(_fetch_article_publish_date, link): norm
+            for norm, link in pending.items()
+        }
+        for future in as_completed(future_map):
+            norm = future_map[future]
+            try:
+                dt = future.result()
+            except Exception:
+                dt = None
+            if dt is not None:
+                resolved[norm] = dt
+
+    for result in results:
+        link = result.get('link') or result.get('url') or ''
+        if not link:
+            continue
+        dt = resolved.get(_normalize_url(link))
+        if dt is not None:
+            result['published_date'] = dt.isoformat()
+            result['date_verified'] = 'article_html'
+
+    unresolved_count = max(0, len(pending) - len(resolved))
+    if resolved:
+        log_fn(f"  Article date resolver: recovered {len(resolved)} publish dates from {len(pending)} undated candidate hits")
+    elif pending:
+        log_fn(f"  Article date resolver: could not recover publish dates from {len(pending)} undated candidate hits")
+
+    return len(resolved), unresolved_count
+
+
+def _search_searxng(query, num_results=30, categories='general', cutoff=None, end_date_dt=None):
     """
     Search via local SearXNG instance (metasearch: Google, Bing, DuckDuckGo, etc).
     categories: 'general' for web results, 'news' for news articles.
@@ -937,6 +1328,7 @@ def _search_searxng(query, num_results=30, categories='general'):
     for item in raw_items[:num_results]:
         link = item.get('url', '')
         domain = extract_domain(link) or ''
+        published_dt = _parse_searxng_result_date(item)
 
         if _is_skipped_domain(domain):
             continue
@@ -944,11 +1336,26 @@ def _search_searxng(query, num_results=30, categories='general'):
         if _is_non_press_url(link):
             continue
 
+        # For custom date windows, only keep date-verified news hits. General
+        # search results are kept when undated, but any parseable dates must
+        # still fall inside the requested window.
+        if cutoff is not None and end_date_dt is not None:
+            if categories == 'news':
+                if not _date_within_window(published_dt, cutoff, end_date_dt):
+                    continue
+            elif published_dt is not None and not _date_within_window(published_dt, cutoff, end_date_dt):
+                continue
+        elif cutoff is not None and published_dt is not None:
+            if not _date_within_window(published_dt, cutoff, None):
+                continue
+
         results.append({
             'title': item.get('title', ''),
             'link': link,
             'snippet': item.get('content', ''),
             'domain': domain,
+            'published_date': published_dt.isoformat() if published_dt else '',
+            'date_unverified': published_dt is None,
         })
 
     return results
@@ -1322,7 +1729,7 @@ def _serper_date_within(date_str, cutoff):
     return True  # Include if can't parse
 
 
-def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=None):
+def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=None, end_date_dt=None):
     """
     Scan known outlet RSS feeds and WordPress APIs for artist coverage.
     Returns results in the same format as the other search functions:
@@ -1364,6 +1771,7 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
     if cutoff is None:
         cutoff = datetime.now().astimezone() - timedelta(days=days)
     cutoff_iso = cutoff.strftime('%Y-%m-%dT%H:%M:%S')
+    end_date_iso = end_date_dt.strftime('%Y-%m-%dT%H:%M:%S') if end_date_dt is not None else None
 
     FEED_TIMEOUT = 8
     FEED_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -1401,7 +1809,7 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                     from calendar import timegm
                     entry_ts = timegm(published)
                     entry_dt = datetime.fromtimestamp(entry_ts).astimezone()
-                    if entry_dt < cutoff:
+                    if not _date_within_window(entry_dt, cutoff, end_date_dt):
                         continue
                 else:
                     # No date available — skip rather than risk old articles
@@ -1426,6 +1834,8 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                     'feed_country': info.get('country', ''),
                     'feed_description': info.get('description', ''),
                     'feed_media_name': info.get('name', domain),
+                    'published_date': entry_dt.isoformat(),
+                    'date_verified': 'rss',
                     '_keyword_match': match_type,
                 })
             return hits
@@ -1453,6 +1863,8 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                     'per_page': 10,
                     'after': cutoff_iso,
                 }
+                if end_date_iso:
+                    params['before'] = end_date_iso
                 resp = session.get(url, params=params, timeout=FEED_TIMEOUT)
                 if resp.status_code != 200:
                     continue
@@ -1465,6 +1877,9 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                     title = _strip_html(post.get('title', {}).get('rendered', ''))
                     link = post.get('link', '')
                     excerpt = _strip_html(post.get('excerpt', {}).get('rendered', ''))
+                    published_dt = _coerce_result_datetime(post.get('date_gmt') or post.get('date'))
+                    if published_dt is None or not _date_within_window(published_dt, cutoff, end_date_dt):
+                        continue
 
                     match_type = _keyword_match_type(kw_patterns, title, excerpt)
                     if not match_type:
@@ -1481,6 +1896,8 @@ def scan_outlet_feeds(artist_keywords, days=28, feed_registry_path=None, cutoff=
                         'feed_country': info.get('country', ''),
                         'feed_description': info.get('description', ''),
                         'feed_media_name': info.get('name', domain),
+                        'published_date': published_dt.isoformat(),
+                        'date_verified': 'wordpress_api',
                         '_keyword_match': match_type,
                     })
 
@@ -1572,6 +1989,7 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
     if cutoff is None:
         cutoff = datetime.now().astimezone() - timedelta(days=days)
     end_dt = end_date_dt if end_date_dt is not None else datetime.now().astimezone()
+    strict_window = end_date_dt is not None or days <= 30
 
     # Month strings to look for in sitemap index URLs (e.g. "2026-02", "2026-01")
     relevant_months = set()
@@ -1626,40 +2044,21 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
                 urls.append({'loc': loc.text.strip(), 'lastmod': lastmod, 'title': title})
         return urls
 
-    # Year/month patterns to check in URLs when lastmod is missing
-    now = datetime.now().astimezone()
-    _current_year = str(now.year)
-    _recent_year_months = set()
-    _d = cutoff
-    while _d <= now.astimezone():
-        _recent_year_months.add(_d.strftime('%Y/%m'))
-        _recent_year_months.add(_d.strftime('%Y-%m'))
-        _recent_year_months.add(str(_d.year))
-        _d += timedelta(days=28)
-    _recent_year_months.add(now.strftime('%Y/%m'))
-    _recent_year_months.add(now.strftime('%Y-%m'))
-    _recent_year_months.add(_current_year)
+    def _sitemap_entry_datetime(lastmod_str, url=None):
+        """Extract the best available sitemap timestamp from lastmod or URL."""
+        dt = _coerce_result_datetime(lastmod_str)
+        if dt is not None:
+            return dt
+        if url:
+            return _extract_result_datetime({'link': url})
+        return None
 
     def _is_recent(lastmod_str, url=None):
-        """Check if a lastmod date is within our search range.
-        If no lastmod, check URL for recent year/month patterns.
-        Skip undated entries that don't have a recent date in the URL."""
-        if lastmod_str:
-            try:
-                date_part = lastmod_str[:10]
-                dt = datetime.strptime(date_part, '%Y-%m-%d').astimezone()
-                return dt >= cutoff
-            except Exception:
-                pass  # Fall through to URL check
-
-        # No parseable date — check URL for recent year/month patterns
-        if url:
-            url_lower = url.lower()
-            for pattern in _recent_year_months:
-                if pattern in url_lower:
-                    return True
-
-        return False  # Skip undated content without recent URL patterns
+        """Check whether a sitemap entry falls within the requested window."""
+        dt = _sitemap_entry_datetime(lastmod_str, url)
+        if dt is not None:
+            return _date_within_window(dt, cutoff, end_dt)
+        return strict_window
 
     def _url_matches_keywords(url_entry):
         """Check if a URL TITLE contains artist keywords (word-boundary matching).
@@ -1760,6 +2159,7 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
                     for h in hits:
                         loc = h['loc']
                         title = h.get('title') or ''
+                        published_dt = _sitemap_entry_datetime(h.get('lastmod'), loc)
                         if not title:
                             path = loc.rstrip('/').rsplit('/', 1)[-1]
                             title = path.replace('-', ' ').replace('_', ' ').title()
@@ -1770,6 +2170,8 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
                             'feed_country': info.get('country', ''),
                             'feed_description': info.get('description', ''),
                             'feed_media_name': info.get('name', domain),
+                            'published_date': published_dt.isoformat() if published_dt else '',
+                            'date_verified': 'sitemap',
                         })
                     found_direct = True
                     break  # Got hits from this sitemap, skip lower-priority ones
@@ -1797,6 +2199,7 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
                     for h in hits:
                         loc = h['loc']
                         title = h.get('title') or ''
+                        published_dt = _sitemap_entry_datetime(h.get('lastmod'), loc)
                         if not title:
                             path = loc.rstrip('/').rsplit('/', 1)[-1]
                             title = path.replace('-', ' ').replace('_', ' ').title()
@@ -1807,6 +2210,8 @@ def mine_outlet_sitemaps(artist_keywords, days=28, feed_registry_path=None, cuto
                             'feed_country': info.get('country', ''),
                             'feed_description': info.get('description', ''),
                             'feed_media_name': info.get('name', domain),
+                            'published_date': published_dt.isoformat() if published_dt else '',
+                            'date_verified': 'sitemap',
                         })
                 except Exception:
                     pass
@@ -2208,7 +2613,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
     # 0) Feed scan — RSS feeds + WordPress APIs from known outlets (instant, free)
     #    Uses raw keywords only — feeds are already targeted to the right outlets
     print(f"\n  Scanning outlet feeds...")
-    feed_results = scan_outlet_feeds(keywords, days=days, cutoff=cutoff)
+    feed_results = scan_outlet_feeds(keywords, days=days, cutoff=cutoff, end_date_dt=end_date_dt)
     for r in feed_results:
         if _normalize_url(r['link']) not in seen_urls:
             seen_urls.add(_normalize_url(r['link']))
@@ -2230,7 +2635,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
 
     # 0c) Outlet adapters — direct retrieval for priority LATAM outlets without strong feeds
     print(f"  Scanning outlet adapters...")
-    adapter_results = scan_outlet_adapters(keywords, days=days, cutoff=cutoff)
+    adapter_results = scan_outlet_adapters(keywords, days=days, cutoff=cutoff, end_date_dt=end_date_dt)
     for r in adapter_results:
         norm_url = _normalize_url(r['link'])
         if norm_url not in seen_urls:
@@ -2251,7 +2656,15 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
 
     def _run_gn_fetch(args):
         query, gl, hl = args
-        return google_news_rss(query, gl=gl, hl=hl, days=days, cutoff=cutoff, decode=False)
+        return google_news_rss(
+            query,
+            gl=gl,
+            hl=hl,
+            days=days,
+            cutoff=cutoff,
+            end_date_dt=end_date_dt,
+            decode=False,
+        )
 
     raw_items = []
     if gn_queries:
@@ -2328,9 +2741,15 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
 
     if searxng_available:
         # SearXNG News — enriched queries
-        for query in queries['web_news']:
+        for query in queries.get('web_news', []):
             print(f"  Web Search News: {query[:80]}")
-            results = _search_searxng(query, num_results=20, categories='news')
+            results = _search_searxng(
+                query,
+                num_results=20,
+                categories='news',
+                cutoff=cutoff,
+                end_date_dt=end_date_dt,
+            )
             for r in results:
                 link = r.get('link') or ''
                 domain = r.get('domain') or extract_domain(link) or ''
@@ -2344,9 +2763,15 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                     source_counts['searxng'] += 1
 
         # SearXNG Web — enriched queries with release context
-        for query in queries['web_search']:
+        for query in queries.get('web_search', []):
             print(f"  Web Search: {query[:80]}")
-            results = _search_searxng(query, num_results=20, categories='general')
+            results = _search_searxng(
+                query,
+                num_results=20,
+                categories='general',
+                cutoff=cutoff,
+                end_date_dt=end_date_dt,
+            )
             for r in results:
                 link = r.get('link') or ''
                 domain = r.get('domain') or extract_domain(link) or ''
@@ -2485,6 +2910,7 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                                 'link': link,
                                 'snippet': item.get('snippet', ''),
                                 'domain': domain,
+                                'date': item.get('date', ''),
                             }
 
                             # Pre-classify with registry metadata if we have it
@@ -2605,6 +3031,14 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                             'link': link,
                             'snippet': item.get('content', ''),
                             'domain': domain,
+                            'published_date': (
+                                item.get('published_date')
+                                or item.get('publishedDate')
+                                or item.get('published')
+                                or item.get('date')
+                                or ''
+                            ),
+                            'metadata': item.get('metadata', ''),
                             '_source': 'tavily',
                         })
                         added += 1
@@ -2636,6 +3070,13 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
                             'link': link,
                             'snippet': item.get('body', ''),
                             'domain': domain,
+                            'published_date': (
+                                item.get('date')
+                                or item.get('published')
+                                or item.get('publishedDate')
+                                or ''
+                            ),
+                            'metadata': item.get('metadata', ''),
                             '_source': 'ddg',
                         })
                         added += 1
@@ -2686,7 +3127,15 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
 
                 def _run_retry_fetch(args):
                     q, gl, hl = args
-                    return google_news_rss(q, gl=gl, hl=hl, days=days, cutoff=cutoff, decode=False)
+                    return google_news_rss(
+                        q,
+                        gl=gl,
+                        hl=hl,
+                        days=days,
+                        cutoff=cutoff,
+                        end_date_dt=end_date_dt,
+                        decode=False,
+                    )
 
                 retry_raw = []
                 with ThreadPoolExecutor(max_workers=len(retry_regions)) as ex:
@@ -2726,16 +3175,41 @@ def run_press_pickup(artist, days=28, output_path=None, press_db_path=None, star
     # Final global safety filter pass before AI processing
     final_safety = []
     leaked_count = 0
+    stale_count = 0
+    strict_recent_search = bool(cutoff) and (end_date_dt is not None or days <= 30)
+    windowed_sources = {'feeds', 'sitemaps', 'adapter', 'google_news', 'searxng', 'serper', 'tavily', 'ddg'}
+    if strict_recent_search:
+        unresolved_results = [
+            r for r in all_results
+            if r.get('_source') in windowed_sources and _extract_result_datetime(r) is None
+        ]
+        _resolve_missing_result_dates(unresolved_results)
+        sitemap_results = [
+            r for r in all_results
+            if r.get('_source') == 'sitemaps' and r.get('date_verified') == 'sitemap'
+        ]
+        _resolve_missing_result_dates(sitemap_results, force=True)
     for r in all_results:
         link = r.get('link') or ''
         domain = r.get('domain') or extract_domain(link) or ''
         if _is_skipped_domain(domain) or _is_non_press_url(link):
             leaked_count += 1
             continue
+        if r.get('_source') in windowed_sources:
+            if not _search_result_within_window(
+                r,
+                cutoff=cutoff,
+                end_date_dt=end_date_dt,
+                require_date_evidence=strict_recent_search,
+            ):
+                stale_count += 1
+                continue
         final_safety.append(r)
     all_results = final_safety
     if leaked_count > 0:
         print(f"  Safety filter: removed {leaked_count} non-press or skipped results")
+    if stale_count > 0:
+        print(f"  Safety filter: removed {stale_count} out-of-range or undated results")
 
     print(f"\nFound {len(all_results)} total unique results")
 
