@@ -49,6 +49,20 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dmm-tools-dev-key-change-in-production')
 app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 30  # 30 days
 app.config['SESSION_COOKIE_NAME'] = os.environ.get('DMM_SESSION_COOKIE_NAME', 'dmm_tools_session')
+
+
+@app.template_filter('abbreviate')
+def abbreviate_number(value):
+    """Format large numbers: 1.7M, 245K, or 1,234 for smaller values."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return value
+    if n >= 1_000_000:
+        return f'{n / 1_000_000:.1f}M'.replace('.0M', 'M')
+    if n >= 10_000:
+        return f'{n / 1_000:.1f}K'.replace('.0K', 'K')
+    return f'{n:,.0f}'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -147,6 +161,7 @@ _SENSITIVE_ENV_KEYS = [
     'SOUNDCHARTS_PASSWORD', 'SOUNDCHARTS_EMAIL',
     'SERPER_API_KEY', 'TAVILY_API_KEY',
     'GROQ_API_KEY', 'GEMINI_API_KEY',
+    'GITHUB_PAT',
 ]
 _REDACT_PATTERNS = []  # list of (value, replacement) tuples
 
@@ -2966,6 +2981,21 @@ CREDENTIAL_SERVICES = {
         'label': 'Google Gemini',
         'used_by': 'PR Translator (AI mode)',
     },
+    'gsheets': {
+        'keys': ['GSHEETS_SERVICE_ACCOUNT'],
+        'labels': {'GSHEETS_SERVICE_ACCOUNT': 'Service Account JSON'},
+        'label': 'Google Sheets',
+        'used_by': 'Social Metrics',
+        'textarea': True,
+        'file_backed': 'data/google_service_account.json',
+    },
+    'github': {
+        'keys': ['GITHUB_PAT', 'GITHUB_REPO'],
+        'labels': {'GITHUB_PAT': 'Personal Access Token', 'GITHUB_REPO': 'Repository'},
+        'defaults': {'GITHUB_REPO': 'gobtech/DMM-Sheets'},
+        'label': 'GitHub',
+        'used_by': 'Social Metrics (on-demand update)',
+    },
 }
 
 
@@ -2984,13 +3014,19 @@ def get_credentials():
     for sid, info in CREDENTIAL_SERVICES.items():
         fields = []
         for key in info['keys']:
-            default = info.get('defaults', {}).get(key, '')
-            val = os.environ.get(key, default).strip()
+            # File-backed credentials read from a file instead of env
+            if info.get('file_backed'):
+                fpath = ROOT_DIR / info['file_backed']
+                val = '(file present)' if fpath.exists() and fpath.stat().st_size > 10 else ''
+            else:
+                default = info.get('defaults', {}).get(key, '')
+                val = os.environ.get(key, default).strip()
             fields.append({
                 'key': key,
                 'label': info['labels'].get(key, key),
-                'masked': _mask_value(val),
+                'masked': _mask_value(val) if not info.get('file_backed') else ('Configured' if val else None),
                 'configured': bool(val),
+                'textarea': info.get('textarea', False),
             })
         services.append({
             'id': sid,
@@ -3080,6 +3116,30 @@ def test_credential(service):
             resp.raise_for_status()
             return jsonify({'ok': True, 'message': 'Connected successfully.'})
 
+        elif service == 'gsheets':
+            sa_path = ROOT_DIR / 'data' / 'google_service_account.json'
+            if not sa_path.exists():
+                return jsonify({'ok': False, 'error': 'Service account JSON not configured.'})
+            import gspread
+            from google.oauth2.service_account import Credentials
+            scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+            creds = Credentials.from_service_account_file(str(sa_path), scopes=scopes)
+            gc = gspread.authorize(creds)
+            # Just authenticate — no spreadsheet to open here
+            return jsonify({'ok': True, 'message': f'Authenticated as {creds.service_account_email}'})
+
+        elif service == 'github':
+            pat = os.environ.get('GITHUB_PAT', '').strip()
+            if not pat:
+                return jsonify({'ok': False, 'error': 'Personal Access Token not configured.'})
+            resp = req.get('https://api.github.com/user',
+                           headers={'Authorization': f'token {pat}',
+                                    'Accept': 'application/vnd.github.v3+json'},
+                           timeout=10)
+            resp.raise_for_status()
+            username = resp.json().get('login', 'unknown')
+            return jsonify({'ok': True, 'message': f'Connected as {username}'})
+
     except req.exceptions.Timeout:
         return jsonify({'ok': False, 'error': 'Connection timed out.'})
     except req.exceptions.ConnectionError:
@@ -3097,7 +3157,30 @@ def test_credential(service):
 def save_credential(service):
     if service not in CREDENTIAL_SERVICES:
         return jsonify({'error': 'Unknown service.'}), 404
-    allowed_keys = set(CREDENTIAL_SERVICES[service]['keys'])
+
+    svc_info = CREDENTIAL_SERVICES[service]
+
+    # File-backed credentials (e.g. gsheets service account JSON)
+    if svc_info.get('file_backed'):
+        data = request.get_json(force=True)
+        content = data.get(svc_info['keys'][0], '').strip()
+        if not content:
+            return jsonify({'error': 'No content provided.'}), 400
+        # Validate JSON
+        try:
+            parsed = json.loads(content)
+            if not isinstance(parsed, dict) or 'client_email' not in parsed:
+                return jsonify({'error': 'Invalid service account JSON — missing client_email field.'}), 400
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Invalid JSON format.'}), 400
+        fpath = ROOT_DIR / svc_info['file_backed']
+        fpath.parent.mkdir(parents=True, exist_ok=True)
+        with open(fpath, 'w') as f:
+            json.dump(parsed, f, indent=2)
+        os.chmod(str(fpath), 0o600)
+        return jsonify({'ok': True, 'message': 'Service account saved.'})
+
+    allowed_keys = set(svc_info['keys'])
     data = request.get_json(force=True)
     updates = {k: v for k, v in data.items() if k in allowed_keys and isinstance(v, str)}
     if not updates:
@@ -3682,6 +3765,369 @@ def download_backup():
 
     logger.info('Backup created: %s', zip_path.name)
     return send_file(str(zip_path), as_attachment=True, download_name=f'dmm_backup_{ts}.zip')
+
+
+# ---------------------------------------------------------------------------
+# Social Metrics
+# ---------------------------------------------------------------------------
+
+SOCIAL_METRICS_KNOWN_HEADERS = {
+    'link': 'link',
+    'post': 'link',
+    'url': 'link',
+    'tiktok link': 'link',
+    'instagram link': 'link',
+    'youtube link': 'link',
+    'views': 'views',
+    'likes': 'likes',
+    'comments': 'comments',
+    'shares': 'shares',
+    'saves': 'saves',
+    'total eng': 'total_eng',
+    'total eng.': 'total_eng',
+    'total engagement': 'total_eng',
+    'eng. rate': 'eng_rate',
+    'eng rate': 'eng_rate',
+    'engagement rate': 'eng_rate',
+    'creator': 'creator',
+    'tiktok - creator': 'creator',
+    'country': 'country',
+    'territory': 'country',
+    'vertical': 'vertical',
+    'creative': 'vertical',
+    'platform': 'platform',
+    'total posts': 'total_posts',
+    'boost code': '_skip',
+    'live stats': '_skip',
+}
+
+
+def _get_gsheets_credentials():
+    """Load service account credentials with Sheets + Drive scopes."""
+    sa_path = ROOT_DIR / 'data' / 'google_service_account.json'
+    if not sa_path.exists():
+        return None, 'Service account JSON not configured. Go to Settings to add it.'
+    try:
+        from google.oauth2.service_account import Credentials
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets.readonly',
+            'https://www.googleapis.com/auth/drive.readonly',
+        ]
+        creds = Credentials.from_service_account_file(str(sa_path), scopes=scopes)
+        return creds, None
+    except Exception as e:
+        return None, f'Failed to authenticate: {str(e)[:200]}'
+
+
+def _get_gsheets_client(creds):
+    """Build a gspread client from existing credentials."""
+    import gspread
+    return gspread.authorize(creds)
+
+
+def _discover_spreadsheets(creds):
+    """Auto-discover ALL spreadsheets shared with the service account via Drive API."""
+    from googleapiclient.discovery import build
+    service = build('drive', 'v3', credentials=creds, cache_discovery=False)
+    query = "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+
+    all_files = []
+    page_token = None
+    while True:
+        results = service.files().list(
+            q=query,
+            fields='nextPageToken, files(id, name)',
+            pageSize=100,
+            pageToken=page_token,
+        ).execute()
+        all_files.extend(results.get('files', []))
+        page_token = results.get('nextPageToken')
+        if not page_token:
+            break
+
+    return all_files
+
+
+def _get_service_account_email():
+    """Read the service account email from the saved JSON."""
+    sa_path = ROOT_DIR / 'data' / 'google_service_account.json'
+    if not sa_path.exists():
+        return None
+    try:
+        with open(sa_path) as f:
+            return json.load(f).get('client_email')
+    except Exception:
+        return None
+
+
+def _parse_number(val):
+    """Parse a cell value into an int or float, stripping commas and percent signs."""
+    if val is None:
+        return 0
+    s = str(val).strip().replace(',', '').replace(' ', '')
+    if not s or s == '-' or s.lower() in ('n/a', 'n/d', ''):
+        return 0
+    if s.endswith('%'):
+        try:
+            return float(s[:-1]) / 100.0
+        except ValueError:
+            return 0
+    try:
+        f = float(s)
+        return int(f) if f == int(f) and '.' not in s else f
+    except ValueError:
+        return 0
+
+
+def _detect_headers(rows):
+    """Scan first 5 rows to find the header row. Returns (header_map, header_row_index)."""
+    for idx, row in enumerate(rows[:5]):
+        header_map = {}
+        for col_idx, cell in enumerate(row):
+            cell_lower = str(cell).strip().lower()
+            # Try exact match first, then stripped of trailing punctuation
+            matched = SOCIAL_METRICS_KNOWN_HEADERS.get(cell_lower)
+            if not matched:
+                cleaned = cell_lower.rstrip('.,:;')
+                matched = SOCIAL_METRICS_KNOWN_HEADERS.get(cleaned)
+            if matched and matched != '_skip':
+                header_map[matched] = col_idx
+        if 'link' in header_map and 'views' in header_map:
+            return header_map, idx
+    return None, None
+
+
+def _parse_spreadsheet(gc, spreadsheet_id, campaign_name):
+    """Parse all valid tabs from a single spreadsheet."""
+    try:
+        spreadsheet = gc.open_by_key(spreadsheet_id)
+    except Exception as e:
+        err = str(e)[:200]
+        if '404' in err or 'not found' in err.lower():
+            return {'campaign_name': campaign_name, 'spreadsheet_id': spreadsheet_id,
+                    'error': 'Spreadsheet not found.', 'tabs': []}
+        if '403' in err or 'permission' in err.lower():
+            sa_email = _get_service_account_email() or 'your service account'
+            return {'campaign_name': campaign_name, 'spreadsheet_id': spreadsheet_id,
+                    'error': f'Access denied. Share the sheet with {sa_email}', 'tabs': []}
+        return {'campaign_name': campaign_name, 'spreadsheet_id': spreadsheet_id,
+                'error': err, 'tabs': []}
+
+    tabs = []
+    for worksheet in spreadsheet.worksheets():
+        try:
+            all_values = worksheet.get_all_values()
+            if not all_values:
+                continue
+            header_map, header_row = _detect_headers(all_values)
+            if header_map is None:
+                continue
+
+            # Check for "Last Updated" cell in first few rows
+            last_updated = ''
+            for row in all_values[:header_row + 1] if header_row else all_values[:3]:
+                for cell in row:
+                    cell_str = str(cell).strip()
+                    if cell_str.lower().startswith('last updated'):
+                        last_updated = cell_str.replace('Last Updated:', '').replace('Last updated:', '').replace('last updated:', '').strip()
+                        break
+
+            creators = []
+            data_rows = all_values[header_row + 1:]
+            for row in data_rows:
+                while len(row) <= max(header_map.values()):
+                    row.append('')
+
+                link = str(row[header_map['link']]).strip()
+                link_lower = link.lower()
+                if not link or not any(d in link_lower for d in ('tiktok.com', 'instagram.com', 'youtube.com', 'youtu.be')):
+                    continue
+
+                if 'tiktok.com' in link_lower:
+                    platform = 'TikTok'
+                elif 'instagram.com' in link_lower:
+                    platform = 'Instagram'
+                elif 'youtube.com' in link_lower or 'youtu.be' in link_lower:
+                    platform = 'YouTube'
+                else:
+                    platform = ''
+
+                _PLATFORM_ALIASES = {
+                    'tt': 'TikTok', 'tiktok': 'TikTok',
+                    'ig': 'Instagram', 'instagram': 'Instagram', 'insta': 'Instagram',
+                    'yt': 'YouTube', 'youtube': 'YouTube',
+                }
+                if 'platform' in header_map:
+                    p = str(row[header_map['platform']]).strip()
+                    if p:
+                        platform = _PLATFORM_ALIASES.get(p.lower(), p)
+
+                creator_name = ''
+                if 'creator' in header_map:
+                    creator_name = str(row[header_map['creator']]).strip()
+
+                creators.append({
+                    'name': creator_name,
+                    'country': str(row[header_map['country']]).strip() if 'country' in header_map else '',
+                    'vertical': str(row[header_map['vertical']]).strip() if 'vertical' in header_map else '',
+                    'platform': platform,
+                    'url': link,
+                    'views': _parse_number(row[header_map['views']]) if 'views' in header_map else 0,
+                    'likes': _parse_number(row[header_map['likes']]) if 'likes' in header_map else 0,
+                    'comments': _parse_number(row[header_map['comments']]) if 'comments' in header_map else 0,
+                    'shares': _parse_number(row[header_map['shares']]) if 'shares' in header_map else 0,
+                    'saves': _parse_number(row[header_map['saves']]) if 'saves' in header_map else 0,
+                    'total_eng': _parse_number(row[header_map['total_eng']]) if 'total_eng' in header_map else 0,
+                    'eng_rate': _parse_number(row[header_map['eng_rate']]) if 'eng_rate' in header_map else 0,
+                })
+
+            if not creators:
+                continue
+
+            total_views = sum(c['views'] for c in creators)
+            total_eng = sum(c['total_eng'] for c in creators)
+            rates = [c['eng_rate'] for c in creators if c['eng_rate'] > 0]
+            avg_rate = sum(rates) / len(rates) if rates else 0
+
+            tabs.append({
+                'name': worksheet.title,
+                'last_updated': last_updated,
+                'creators': creators,
+                'totals': {
+                    'views': total_views,
+                    'likes': sum(c['likes'] for c in creators),
+                    'comments': sum(c['comments'] for c in creators),
+                    'shares': sum(c['shares'] for c in creators),
+                    'saves': sum(c['saves'] for c in creators),
+                    'total_eng': total_eng,
+                    'avg_eng_rate': avg_rate,
+                    'creator_count': len(creators),
+                },
+            })
+        except Exception:
+            continue
+
+    return {
+        'campaign_name': campaign_name,
+        'spreadsheet_id': spreadsheet_id,
+        'tabs': tabs,
+    }
+
+
+_ARCHIVED_SHEETS_PATH = ROOT_DIR / 'data' / 'social_metrics_archived.json'
+
+
+def _load_archived_sheets():
+    # Migrate from old hidden file if it exists
+    old_path = ROOT_DIR / 'data' / 'social_metrics_hidden.json'
+    if old_path.exists() and not _ARCHIVED_SHEETS_PATH.exists():
+        old_path.rename(_ARCHIVED_SHEETS_PATH)
+    if _ARCHIVED_SHEETS_PATH.exists():
+        try:
+            return json.loads(_ARCHIVED_SHEETS_PATH.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def _save_archived_sheets(archived):
+    _ARCHIVED_SHEETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _ARCHIVED_SHEETS_PATH.write_text(json.dumps(archived, indent=2))
+
+
+@app.route('/social-metrics')
+def social_metrics():
+    sa_email = _get_service_account_email()
+    creds, auth_error = _get_gsheets_credentials()
+    archived = _load_archived_sheets()
+    archived_ids = {a['id'] for a in archived}
+
+    campaigns = []
+    discovered_count = 0
+    if creds:
+        try:
+            discovered = _discover_spreadsheets(creds)
+            discovered_count = len(discovered)
+            gc = _get_gsheets_client(creds)
+            for file_info in discovered:
+                if file_info['id'] in archived_ids:
+                    continue
+                campaign = _parse_spreadsheet(gc, file_info['id'], file_info['name'])
+                # Only include spreadsheets that have valid data tabs (or errors)
+                if campaign.get('tabs') or campaign.get('error'):
+                    campaigns.append(campaign)
+        except Exception as e:
+            auth_error = f'Failed to discover spreadsheets: {str(e)[:200]}'
+
+    has_github = bool(os.environ.get('GITHUB_PAT', '').strip())
+    return render_template('social_metrics.html',
+                           campaigns=campaigns,
+                           discovered_count=discovered_count,
+                           auth_error=auth_error,
+                           sa_email=sa_email,
+                           has_credentials=creds is not None,
+                           has_github=has_github,
+                           archived_sheets=archived)
+
+
+@app.route('/api/social-metrics/archive', methods=['POST'])
+def archive_spreadsheet():
+    """Archive a spreadsheet — hides it from the Social Metrics page."""
+    data = request.get_json(force=True)
+    sid = data.get('id', '').strip()
+    name = data.get('name', '').strip()
+    if not sid:
+        return jsonify({'error': 'Missing spreadsheet ID.'}), 400
+    archived = _load_archived_sheets()
+    if not any(a['id'] == sid for a in archived):
+        archived.append({'id': sid, 'name': name})
+        _save_archived_sheets(archived)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/social-metrics/unarchive', methods=['POST'])
+def unarchive_spreadsheet():
+    """Unarchive a spreadsheet — restores it to the Social Metrics page."""
+    data = request.get_json(force=True)
+    sid = data.get('id', '').strip()
+    if not sid:
+        return jsonify({'error': 'Missing spreadsheet ID.'}), 400
+    archived = _load_archived_sheets()
+    archived = [a for a in archived if a['id'] != sid]
+    _save_archived_sheets(archived)
+    return jsonify({'ok': True})
+
+
+@app.route('/social-metrics/trigger-update', methods=['POST'])
+def trigger_metrics_update():
+    """Trigger the GitHub Actions scraper workflow on demand."""
+    import requests as req
+    pat = os.environ.get('GITHUB_PAT', '').strip()
+    repo = os.environ.get('GITHUB_REPO', 'gobtech/DMM-Sheets').strip()
+    if not pat:
+        return jsonify({'status': 'error', 'message': 'GitHub token not configured. Add it in Settings.'}), 400
+    try:
+        resp = req.post(
+            f'https://api.github.com/repos/{repo}/actions/workflows/update-metrics.yml/dispatches',
+            headers={
+                'Authorization': f'token {pat}',
+                'Accept': 'application/vnd.github.v3+json',
+            },
+            json={'ref': 'main'},
+            timeout=15,
+        )
+        if resp.status_code == 204:
+            return jsonify({'status': 'ok', 'message': 'Update triggered. Metrics will refresh in ~2 minutes.'})
+        elif resp.status_code == 404:
+            return jsonify({'status': 'error', 'message': f'Workflow not found in {repo}. Check the repository name and workflow file.'}), 400
+        elif resp.status_code == 401 or resp.status_code == 403:
+            return jsonify({'status': 'error', 'message': 'Access denied. Check that the token has repo scope.'}), 400
+        else:
+            return jsonify({'status': 'error', 'message': f'GitHub API returned {resp.status_code}: {resp.text[:200]}'}), 400
+    except req.exceptions.Timeout:
+        return jsonify({'status': 'error', 'message': 'GitHub API timed out.'}), 504
+    except req.exceptions.ConnectionError:
+        return jsonify({'status': 'error', 'message': 'Could not connect to GitHub.'}), 502
 
 
 # ---------------------------------------------------------------------------

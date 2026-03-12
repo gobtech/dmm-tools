@@ -4034,7 +4034,11 @@ async function loadSettingsCredentials() {
         const inputType = f.label.toLowerCase().includes('password') ? 'password' : 'text';
         html += `<div style="margin-bottom:8px;">`;
         html += `<label style="font-size:11px;font-weight:600;color:var(--text-tertiary);">${escapeHtml(f.label)}</label>`;
-        html += `<input type="${inputType}" class="cred-input" data-key="${f.key}" placeholder="Enter new ${escapeHtml(f.label.toLowerCase())}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-primary);font-family:monospace;font-size:13px;margin-top:2px;">`;
+        if (f.textarea) {
+          html += `<textarea class="cred-input" data-key="${f.key}" placeholder="Paste the full JSON contents here" rows="6" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-primary);font-family:monospace;font-size:12px;margin-top:2px;resize:vertical;"></textarea>`;
+        } else {
+          html += `<input type="${inputType}" class="cred-input" data-key="${f.key}" placeholder="Enter new ${escapeHtml(f.label.toLowerCase())}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);color:var(--text-primary);font-family:monospace;font-size:13px;margin-top:2px;">`;
+        }
         html += `</div>`;
       }
       html += `<div style="display:flex;gap:8px;">`;

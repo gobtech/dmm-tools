@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Social Metrics — DMM Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Raleway:wght@300;400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* ── Light theme ── */
+:root {
+  --bg-base: #f2f0ec;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-input: #f8f7f5;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #a0a0a0;
+  --accent: #c43030;
+  --border: rgba(0,0,0,.08);
+  --border-strong: rgba(0,0,0,.12);
+  --green: #22c55e;
+  --blue: #3b82f6;
+  --radius: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+  --radius-xs: 8px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 0 0 1px rgba(0,0,0,.03), 0 4px 12px rgba(0,0,0,.05), 0 16px 40px rgba(0,0,0,.04);
+  --transition: .2s cubic-bezier(.25,.46,.45,.94);
+  --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Cormorant Garamond', 'Georgia', serif;
+  --logo-filter: none;
+}
+/* ── Dark theme ── */
+html.dark {
+  --bg-base: #0e0e10;
+  --bg-card: #18181b;
+  --bg-card-hover: #1f1f23;
+  --bg-input: #111114;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --accent: #c43030;
+  --border: rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.12);
+  --green: #4ade80;
+  --blue: #60a5fa;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --logo-filter: brightness(0) invert(1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 36px 24px 80px;
+}
+
+/* ── Theme toggle ── */
+.theme-toggle {
+  position: fixed; top: 20px; right: 20px; z-index: 100;
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card); color: var(--text-secondary);
+  font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition); box-shadow: var(--shadow-sm);
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Header ── */
+.back-link {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: 14px; transition: color var(--transition);
+}
+.back-link:hover { color: var(--text-primary); }
+.page-title {
+  font-family: var(--font-heading);
+  font-size: 28px; font-weight: 600; margin: 12px 0 4px;
+}
+.page-subtitle {
+  font-size: 14px; color: var(--text-secondary); margin-bottom: 24px;
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 16px;
+}
+
+/* ── Metrics row ── */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 20px;
+  text-align: center;
+  transition: border-color .3s, box-shadow .3s;
+  box-shadow: var(--shadow-sm);
+}
+.metric-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.metric-label {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+.metric-value {
+  font-family: 'Space Grotesk', var(--font-body);
+  font-size: 36px; font-weight: 700;
+  color: var(--text-primary); line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+
+/* ── Campaign pills ── */
+.campaign-pills-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.campaign-pills {
+  display: flex; flex-wrap: wrap; gap: 8px; flex: 1;
+}
+.campaign-pill {
+  padding: 8px 16px; border-radius: 20px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card); color: var(--text-secondary);
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: all var(--transition);
+  position: relative;
+}
+.campaign-pill:hover { border-color: var(--accent); color: var(--text-primary); }
+.campaign-pill.active {
+  background: var(--accent); color: #fff;
+  border-color: var(--accent);
+}
+.campaign-pill .pill-count {
+  font-size: 11px; opacity: .7; margin-left: 4px;
+}
+/* Archive overlay on pill in manage mode */
+.campaign-pill .pill-archive {
+  display: none; margin-left: 8px; padding: 1px 7px;
+  border-radius: 10px; font-size: 10px; font-weight: 600;
+  background: var(--accent); color: #fff; cursor: pointer;
+  letter-spacing: .3px;
+}
+.campaign-pill .pill-archive:hover { filter: brightness(1.15); }
+body.manage-mode .campaign-pill .pill-archive { display: inline; }
+body.manage-mode .campaign-pill .pill-count { display: none; }
+
+/* Manage toggle */
+.manage-toggle {
+  background: none; border: 1.5px solid var(--border);
+  border-radius: 16px; padding: 5px 12px;
+  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  color: var(--text-tertiary); cursor: pointer;
+  transition: all var(--transition); white-space: nowrap;
+}
+.manage-toggle:hover { border-color: var(--text-tertiary); color: var(--text-secondary); }
+body.manage-mode .manage-toggle {
+  border-color: var(--accent); color: var(--accent);
+}
+
+/* ── Archived campaigns ── */
+.archived-bar {
+  font-size: 12px; color: var(--text-tertiary); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.archived-toggle {
+  background: none; border: none; color: var(--text-tertiary);
+  font-family: var(--font-body); font-size: 12px; cursor: pointer;
+  text-decoration: underline; padding: 0;
+}
+.archived-toggle:hover { color: var(--text-secondary); }
+.archived-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 16px;
+}
+.archived-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 14px;
+  border: 1px dashed var(--border-strong);
+  font-size: 12px; color: var(--text-tertiary);
+  background: var(--bg-input);
+}
+.archived-chip button {
+  background: none; border: none; color: var(--green);
+  font-size: 11px; cursor: pointer; font-family: var(--font-body);
+  font-weight: 600; padding: 0;
+}
+.archived-chip button:hover { text-decoration: underline; }
+
+/* ── Sub-tabs (underline style — secondary to campaign pills) ── */
+.tab-pills {
+  display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.tab-pill {
+  padding: 8px 14px; border: none; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--text-tertiary);
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: all var(--transition);
+  margin-bottom: -1px;
+}
+.tab-pill:hover { color: var(--text-primary); }
+.tab-pill.active {
+  color: var(--text-primary); font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* ── Table ── */
+.data-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table th {
+  text-align: left; padding: 10px 12px;
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .8px;
+  color: var(--text-tertiary);
+  border-bottom: 2px solid var(--border-strong);
+  cursor: pointer; user-select: none;
+  white-space: nowrap;
+}
+.data-table th:hover { color: var(--text-primary); }
+.data-table th .sort-arrow { font-size: 10px; margin-left: 4px; opacity: .5; }
+.data-table th.sorted .sort-arrow { opacity: 1; }
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tr:hover td { background: var(--bg-card-hover); }
+.data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Dim rows with zero data */
+.data-table tr.dim-row td { opacity: .4; }
+.data-table tr.dim-row:hover td { opacity: .7; }
+
+/* ── Platform pills ── */
+.platform-badge {
+  display: inline-block; padding: 3px 10px;
+  border-radius: 12px; font-size: 11px;
+  font-weight: 600; letter-spacing: .3px;
+}
+.platform-badge.tiktok {
+  background: #1a1a1a; color: #fff;
+}
+html.dark .platform-badge.tiktok {
+  background: #e0e0e0; color: #111;
+}
+.platform-badge.instagram {
+  background: linear-gradient(135deg, #f58529, #dd2a7b, #8134af);
+  color: #fff;
+}
+.platform-badge.youtube {
+  background: #ff0000; color: #fff;
+}
+
+/* ── Eng rate colors ── */
+.rate-high { color: var(--green); font-weight: 600; }
+.rate-mid { color: var(--text-secondary); }
+.rate-low { color: var(--accent); }
+
+/* ── Creator link ── */
+.creator-link {
+  color: var(--text-primary); text-decoration: none;
+  font-weight: 500; transition: color var(--transition);
+}
+.creator-link:hover { color: var(--accent); text-decoration: underline; }
+
+/* ── Error badge ── */
+.error-badge {
+  display: inline-block; padding: 4px 10px;
+  border-radius: 6px; font-size: 12px;
+  background: rgba(196,48,48,.1); color: var(--accent);
+  margin-top: 8px;
+}
+
+/* ── Discovery info box ── */
+.discovery-box {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 14px 18px; border-radius: var(--radius-xs);
+  background: var(--bg-input); border: 1px solid var(--border);
+  margin-bottom: 20px; font-size: 13px; color: var(--text-secondary);
+}
+.discovery-box .sa-email {
+  font-weight: 600; color: var(--text-primary); user-select: all;
+  font-family: monospace; font-size: 12px;
+}
+.copy-btn {
+  padding: 4px 10px; border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card); color: var(--text-secondary);
+  font-size: 11px; cursor: pointer; transition: all var(--transition);
+  font-family: var(--font-body);
+}
+.copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 10px 20px; border-radius: var(--radius-xs);
+  border: none; font-family: var(--font-body);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+  background: var(--accent); color: #fff;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-small { padding: 6px 14px; font-size: 12px; }
+.btn-secondary {
+  background: transparent; border: 1.5px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+.btn-secondary:hover { border-color: var(--text-tertiary); color: var(--text-primary); filter: none; }
+.btn-outline-accent {
+  background: transparent; border: 1.5px solid var(--accent);
+  color: var(--accent);
+}
+.btn-outline-accent:hover { background: var(--accent); color: #fff; filter: none; }
+
+/* ── Action row ── */
+.action-row {
+  display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 16px;
+  align-items: center; flex-wrap: wrap;
+}
+.update-status {
+  font-size: 12px; margin-right: 4px; transition: opacity .3s;
+}
+.update-status.success { color: var(--green); }
+.update-status.error { color: var(--accent); }
+.btn .spinner {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid rgba(196,48,48,.3); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .6s linear infinite;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.update-hint {
+  font-size: 11px; color: var(--text-tertiary);
+}
+
+/* ── Info collapsible ── */
+.info-tips {
+  margin-bottom: 20px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+.info-tips:has(.info-tips-body.open) { border-color: var(--border-strong); }
+.info-tips-toggle {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 12px 16px;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--font-body); font-size: 12px;
+  font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--text-tertiary);
+}
+.info-tips-toggle:hover { color: var(--text-secondary); }
+.info-tips-toggle .tip-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--text-tertiary); color: var(--bg-card);
+  font-size: 12px; font-weight: 700; transition: background var(--transition);
+}
+.info-tips-toggle:hover .tip-icon { background: var(--accent); }
+.info-tips-toggle .chevron {
+  margin-left: auto; font-size: 10px;
+  transition: transform var(--transition);
+}
+.info-tips:has(.info-tips-body.open) .chevron { transform: rotate(180deg); }
+.info-tips-body {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows .25s ease;
+}
+.info-tips-body.open { grid-template-rows: 1fr; }
+.info-tips-body > div { overflow: hidden; }
+.info-content {
+  padding: 0 20px 18px; font-size: 13px;
+  color: var(--text-secondary); line-height: 1.65;
+}
+.info-content h4 {
+  font-family: var(--font-body); font-size: 11px;
+  font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--text-primary);
+  margin: 16px 0 6px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.info-content h4:first-child { margin-top: 0; }
+.info-content p { margin: 0 0 8px; }
+.info-content strong { color: var(--text-primary); font-weight: 600; }
+
+/* ── Empty state ── */
+.empty-state {
+  text-align: center; padding: 60px 24px;
+  color: var(--text-secondary); font-size: 14px;
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+.empty-state a { color: var(--accent); text-decoration: none; }
+.empty-state a:hover { text-decoration: underline; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .metrics-row { grid-template-columns: repeat(2, 1fr); }
+  .metric-value { font-size: 28px; }
+  .data-table { font-size: 12px; }
+  .data-table th, .data-table td { padding: 8px 6px; }
+  .discovery-box { flex-direction: column; text-align: center; }
+  .action-row { justify-content: center; }
+}
+@media (max-width: 480px) {
+  .metrics-row { grid-template-columns: 1fr 1fr; }
+  .container { padding: 20px 16px 60px; }
+}
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+  <span id="theme-icon">&#9790;</span>
+</button>
+
+<div class="container">
+  <header>
+    <a href="/" class="back-link">&larr; Tools</a>
+    <h1 class="page-title">Social Metrics</h1>
+    <p class="page-subtitle">Influencer campaign performance — auto-updated daily</p>
+  </header>
+
+  <!-- How it works collapsible -->
+  <div class="info-tips">
+    <button class="info-tips-toggle" onclick="this.nextElementSibling.querySelector('.info-tips-body').classList.toggle('open')">
+      <span class="tip-icon">?</span> Tips &amp; Info <span class="chevron">&#9660;</span>
+    </button>
+    <div>
+      <div class="info-tips-body">
+        <div>
+          <div class="info-content">
+            <h4>Data Collection</h4>
+            <p>Metrics are scraped automatically once per day using <strong>yt-dlp</strong>, an open-source media tool. The scraper reads every Google Sheet shared with the service account, finds rows with video URLs, and pulls the latest stats (views, likes, comments, shares) directly from each platform. Updated metrics are written back to the sheet automatically.</p>
+
+            <h4>Platform Support</h4>
+            <p><strong>TikTok</strong> — Fully supported. Public video metrics are available without authentication. This is the primary platform for most campaigns.</p>
+            <p><strong>YouTube</strong> — Fully supported. Public video metrics are available without authentication.</p>
+            <p><strong>Instagram</strong> — Limited. Meta requires authentication to access Reel metrics programmatically. The scraper will attempt the first Instagram URL in each tab — if it fails (which is expected), it automatically skips the remaining Instagram URLs to save time. <strong>Instagram metrics may need to be entered manually.</strong></p>
+
+            <h4>Adding a New Campaign</h4>
+            <p>Share your Google Sheet with the service account email shown below (Editor access). It will be discovered automatically on the next page load. To populate metrics immediately, click <strong>"Update Metrics Now"</strong> (if available) or wait for the next daily run.</p>
+
+            <h4>Column Compatibility</h4>
+            <p>The system auto-detects your column layout. Your URL column can be named <strong>"Link"</strong>, <strong>"Post"</strong>, or <strong>"URL"</strong>. Country can be <strong>"Country"</strong> or <strong>"Territory"</strong>. Content type can be <strong>"Vertical"</strong> or <strong>"Creative"</strong>. As long as the sheet has a URL column and a Views column, it will be detected.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if not has_credentials %}
+  <!-- No credentials configured -->
+  <div class="empty-state">
+    <div class="icon">&#128274;</div>
+    <p>Connect your Google Sheets service account in <a href="/" onclick="event.preventDefault();window.location.href='/';">Settings</a> to view campaign metrics.</p>
+    {% if auth_error %}
+    <p style="margin-top:8px;color:var(--accent);font-size:13px;">{{ auth_error }}</p>
+    {% endif %}
+  </div>
+
+  {% else %}
+  <!-- Service account email + discovery instructions -->
+  {% if sa_email %}
+  <div class="discovery-box">
+    <div style="flex:1;">
+      <strong>To add a new campaign:</strong> Share your Google Sheet with
+      <span class="sa-email" id="sa-email">{{ sa_email }}</span>
+      (Editor access) and it will appear here automatically.
+    </div>
+    <button class="copy-btn" onclick="copyEmail()">Copy</button>
+  </div>
+  {% endif %}
+
+  {% if auth_error %}
+  <div class="card" style="border-color:var(--accent);">
+    <div class="error-badge">{{ auth_error }}</div>
+  </div>
+  {% endif %}
+
+  <!-- Action buttons -->
+  <div class="action-row">
+    <span class="update-status" id="update-status"></span>
+    <button class="btn btn-small btn-outline-accent" id="update-btn"
+            onclick="triggerUpdate()"
+            {% if not has_github %}disabled title="Configure GitHub token in Settings to enable on-demand updates"{% endif %}>
+      &#8635; Update Metrics Now
+    </button>
+    <span class="update-hint">Triggers the scraper — takes ~2 min</span>
+    <span style="flex:1;"></span>
+    <button class="btn btn-small btn-secondary" onclick="window.location.reload()">&#8635; Refresh</button>
+  </div>
+
+  {% if discovered_count == 0 and not auth_error %}
+  <!-- No spreadsheets discovered -->
+  <div class="empty-state">
+    <div class="icon">&#128202;</div>
+    <p>No campaign spreadsheets found.</p>
+    <p style="margin-top:4px;">Share a Google Sheet with the service account email above and it will appear here automatically.</p>
+  </div>
+
+  {% elif not campaigns and discovered_count > 0 %}
+  <!-- Found spreadsheets but none have valid data -->
+  <div class="empty-state">
+    <div class="icon">&#128202;</div>
+    <p>Found {{ discovered_count }} spreadsheet{{ 's' if discovered_count != 1 else '' }}, but none have the expected column layout.</p>
+    <p style="margin-top:4px;">Make sure tabs have columns for <strong>Link</strong> + <strong>Views</strong>.</p>
+  </div>
+
+  {% elif campaigns %}
+  <!-- Archived campaigns -->
+  {% if archived_sheets %}
+  <div class="archived-bar">
+    <span>Archived ({{ archived_sheets|length }})</span>
+    <button class="archived-toggle" onclick="document.getElementById('archived-list').style.display = document.getElementById('archived-list').style.display === 'none' ? '' : 'none'">show</button>
+  </div>
+  <div class="archived-list" id="archived-list" style="display:none;">
+    {% for a in archived_sheets %}
+    <div class="archived-chip">
+      {{ a.name or a.id[:12] }}
+      <button onclick="unarchiveSheet('{{ a.id }}')">unarchive</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Campaign selector pills + manage toggle -->
+  <div class="campaign-pills-row">
+    <div class="campaign-pills" id="campaign-pills">
+      {% for campaign in campaigns %}
+      <button class="campaign-pill{% if loop.first %} active{% endif %}"
+              onclick="if(!document.body.classList.contains('manage-mode'))selectCampaign({{ loop.index0 }})"
+              data-idx="{{ loop.index0 }}">
+        {{ campaign.campaign_name }}
+        {% if campaign.tabs %}
+        <span class="pill-count">({{ campaign.tabs|sum(attribute='totals.creator_count') }})</span>
+        {% endif %}
+        <span class="pill-archive" onclick="event.stopPropagation();archiveSheet('{{ campaign.spreadsheet_id }}','{{ campaign.campaign_name|e }}')">Archive</span>
+      </button>
+      {% endfor %}
+    </div>
+    {% if campaigns|length > 1 %}
+    <button class="manage-toggle" onclick="document.body.classList.toggle('manage-mode')">&#9881; Manage</button>
+    {% endif %}
+  </div>
+
+  <!-- Campaign panels -->
+  {% for campaign in campaigns %}
+  {% set ci = loop.index0 %}
+  <div class="campaign-panel" id="campaign-{{ ci }}" style="{% if not loop.first %}display:none;{% endif %}">
+
+    {% if campaign.error is defined and campaign.error %}
+    <div class="card">
+      <div class="error-badge">{{ campaign.error }}</div>
+    </div>
+
+    {% elif not campaign.tabs %}
+    <div class="card" style="text-align:center;padding:40px;color:var(--text-secondary);">
+      No valid data tabs found in this spreadsheet. Make sure tabs have columns for Link + Views.
+    </div>
+
+    {% else %}
+    <!-- Sub-tab pills if multiple tabs -->
+    {% if campaign.tabs|length > 1 %}
+    <div class="tab-pills" id="tabs-{{ ci }}">
+      {% for tab in campaign.tabs %}
+      <button class="tab-pill{% if loop.first %} active{% endif %}"
+              onclick="selectTab({{ ci }}, {{ loop.index0 }})"
+              data-tab="{{ loop.index0 }}">
+        {{ tab.name }} ({{ tab.totals.creator_count }})
+      </button>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Tab content -->
+    {% for tab in campaign.tabs %}
+    {% set ti = loop.index0 %}
+    <div class="tab-content" data-campaign="{{ ci }}" data-tab="{{ ti }}"
+         style="{% if not loop.first %}display:none;{% endif %}">
+
+      <!-- KPI cards -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-label">Total Views</div>
+          <div class="metric-value">{{ tab.totals.views|abbreviate }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Total Engagement</div>
+          <div class="metric-value">{{ tab.totals.total_eng|abbreviate }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Avg. Eng Rate</div>
+          <div class="metric-value">{{ "%.1f"|format(tab.totals.avg_eng_rate * 100) }}%</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Creators</div>
+          <div class="metric-value">{{ tab.totals.creator_count }}</div>
+        </div>
+      </div>
+
+      <!-- Creator table -->
+      <div class="card" style="padding:0;overflow-x:auto;">
+        <table class="data-table" id="table-{{ ci }}-{{ ti }}">
+          <thead>
+            <tr>
+              <th onclick="sortTable('{{ ci }}-{{ ti }}', 0, 'str')">Creator <span class="sort-arrow">&#9650;</span></th>
+              <th onclick="sortTable('{{ ci }}-{{ ti }}', 1, 'str')">Country <span class="sort-arrow">&#9650;</span></th>
+              <th onclick="sortTable('{{ ci }}-{{ ti }}', 2, 'str')">Platform <span class="sort-arrow">&#9650;</span></th>
+              <th onclick="sortTable('{{ ci }}-{{ ti }}', 3, 'str')">Vertical <span class="sort-arrow">&#9650;</span></th>
+              <th class="num" onclick="sortTable('{{ ci }}-{{ ti }}', 4, 'num')">Views <span class="sort-arrow">&#9650;</span></th>
+              <th class="num" onclick="sortTable('{{ ci }}-{{ ti }}', 5, 'num')">Likes <span class="sort-arrow">&#9650;</span></th>
+              <th class="num" onclick="sortTable('{{ ci }}-{{ ti }}', 6, 'num')">Comments <span class="sort-arrow">&#9650;</span></th>
+              <th class="num" onclick="sortTable('{{ ci }}-{{ ti }}', 7, 'num')">Shares <span class="sort-arrow">&#9650;</span></th>
+              <th class="num" onclick="sortTable('{{ ci }}-{{ ti }}', 8, 'num')">Saves <span class="sort-arrow">&#9650;</span></th>
+              <th class="num" onclick="sortTable('{{ ci }}-{{ ti }}', 9, 'num')">Total Eng <span class="sort-arrow">&#9650;</span></th>
+              <th class="num" onclick="sortTable('{{ ci }}-{{ ti }}', 10, 'num')">Eng Rate <span class="sort-arrow">&#9650;</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in tab.creators %}
+            <tr{% if c.views == 0 and c.likes == 0 and c.comments == 0 %} class="dim-row"{% endif %}>
+              <td><a href="{{ c.url }}" target="_blank" rel="noopener" class="creator-link">{{ c.name or '(unnamed)' }}</a></td>
+              <td>{{ c.country }}</td>
+              <td>
+                {% if c.platform.lower() == 'tiktok' %}
+                <span class="platform-badge tiktok">TikTok</span>
+                {% elif c.platform.lower() == 'instagram' %}
+                <span class="platform-badge instagram">Instagram</span>
+                {% elif c.platform.lower() == 'youtube' %}
+                <span class="platform-badge youtube">YouTube</span>
+                {% else %}
+                {{ c.platform }}
+                {% endif %}
+              </td>
+              <td>{{ c.vertical }}</td>
+              <td class="num">{{ "{:,}".format(c.views|int) }}</td>
+              <td class="num">{{ "{:,}".format(c.likes|int) }}</td>
+              <td class="num">{{ "{:,}".format(c.comments|int) }}</td>
+              <td class="num">{{ "{:,}".format(c.shares|int) }}</td>
+              <td class="num">{{ "{:,}".format(c.saves|int) }}</td>
+              <td class="num">{{ "{:,}".format(c.total_eng|int) }}</td>
+              <td class="num {% if c.eng_rate >= 0.10 %}rate-high{% elif c.eng_rate >= 0.05 %}rate-mid{% else %}rate-low{% endif %}">
+                {{ "%.1f"|format(c.eng_rate * 100) }}%
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if tab.last_updated %}
+      <div style="margin-top:8px;font-size:11px;color:var(--text-tertiary);text-align:right;">
+        Last updated: {{ tab.last_updated }}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+  {% endif %}
+</div>
+
+<script>
+// ── Theme ──
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.getElementById('theme-icon').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('dmm_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('dmm_theme') || 'light');
+
+// ── Campaign selection ──
+function selectCampaign(idx) {
+  document.querySelectorAll('.campaign-pill').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.campaign-pill[data-idx="${idx}"]`).classList.add('active');
+  document.querySelectorAll('.campaign-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('campaign-' + idx).style.display = '';
+}
+
+// ── Sub-tab selection ──
+function selectTab(campaignIdx, tabIdx) {
+  const container = document.getElementById('tabs-' + campaignIdx);
+  if (container) {
+    container.querySelectorAll('.tab-pill').forEach(p => p.classList.remove('active'));
+    container.querySelector(`.tab-pill[data-tab="${tabIdx}"]`).classList.add('active');
+  }
+  document.querySelectorAll(`.tab-content[data-campaign="${campaignIdx}"]`).forEach(el => {
+    el.style.display = el.dataset.tab == tabIdx ? '' : 'none';
+  });
+}
+
+// ── Table sorting ──
+const sortState = {};
+function sortTable(tableId, colIdx, type) {
+  const table = document.getElementById('table-' + tableId);
+  if (!table) return;
+  const tbody = table.tBodies[0];
+  const rows = Array.from(tbody.rows);
+  const key = tableId + '-' + colIdx;
+  const asc = sortState[key] = !sortState[key];
+
+  rows.sort((a, b) => {
+    let va = a.cells[colIdx].textContent.trim();
+    let vb = b.cells[colIdx].textContent.trim();
+    if (type === 'num') {
+      va = parseFloat(va.replace(/[,%]/g, '')) || 0;
+      vb = parseFloat(vb.replace(/[,%]/g, '')) || 0;
+    } else {
+      va = va.toLowerCase();
+      vb = vb.toLowerCase();
+    }
+    if (va < vb) return asc ? -1 : 1;
+    if (va > vb) return asc ? 1 : -1;
+    return 0;
+  });
+
+  // Update sort arrows
+  const ths = table.tHead.rows[0].cells;
+  for (let i = 0; i < ths.length; i++) {
+    ths[i].classList.toggle('sorted', i === colIdx);
+    const arrow = ths[i].querySelector('.sort-arrow');
+    if (arrow) arrow.innerHTML = i === colIdx ? (asc ? '&#9650;' : '&#9660;') : '&#9650;';
+  }
+
+  for (const row of rows) tbody.appendChild(row);
+}
+
+// ── Archive / Unarchive sheets ──
+async function archiveSheet(id, name) {
+  if (!confirm(`Archive "${name}"? It will be hidden from the main view but can be restored anytime.`)) return;
+  await fetch('/api/social-metrics/archive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, name }),
+  });
+  window.location.reload();
+}
+async function unarchiveSheet(id) {
+  await fetch('/api/social-metrics/unarchive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  window.location.reload();
+}
+
+// ── Copy service account email ──
+function copyEmail() {
+  const email = document.getElementById('sa-email');
+  if (!email) return;
+  navigator.clipboard.writeText(email.textContent.trim()).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
+}
+
+// ── Trigger on-demand metrics update ──
+async function triggerUpdate() {
+  const btn = document.getElementById('update-btn');
+  const status = document.getElementById('update-status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Triggering...';
+  status.textContent = '';
+  status.className = 'update-status';
+  try {
+    const resp = await fetch('/social-metrics/trigger-update', { method: 'POST' });
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      status.textContent = data.message;
+      status.className = 'update-status success';
+      btn.innerHTML = '&#10003; Triggered';
+      setTimeout(() => { window.location.reload(); }, 120000);
+    } else {
+      status.textContent = data.message;
+      status.className = 'update-status error';
+      btn.innerHTML = '&#8635; Update Metrics Now';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    status.textContent = 'Request failed: ' + e.message;
+    status.className = 'update-status error';
+    btn.innerHTML = '&#8635; Update Metrics Now';
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
