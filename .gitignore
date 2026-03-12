@@ -11,5 +11,5 @@ data/history.db
 data/google_credentials.json
 data/google_token.json
 data/google_service_account.json
-data/social_metrics_archived.json
+data/social_metrics_detached.json
 logs/

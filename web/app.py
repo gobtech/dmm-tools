@@ -872,7 +872,8 @@ def radio_soundcharts():
                 return
 
             if not airplay:
-                finish_job(job_id, error='No airplay data found for this artist.')
+                region_desc = 'LATAM' if region == 'latam' else 'any region'
+                finish_job(job_id, error=f'No radio plays found for {match["name"]} in {region_desc}.')
                 return
 
             log_line(job_id, f'Total: {len(airplay)} station entries')
@@ -1016,7 +1017,8 @@ def radio_soundcharts_fetch():
                 return
 
             if not airplay:
-                finish_job(job_id, error='No airplay data found for this artist.')
+                region_desc = 'LATAM' if region == 'latam' else 'any region'
+                finish_job(job_id, error=f'No radio plays found for {match["name"]} in {region_desc}.')
                 return
 
             log_line(job_id, f'Total: {len(airplay)} station entries')
@@ -1051,6 +1053,10 @@ def radio_soundcharts_fetch():
             range_label = RANGE_LABELS.get(time_range, '28D')
             is_custom = time_range == 'custom'
             songs = sorted([s for s in song_stats.values() if s['total_plays'] > 0], key=lambda s: s['total_plays'], reverse=True)
+            if not songs:
+                region_desc = 'LATAM' if region == 'latam' else 'any region'
+                finish_job(job_id, error=f'No radio plays found for {match["name"]} in {region_desc} during the selected time range.')
+                return
             finish_job(job_id, result={'songs': songs, 'total_entries': len(airplay), 'range_label': range_label, 'is_custom': is_custom})
 
         except Exception as e:
@@ -4014,33 +4020,28 @@ def _parse_spreadsheet(gc, spreadsheet_id, campaign_name):
     }
 
 
-_ARCHIVED_SHEETS_PATH = ROOT_DIR / 'data' / 'social_metrics_archived.json'
+_DETACHED_SHEETS_PATH = ROOT_DIR / 'data' / 'social_metrics_detached.json'
 
 
-def _load_archived_sheets():
-    # Migrate from old hidden file if it exists
-    old_path = ROOT_DIR / 'data' / 'social_metrics_hidden.json'
-    if old_path.exists() and not _ARCHIVED_SHEETS_PATH.exists():
-        old_path.rename(_ARCHIVED_SHEETS_PATH)
-    if _ARCHIVED_SHEETS_PATH.exists():
+def _load_detached_sheets():
+    if _DETACHED_SHEETS_PATH.exists():
         try:
-            return json.loads(_ARCHIVED_SHEETS_PATH.read_text())
+            return json.loads(_DETACHED_SHEETS_PATH.read_text())
         except Exception:
             pass
     return []
 
 
-def _save_archived_sheets(archived):
-    _ARCHIVED_SHEETS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _ARCHIVED_SHEETS_PATH.write_text(json.dumps(archived, indent=2))
+def _save_detached_sheets(detached):
+    _DETACHED_SHEETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _DETACHED_SHEETS_PATH.write_text(json.dumps(detached, indent=2))
 
 
 @app.route('/social-metrics')
 def social_metrics():
     sa_email = _get_service_account_email()
     creds, auth_error = _get_gsheets_credentials()
-    archived = _load_archived_sheets()
-    archived_ids = {a['id'] for a in archived}
+    detached_ids = {d['id'] for d in _load_detached_sheets()}
 
     campaigns = []
     discovered_count = 0
@@ -4050,7 +4051,7 @@ def social_metrics():
             discovered_count = len(discovered)
             gc = _get_gsheets_client(creds)
             for file_info in discovered:
-                if file_info['id'] in archived_ids:
+                if file_info['id'] in detached_ids:
                     continue
                 campaign = _parse_spreadsheet(gc, file_info['id'], file_info['name'])
                 # Only include spreadsheets that have valid data tabs (or errors)
@@ -4066,36 +4067,47 @@ def social_metrics():
                            auth_error=auth_error,
                            sa_email=sa_email,
                            has_credentials=creds is not None,
-                           has_github=has_github,
-                           archived_sheets=archived)
+                           has_github=has_github)
 
 
-@app.route('/api/social-metrics/archive', methods=['POST'])
-def archive_spreadsheet():
-    """Archive a spreadsheet — hides it from the Social Metrics page."""
+@app.route('/social-metrics/detach', methods=['POST'])
+def detach_spreadsheet():
+    """Detach a spreadsheet — hides it from the dashboard and attempts to remove
+    the service account's Drive permission so the scraper also stops seeing it."""
     data = request.get_json(force=True)
     sid = data.get('id', '').strip()
     name = data.get('name', '').strip()
     if not sid:
         return jsonify({'error': 'Missing spreadsheet ID.'}), 400
-    archived = _load_archived_sheets()
-    if not any(a['id'] == sid for a in archived):
-        archived.append({'id': sid, 'name': name})
-        _save_archived_sheets(archived)
-    return jsonify({'ok': True})
 
+    # Best-effort: try to revoke the SA's own Drive permission
+    permission_removed = False
+    creds, _ = _get_gsheets_credentials()
+    if creds:
+        try:
+            from googleapiclient.discovery import build
+            service = build('drive', 'v3', credentials=creds, cache_discovery=False)
+            about = service.about().get(fields='user(permissionId)').execute()
+            my_perm_id = about['user']['permissionId']
+            service.permissions().delete(
+                fileId=sid, permissionId=my_perm_id, supportsAllDrives=True,
+            ).execute()
+            permission_removed = True
+        except Exception:
+            pass
 
-@app.route('/api/social-metrics/unarchive', methods=['POST'])
-def unarchive_spreadsheet():
-    """Unarchive a spreadsheet — restores it to the Social Metrics page."""
-    data = request.get_json(force=True)
-    sid = data.get('id', '').strip()
-    if not sid:
-        return jsonify({'error': 'Missing spreadsheet ID.'}), 400
-    archived = _load_archived_sheets()
-    archived = [a for a in archived if a['id'] != sid]
-    _save_archived_sheets(archived)
-    return jsonify({'ok': True})
+    # Always store locally so it's hidden from the dashboard
+    detached = _load_detached_sheets()
+    if not any(d['id'] == sid for d in detached):
+        detached.append({'id': sid, 'name': name})
+        _save_detached_sheets(detached)
+
+    if permission_removed:
+        msg = 'Detached. The scraper will also stop seeing this sheet. Re-share to reconnect.'
+    else:
+        msg = ('Hidden from dashboard. To also stop the scraper, '
+               'open the sheet in Google Sheets and remove the service account from sharing.')
+    return jsonify({'ok': True, 'message': msg})
 
 
 @app.route('/social-metrics/trigger-update', methods=['POST'])

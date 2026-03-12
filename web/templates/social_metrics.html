@@ -158,15 +158,16 @@ body {
 .campaign-pill .pill-count {
   font-size: 11px; opacity: .7; margin-left: 4px;
 }
-/* Archive overlay on pill in manage mode */
-.campaign-pill .pill-archive {
+/* Detach overlay on pill in manage mode */
+.campaign-pill .pill-detach {
   display: none; margin-left: 8px; padding: 1px 7px;
   border-radius: 10px; font-size: 10px; font-weight: 600;
-  background: var(--accent); color: #fff; cursor: pointer;
+  border: 1px solid var(--text-tertiary); color: var(--text-secondary);
+  background: transparent; cursor: pointer;
   letter-spacing: .3px;
 }
-.campaign-pill .pill-archive:hover { filter: brightness(1.15); }
-body.manage-mode .campaign-pill .pill-archive { display: inline; }
+.campaign-pill .pill-detach:hover { border-color: var(--accent); color: var(--accent); }
+body.manage-mode .campaign-pill .pill-detach { display: inline; }
 body.manage-mode .campaign-pill .pill-count { display: none; }
 
 /* Manage toggle */
@@ -181,35 +182,6 @@ body.manage-mode .campaign-pill .pill-count { display: none; }
 body.manage-mode .manage-toggle {
   border-color: var(--accent); color: var(--accent);
 }
-
-/* ── Archived campaigns ── */
-.archived-bar {
-  font-size: 12px; color: var(--text-tertiary); margin-bottom: 12px;
-  display: flex; align-items: center; gap: 6px;
-}
-.archived-toggle {
-  background: none; border: none; color: var(--text-tertiary);
-  font-family: var(--font-body); font-size: 12px; cursor: pointer;
-  text-decoration: underline; padding: 0;
-}
-.archived-toggle:hover { color: var(--text-secondary); }
-.archived-list {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  margin-bottom: 16px;
-}
-.archived-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 12px; border-radius: 14px;
-  border: 1px dashed var(--border-strong);
-  font-size: 12px; color: var(--text-tertiary);
-  background: var(--bg-input);
-}
-.archived-chip button {
-  background: none; border: none; color: var(--green);
-  font-size: 11px; cursor: pointer; font-family: var(--font-body);
-  font-weight: 600; padding: 0;
-}
-.archived-chip button:hover { text-decoration: underline; }
 
 /* ── Sub-tabs (underline style — secondary to campaign pills) ── */
 .tab-pills {
@@ -535,22 +507,6 @@ html.dark .platform-badge.tiktok {
   </div>
 
   {% elif campaigns %}
-  <!-- Archived campaigns -->
-  {% if archived_sheets %}
-  <div class="archived-bar">
-    <span>Archived ({{ archived_sheets|length }})</span>
-    <button class="archived-toggle" onclick="document.getElementById('archived-list').style.display = document.getElementById('archived-list').style.display === 'none' ? '' : 'none'">show</button>
-  </div>
-  <div class="archived-list" id="archived-list" style="display:none;">
-    {% for a in archived_sheets %}
-    <div class="archived-chip">
-      {{ a.name or a.id[:12] }}
-      <button onclick="unarchiveSheet('{{ a.id }}')">unarchive</button>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
   <!-- Campaign selector pills + manage toggle -->
   <div class="campaign-pills-row">
     <div class="campaign-pills" id="campaign-pills">
@@ -562,7 +518,7 @@ html.dark .platform-badge.tiktok {
         {% if campaign.tabs %}
         <span class="pill-count">({{ campaign.tabs|sum(attribute='totals.creator_count') }})</span>
         {% endif %}
-        <span class="pill-archive" onclick="event.stopPropagation();archiveSheet('{{ campaign.spreadsheet_id }}','{{ campaign.campaign_name|e }}')">Archive</span>
+        <span class="pill-detach" onclick="event.stopPropagation();detachSheet('{{ campaign.spreadsheet_id }}','{{ campaign.campaign_name|e }}')">Detach</span>
       </button>
       {% endfor %}
     </div>
@@ -760,23 +716,25 @@ function sortTable(tableId, colIdx, type) {
   for (const row of rows) tbody.appendChild(row);
 }
 
-// ── Archive / Unarchive sheets ──
-async function archiveSheet(id, name) {
-  if (!confirm(`Archive "${name}"? It will be hidden from the main view but can be restored anytime.`)) return;
-  await fetch('/api/social-metrics/archive', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, name }),
-  });
-  window.location.reload();
-}
-async function unarchiveSheet(id) {
-  await fetch('/api/social-metrics/unarchive', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
-  });
-  window.location.reload();
+// ── Detach sheet ──
+async function detachSheet(id, name) {
+  if (!confirm(`Detach "${name}"?\n\nThis hides the campaign from the dashboard. If you also want the scraper to stop updating it, remove the service account from the sheet's sharing settings in Google Sheets.\n\nTo reconnect later, re-share the sheet with the service account email.`)) return;
+  try {
+    const resp = await fetch('/social-metrics/detach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      alert(data.message);
+      window.location.reload();
+    } else {
+      alert('Detach failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Detach failed: ' + e.message);
+  }
 }
 
 // ── Copy service account email ──
