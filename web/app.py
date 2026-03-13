@@ -109,25 +109,27 @@ def admin_auth():
 
 @app.before_request
 def require_login():
-    """Protect all routes except login and static files."""
+    """Protect all routes except login, static files, and job status polls."""
     allowed = ('login', 'static')
     if request.endpoint and request.endpoint in allowed:
         return
+    # Job status polls are safe to serve unauthenticated — job IDs are random
+    # UUIDs and responses only contain job logs/results, no sensitive data.
+    if request.endpoint in ('job_status', 'job_status_summary'):
+        return
     if not session.get('authenticated'):
-        if request.path.startswith('/api/status/'):
-            cookie_names = sorted(request.cookies.keys())
-            logger.warning(
-                'AUTH 401 status poll path=%s host=%s endpoint=%s cookie_names=%s session_keys=%s ua=%s',
-                request.path,
-                request.host,
-                request.endpoint,
-                cookie_names,
-                sorted(session.keys()),
-                request.headers.get('User-Agent', '')[:160],
-            )
+        cookie_name = app.config.get('SESSION_COOKIE_NAME', 'session')
+        has_bad_cookie = bool(request.cookies.get(cookie_name))
         if request.path.startswith('/api/'):
-            return jsonify({'error': 'Authentication required.'}), 401
-        return redirect(url_for('login', next=request.path))
+            resp = jsonify({'error': 'Authentication required.'})
+            resp.status_code = 401
+            if has_bad_cookie:
+                resp.delete_cookie(cookie_name, path='/')
+            return resp
+        resp = redirect(url_for('login', next=request.path))
+        if has_bad_cookie:
+            resp.delete_cookie(cookie_name, path='/')
+        return resp
     # Settings API routes require admin auth
     if request.path.startswith('/api/settings/') or request.path == '/api/backup':
         if not session.get('is_admin'):
@@ -600,9 +602,14 @@ def job_status(job_id):
     job = jobs.get(job_id)
     if not job:
         return jsonify({'error': 'Job not found'}), 404
-    return jsonify({
+    # Incremental log: only return lines after the offset the client already has
+    log_offset = request.args.get('log_offset', 0, type=int)
+    full_log = job['log']
+    log_slice = full_log[log_offset:] if log_offset > 0 else full_log
+    resp_data = {
         'status': job['status'],
-        'log': job['log'],
+        'log': log_slice,
+        'log_offset': len(full_log),
         'current_step': job.get('current_step'),
         'progress': job.get('progress'),
         'determinate_progress': bool(job.get('determinate_progress')),
@@ -624,6 +631,33 @@ def job_status(job_id):
         'has_batch_zip': bool(job.get('batch_zip')),
         'has_batch_combined_docx': bool(job.get('batch_combined_docx')),
         'append_results': job.get('append_results', {}),
+    }
+    # Suppress empty optional fields to reduce payload
+    for key in ('digest_html', 'digest_text', 'discovery_html', 'pr_es_text',
+                'pr_pt_text', 'pr_source_lang'):
+        if not resp_data[key]:
+            del resp_data[key]
+    for key in ('proof_images', 'discovery_outlets', 'artist_statuses'):
+        if not resp_data[key]:
+            del resp_data[key]
+    for key in ('batch_results', 'append_results'):
+        if not resp_data[key]:
+            del resp_data[key]
+    return jsonify(resp_data)
+
+
+@app.route('/api/status/<job_id>/summary')
+def job_status_summary(job_id):
+    """Lightweight status for the jobs drawer — no log lines or result data."""
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    return jsonify({
+        'status': job['status'],
+        'current_step': job.get('current_step'),
+        'progress': job.get('progress'),
+        'determinate_progress': bool(job.get('determinate_progress')),
+        'error': job['error'],
     })
 
 

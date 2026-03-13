@@ -450,9 +450,24 @@ function pollJob(jobId, logEl, progressEl, resultEl, toolName, onDone) {
   let settled = false;
   const startTime = Date.now();
   let hintShown = false;
+  let networkErrors = 0;
+  const MAX_NETWORK_ERRORS = 10;
   const TIMEOUT_HINT_MS = 180000; // 3 minutes
+  // Incremental log: accumulate lines client-side, only fetch new ones
+  let logLines = [];
+  let logOffset = 0;
+  // Adaptive polling: start fast (500ms), ramp to 3s over 30s
+  const POLL_MIN_MS = 500;
+  const POLL_MAX_MS = 3000;
+  const POLL_RAMP_MS = 30000; // reach max after 30s
 
-  const interval = setInterval(async () => {
+  function getInterval() {
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= POLL_RAMP_MS) return POLL_MAX_MS;
+    return POLL_MIN_MS + (POLL_MAX_MS - POLL_MIN_MS) * (elapsed / POLL_RAMP_MS);
+  }
+
+  async function tick() {
     if (settled) return;
 
     // Show timeout hint after 3 minutes
@@ -465,29 +480,34 @@ function pollJob(jobId, logEl, progressEl, resultEl, toolName, onDone) {
     }
 
     try {
-      const resp = await fetch('/api/status/' + jobId);
+      const resp = await fetch('/api/status/' + jobId + '?log_offset=' + logOffset);
       if (resp.status === 401) {
         if (settled) return;
         settled = true;
-        clearInterval(interval);
         progressEl.classList.remove('visible');
         onDone({ status: 'error', error: 'Your login session expired or was replaced. Please sign in again and retry.' });
         return;
       }
       const data = await resp.json();
+      networkErrors = 0; // reset on success
 
-      // Update stepper from raw log
-      if (stepper) updateStepper(stepper, data.log);
+      // Append incremental log lines
+      if (data.log && data.log.length > 0) {
+        logLines = logLines.concat(data.log);
+      }
+      if (data.log_offset !== undefined) logOffset = data.log_offset;
 
-      // Update log with colorization
-      const rawLog = data.log.map(l => escapeHtml(l)).join('\n');
+      // Update stepper from full accumulated log
+      if (stepper) updateStepper(stepper, logLines);
+
+      // Update log display with colorization
+      const rawLog = logLines.map(l => escapeHtml(l)).join('\n');
       logEl.innerHTML = colorizeLog(rawLog);
       logEl.scrollTop = logEl.scrollHeight;
 
       if (data.status === 'done' || data.status === 'error') {
         if (settled) return;
         settled = true;
-        clearInterval(interval);
         // Mark all steps done on success
         if (stepper && data.status === 'done') {
           stepper.el.querySelectorAll('.step-row').forEach(r => {
@@ -498,15 +518,25 @@ function pollJob(jobId, logEl, progressEl, resultEl, toolName, onDone) {
         }
         progressEl.classList.remove('visible');
         onDone(data);
+        return;
       }
     } catch (e) {
-      if (settled) return;
-      settled = true;
-      clearInterval(interval);
-      progressEl.classList.remove('visible');
-      onDone({ status: 'error', error: 'Lost connection to server.' });
+      networkErrors++;
+      if (networkErrors >= MAX_NETWORK_ERRORS) {
+        if (settled) return;
+        settled = true;
+        progressEl.classList.remove('visible');
+        onDone({ status: 'error', error: 'Lost connection to server.' });
+        return;
+      }
+      // Otherwise silently retry
     }
-  }, 500);
+    // Schedule next poll with adaptive interval
+    setTimeout(tick, getInterval());
+  }
+
+  // Start polling
+  setTimeout(tick, POLL_MIN_MS);
 }
 
 function setLoading(btn, loading) {
@@ -3191,7 +3221,7 @@ async function pollJobStatus(jobId) {
   if (!activeJobs.has(jobId)) return;
 
   try {
-    const resp = await fetch(`/api/status/${jobId}`);
+    const resp = await fetch(`/api/status/${jobId}/summary`);
     if (resp.status === 401) {
       const job = activeJobs.get(jobId);
       if (job) {
