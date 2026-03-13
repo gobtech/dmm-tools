@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GANGSIGNS — DMM Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Raleway:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+@font-face {
+  font-family: 'Metal Lord';
+  src: url('/static/fonts/Metal Lord.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ============================================================
+   TOKENS
+   ============================================================ */
+:root {
+  --bg-base: #f2f0ec;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #a0a0a0;
+  --accent: #c43030;
+  --accent-light: #fef2f2;
+  --border: rgba(0,0,0,.08);
+  --border-strong: rgba(0,0,0,.12);
+  --radius: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.06);
+  --shadow-md: 0 0 0 1px rgba(0,0,0,.03), 0 4px 12px rgba(0,0,0,.05), 0 16px 40px rgba(0,0,0,.04);
+  --transition: .2s cubic-bezier(.25,.46,.45,.94);
+  --font-body: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Cormorant Garamond', 'Georgia', serif;
+  --font-label: 'Raleway', -apple-system, BlinkMacSystemFont, sans-serif;
+  --logo-filter: none;
+}
+
+html.dark {
+  --bg-base: #0e0e10;
+  --bg-card: #18181b;
+  --bg-card-hover: #1f1f23;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --accent: #c43030;
+  --accent-light: rgba(196,48,48,.15);
+  --border: rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.12);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --logo-filter: brightness(0) invert(1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.7;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.container {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px 100px;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+.header .logo {
+  height: 32px;
+  opacity: .7;
+  margin-bottom: 16px;
+  filter: var(--logo-filter);
+}
+.header h1 {
+  font-family: 'Metal Lord', 'Bebas Neue', Impact, sans-serif;
+  font-size: 64px;
+  font-weight: normal;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+/* GANGSIGNS wordmark — gradient text */
+.gs {
+  font-family: 'Metal Lord', 'Bebas Neue', Impact, sans-serif;
+  letter-spacing: .06em;
+  background: linear-gradient(135deg, #c43030 0%, #e84545 40%, #ff6b6b 70%, #c43030 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Subtle shimmer on the hero title */
+.header h1 .gs {
+  font-size: inherit;
+  letter-spacing: inherit;
+  animation: gs-shimmer 4s ease-in-out infinite;
+}
+
+@keyframes gs-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.header .subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+.header .version-pill {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 4px 14px;
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-light);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+}
+
+/* ============================================================
+   NAV BUTTON
+   ============================================================ */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 28px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-primary);
+  text-decoration: none;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  transition: all .25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.back-link::before {
+  content: '';
+  position: absolute;
+  top: 0; right: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(270deg, transparent, rgba(196,48,48,.08), transparent);
+  transition: right .45s ease;
+}
+.back-link:hover::before { right: 100%; }
+.back-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-2px);
+}
+.back-link .btn-icon {
+  font-size: 16px;
+  transition: transform .25s ease;
+}
+.back-link:hover .btn-icon { transform: translateX(-3px); }
+
+/* ============================================================
+   THEME TOGGLE
+   ============================================================ */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(196,48,48,.1);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   CONTENT CARDS
+   ============================================================ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 36px 40px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.card h2 {
+  font-family: var(--font-heading);
+  font-size: 28px;
+  font-weight: 400;
+  margin-bottom: 16px;
+  letter-spacing: .01em;
+}
+
+.card h3 {
+  font-family: var(--font-label);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--accent);
+  margin-top: 28px;
+  margin-bottom: 12px;
+}
+
+.card p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin-bottom: 12px;
+  line-height: 1.8;
+}
+
+.card ul {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 12px;
+}
+
+.card li {
+  color: var(--text-secondary);
+  font-size: 15px;
+  padding: 6px 0 6px 20px;
+  position: relative;
+  line-height: 1.7;
+}
+.card li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.card strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.card code {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  padding: 2px 7px;
+  background: var(--accent-light);
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+/* ============================================================
+   PIPELINE DIAGRAM
+   ============================================================ */
+.pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 20px 0 24px;
+}
+
+.pipeline-stage {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.pipeline-line {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.pipeline-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 0 0 2px var(--accent);
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.pipeline-connector {
+  width: 2px;
+  flex: 1;
+  background: var(--border-strong);
+  min-height: 12px;
+}
+
+.pipeline-stage:last-child .pipeline-connector {
+  background: transparent;
+}
+
+.pipeline-content {
+  flex: 1;
+  padding: 0 0 20px;
+}
+
+.pipeline-content .stage-name {
+  font-family: var(--font-label);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.pipeline-content .stage-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.pipeline-content .stage-tag {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  background: var(--accent-light);
+  color: var(--accent);
+  border: 1px solid rgba(196,48,48,.2);
+}
+
+.pipeline-content .stage-tag.free {
+  background: rgba(34,139,34,.08);
+  color: #228b22;
+  border-color: rgba(34,139,34,.2);
+}
+
+html.dark .pipeline-content .stage-tag.free {
+  background: rgba(34,197,94,.12);
+  color: #4ade80;
+  border-color: rgba(34,197,94,.2);
+}
+
+/* ============================================================
+   STAT GRID
+   ============================================================ */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 20px 0 8px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 20px 12px;
+  background: var(--bg-base);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.stat-value {
+  font-family: var(--font-heading);
+  font-size: 32px;
+  font-weight: 400;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+}
+
+/* ============================================================
+   LEGAL TEXT
+   ============================================================ */
+.legal {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  margin-top: 28px;
+  line-height: 1.8;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 600px) {
+  .container { padding: 28px 16px 60px; }
+  .card { padding: 24px 20px; }
+  .header h1 { font-size: 28px; }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+  <span id="theme-icon">&#9790;</span>
+</button>
+
+<div class="container">
+  <div class="header">
+    <img class="logo" src="https://images.squarespace-cdn.com/content/v1/590102829de4bb02e43309fd/1503502770341-VCOKSUOU944GCVSODOI7/DMM-final-logo-extended.png" alt="Dorado Music Marketing">
+    <h1><span class="gs">GANGSIGNS</span></h1>
+    <p class="subtitle">Proprietary multi-source press intelligence engine</p>
+    <div class="version-pill">Press Pickup v3</div>
+    <br>
+    <a href="/" class="back-link">
+      <span class="btn-icon">&larr;</span>
+      <span>Back to Tools</span>
+    </a>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div class="card">
+    <h2>What is <span class="gs">GANGSIGNS</span></h2>
+
+    <p>
+      <span class="gs">GANGSIGNS</span> is the proprietary search and intelligence engine that powers DMM Tools' Press Pickup system. It orchestrates a multi-source pipeline of free and paid search APIs, direct outlet integrations, and AI-powered filtering to find every press mention of an artist across Latin America — typically in under two minutes.
+    </p>
+
+    <p>
+      Unlike generic media monitoring services that rely on a single search provider, <span class="gs">GANGSIGNS</span> cross-references <strong>seven independent source layers</strong> against a curated database of 1,500+ LATAM media outlets, ensuring coverage that no single API can match alone. Results are deduplicated, date-verified, classified by outlet and country, and formatted into client-ready reports.
+    </p>
+
+    <div class="stat-grid">
+      <div class="stat-item">
+        <div class="stat-value">1,500+</div>
+        <div class="stat-label">Outlets</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">7</div>
+        <div class="stat-label">Source Layers</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">~2 min</div>
+        <div class="stat-label">Per Artist</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PIPELINE -->
+  <div class="card">
+    <h2>The Pipeline</h2>
+
+    <p>
+      <span class="gs">GANGSIGNS</span> executes its sources in sequence. Each layer fills coverage gaps left by the previous ones, and all results feed into a shared deduplication pool before classification.
+    </p>
+
+    <div class="pipeline">
+
+      <div class="pipeline-stage">
+        <div class="pipeline-line">
+          <div class="pipeline-dot"></div>
+          <div class="pipeline-connector"></div>
+        </div>
+        <div class="pipeline-content">
+          <div class="stage-name">1. RSS &amp; WordPress Feed Scan</div>
+          <div class="stage-desc">
+            Scans 430+ outlet RSS feeds and WordPress REST APIs concurrently (50 workers). Dates are verified directly from feed metadata — no guesswork. Results are pre-classified with outlet name, country, and description from the feed registry.
+          </div>
+          <span class="stage-tag free">Free &middot; Unlimited</span>
+        </div>
+      </div>
+
+      <div class="pipeline-stage">
+        <div class="pipeline-line">
+          <div class="pipeline-dot"></div>
+          <div class="pipeline-connector"></div>
+        </div>
+        <div class="pipeline-content">
+          <div class="stage-name">2. XML Sitemap Mining</div>
+          <div class="stage-desc">
+            Two-phase concurrent parse of XML sitemaps from 333 outlets that lack RSS feeds. Phase 1 fetches root sitemaps, Phase 2 drills into relevant monthly sub-sitemaps. For strict date windows, sitemap <code>lastmod</code> dates are re-verified against actual article HTML.
+          </div>
+          <span class="stage-tag free">Free &middot; Unlimited</span>
+        </div>
+      </div>
+
+      <div class="pipeline-stage">
+        <div class="pipeline-line">
+          <div class="pipeline-dot"></div>
+          <div class="pipeline-connector"></div>
+        </div>
+        <div class="pipeline-content">
+          <div class="stage-name">3. Priority Outlet Adapters</div>
+          <div class="stage-desc">
+            Direct integrations with 7 high-priority LATAM outlets (Billboard Brazil, PopLine, Rolling Stone Mexico, El Pa&iacute;s Uruguay, RPP, BioBio Chile, Expreso Ecuador). Uses WordPress API or HTML scraping depending on the outlet.
+          </div>
+          <span class="stage-tag free">Free &middot; Unlimited</span>
+        </div>
+      </div>
+
+      <div class="pipeline-stage">
+        <div class="pipeline-line">
+          <div class="pipeline-dot"></div>
+          <div class="pipeline-connector"></div>
+        </div>
+        <div class="pipeline-content">
+          <div class="stage-name">4. Google News RSS</div>
+          <div class="stage-desc">
+            Queries Google News across 9 LATAM regions (MX, AR, BR, CL, CO, PE, EC, UY, VE) with locale-tuned queries enriched from the release schedule. Decoded redirect URLs are resolved concurrently (50 workers). Failed decodes preserve source-name for downstream outlet matching.
+          </div>
+          <span class="stage-tag free">Free &middot; Unlimited</span>
+        </div>
+      </div>
+
+      <div class="pipeline-stage">
+        <div class="pipeline-line">
+          <div class="pipeline-dot"></div>
+          <div class="pipeline-connector"></div>
+        </div>
+        <div class="pipeline-content">
+          <div class="stage-name">5. SearXNG Metasearch</div>
+          <div class="stage-desc">
+            Self-hosted metasearch engine (aggregates Google, Bing, DuckDuckGo) running in Docker. Searches both news and general web categories. Dates extracted from SearXNG metadata, URL patterns, and publishedDate fields.
+          </div>
+          <span class="stage-tag free">Free &middot; Self-hosted</span>
+        </div>
+      </div>
+
+      <div class="pipeline-stage">
+        <div class="pipeline-line">
+          <div class="pipeline-dot"></div>
+          <div class="pipeline-connector"></div>
+        </div>
+        <div class="pipeline-content">
+          <div class="stage-name">6. Serper Targeted Search</div>
+          <div class="stage-desc">
+            Google SERP API with batched <code>site:</code> queries targeting unmatched outlets from the database. Groups up to 15 domains per query, localized by country majority. Fills coverage gaps from outlets that weren't found by free sources.
+          </div>
+          <span class="stage-tag">Paid &middot; 3 credits/artist</span>
+        </div>
+      </div>
+
+      <div class="pipeline-stage">
+        <div class="pipeline-line">
+          <div class="pipeline-dot"></div>
+          <div class="pipeline-connector"></div>
+        </div>
+        <div class="pipeline-content">
+          <div class="stage-name">7. Tavily &amp; DuckDuckGo</div>
+          <div class="stage-desc">
+            Supplementary searches for additional coverage. Tavily runs news + general queries (free tier, 1,000/month). DuckDuckGo News provides one final sweep.
+          </div>
+          <span class="stage-tag">Tavily: Free tier</span>
+        </div>
+      </div>
+
+      <div class="pipeline-stage">
+        <div class="pipeline-line">
+          <div class="pipeline-dot"></div>
+          <div class="pipeline-connector"></div>
+        </div>
+        <div class="pipeline-content">
+          <div class="stage-name">8. Free Targeted Retries</div>
+          <div class="stage-desc">
+            Final pass using Google News RSS with <code>site:</code> queries for remaining high-priority unmatched outlets. Batches 8 domains per query across 2 regions (MX + BR). Completely free — no API credits consumed.
+          </div>
+          <span class="stage-tag free">Free &middot; Unlimited</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- INTELLIGENCE LAYER -->
+  <div class="card">
+    <h2>Intelligence Layer</h2>
+
+    <p>
+      Raw search results are meaningless without classification. <span class="gs">GANGSIGNS</span> applies multiple layers of processing to transform thousands of raw URLs into a structured, verified, and deduplicated press report.
+    </p>
+
+    <h3>Query Enrichment</h3>
+    <p>
+      Before any search is executed, <span class="gs">GANGSIGNS</span> loads the live release schedule from Google Sheets and builds context-aware queries. If an artist has a recent release, queries include the exact title and format keywords (<em>nuevo sencillo</em>, <em>&aacute;lbum</em>, <em>EP</em>). For artists with ambiguous names (common words like "Future", "Metric", "Air", "Calle"), strict music-context shaping is applied to prevent false positives.
+    </p>
+
+    <h3>Date Verification</h3>
+    <p>
+      Every result carries a <code>published_date</code> and <code>date_verified</code> field. Dates are extracted from multiple signals: RSS <code>pubDate</code>, WordPress <code>date_gmt</code>, sitemap <code>lastmod</code>, SearXNG metadata, and — when needed — by fetching the article page itself and parsing HTML meta tags (<code>article:published_time</code>, <code>og:published_time</code>), <code>&lt;time&gt;</code> elements, JSON-LD <code>datePublished</code>, and URL date patterns.
+    </p>
+    <p>
+      For strict date windows (custom ranges or periods of 30 days or less), undated results are bulk-resolved by concurrently fetching article pages (10 workers), and sitemap dates are re-verified against actual article content. Unresolved results are dropped.
+    </p>
+
+    <h3>AI Relevance Filtering</h3>
+    <p>
+      Articles where the artist name only appears in the snippet (not the title) are likely false positives — sidebar mentions, related-article widgets, or substring collisions. <span class="gs">GANGSIGNS</span> sends these to Groq's Llama 3.3 70B model for title-only relevance judgement, with special handling for ambiguous artist names. Title-confirmed articles are auto-kept without AI review.
+    </p>
+
+    <h3>Outlet Classification</h3>
+    <p>
+      Results are matched against the 1,500+ outlet press database using domain matching (including subdomain resolution), Google News source-name fallback, and social media handle lookup via a curated registry of 480+ Instagram, Facebook, and X handles. Multi-regional outlet detection catches US editions of LATAM publications (generic <code>.com</code> articles from outlets that have country-specific domains in the database).
+    </p>
+
+    <h3>Deduplication</h3>
+    <p>
+      URLs are normalized (strip tracking parameters, <code>/amp/</code>, <code>www.</code>, protocol differences) across all sources before dedup. Within outlet groups, title-based deduplication catches republished articles with different URLs using Unicode-normalized comparison.
+    </p>
+  </div>
+
+  <!-- DATA INFRASTRUCTURE -->
+  <div class="card">
+    <h2>Data Infrastructure</h2>
+
+    <p>
+      <span class="gs">GANGSIGNS</span> relies on several curated datasets, built and maintained through purpose-built discovery tools.
+    </p>
+
+    <h3>Press Database</h3>
+    <p>
+      1,500+ LATAM media outlets with name, country, description, and website URL. Originally sourced from Notion (226 with URLs), then enriched to 834 URLs via automated Brave Search discovery with confidence scoring.
+    </p>
+
+    <h3>Feed Registry</h3>
+    <p>
+      763 outlets scanned for RSS feeds and WordPress APIs. 424 RSS feeds + 6 WordPress APIs discovered, 333 outlets flagged for sitemap fallback. Generated by an automated feed discovery scanner that probes HTML link tags and common feed paths.
+    </p>
+
+    <h3>Social Handle Registry</h3>
+    <p>
+      763 outlets scanned for social media presence. 482 Instagram, 486 Facebook, and 429 X handles extracted from outlet homepages. Includes a reverse <code>handle &rarr; outlet</code> lookup for instant classification of social media posts found during search.
+    </p>
+
+    <h3>Release Schedule</h3>
+    <p>
+      Live Google Sheets integration with 220+ releases. Used for query enrichment (exact titles, format keywords) and batch mode operations (run all artists releasing this week).
+    </p>
+  </div>
+
+  <!-- OUTPUT -->
+  <div class="card">
+    <h2>Output</h2>
+
+    <p>
+      Results are grouped by outlet, then organized by country. Multiple articles from the same outlet are merged into a single entry with bulleted URLs. Article titles are used as hyperlink display text in reports.
+    </p>
+
+    <h3>Formats</h3>
+    <ul>
+      <li><strong>Text report</strong> — Plain text with country headers, outlet names, descriptions, and URLs. Source breakdown footer shows how many results came from each pipeline stage.</li>
+      <li><strong>Word document</strong> — Branded <code>.docx</code> with DMM styling (red accent headings, country sections, hyperlinked article titles). Ready for client delivery.</li>
+      <li><strong>Google Docs</strong> — Auto-append to linked Google Docs for ongoing campaign tracking.</li>
+    </ul>
+
+    <h3>Batch Modes</h3>
+    <ul>
+      <li><strong>Single artist</strong> — Full pipeline for one artist with custom date range</li>
+      <li><strong>This week's releases</strong> — Sequential runs for all artists releasing this week, individual <code>.docx</code> files zipped</li>
+      <li><strong>All releases</strong> — Full schedule batch with combined output</li>
+    </ul>
+  </div>
+
+  <!-- PROPRIETARY NOTICE -->
+  <div class="card">
+    <h2>Proprietary Notice</h2>
+
+    <p>
+      <span class="gs">GANGSIGNS</span> is proprietary technology developed exclusively for Dorado Music Marketing by Luis Felipe Pazos. The search pipeline architecture, outlet matching algorithms, query enrichment strategies, AI filtering methodology, and all associated source code constitute trade secrets and confidential intellectual property.
+    </p>
+
+    <ul>
+      <li>The <span class="gs">GANGSIGNS</span> name, pipeline design, and implementation are the exclusive property of Luis Felipe Pazos</li>
+      <li>No part of the search system may be reproduced, reverse-engineered, or adapted for use outside of DMM Tools without written authorization</li>
+      <li>The curated press database, feed registry, and social handle registry are proprietary datasets built through original research and automated discovery</li>
+      <li>Third-party APIs (Serper, Tavily, Groq, SearXNG) are used as data sources only — the orchestration logic, classification pipeline, and intelligence layer are entirely original work</li>
+    </ul>
+
+    <p class="legal">
+      &copy; 2026 Luis Felipe Pazos. All rights reserved.<br>
+      <span class="gs">GANGSIGNS</span> is part of DMM Tools. See <a href="/licensing" style="color:var(--accent);">Licensing &amp; Attribution</a> for full terms.
+    </p>
+  </div>
+</div>
+
+<script>
+function applyTheme(theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+  document.getElementById('theme-icon').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('dmm_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('dmm_theme') || 'light');
+</script>
+</body>
+</html>

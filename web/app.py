@@ -2034,6 +2034,10 @@ def calendar():
 def licensing():
     return render_template('licensing.html')
 
+@app.route('/gangsigns')
+def gangsigns():
+    return render_template('gangsigns.html')
+
 
 
 @app.route('/oracle')
