@@ -416,7 +416,7 @@ def _generate_full_docx(
         # Group by country -> station -> songs
         country_stations = {}
         for entry in radio_data:
-            country = entry.get('country', 'UNKNOWN')
+            country = entry.get('country', 'UNKNOWN').upper()
             station = entry.get('station', 'Unknown')
             song = entry.get('song', '')
             plays = entry.get(play_key, 0) or entry.get('plays_28d', 0)
@@ -480,15 +480,32 @@ def _generate_full_docx(
                     idx = platform_order.index(m.get('platform', ''))
                 except ValueError:
                     idx = 99
-                return (idx, m.get('playlist_name', ''))
+                return (idx, m.get('playlist_country', ''), m.get('playlist_name', ''))
             all_matches.sort(key=sort_key)
+
+            # Group matches by platform → country → playlist
+            from collections import OrderedDict
+            grouped = OrderedDict()
+            for m in all_matches:
+                key = (m.get('platform', ''), m.get('playlist_country', ''), m.get('playlist_name', ''))
+                if key not in grouped:
+                    grouped[key] = []
+                grouped[key].append(m)
 
             current_platform = None
             today_str = datetime.now().strftime('%b %d, %Y')
 
-            for m in all_matches:
-                platform = m.get('platform', '')
+            def _format_followers(val):
+                """Normalize follower count to have comma separators."""
+                if not val:
+                    return val
+                cleaned = str(val).replace(',', '').replace('.', '').strip()
+                try:
+                    return f'{int(cleaned):,}'
+                except (ValueError, TypeError):
+                    return str(val)
 
+            for (platform, country, playlist_name), matches in grouped.items():
                 # Platform header
                 if platform != current_platform:
                     if current_platform is not None:
@@ -503,19 +520,19 @@ def _generate_full_docx(
                     current_platform = platform
 
                 # Country
-                country = m.get('playlist_country', '')
                 if country:
                     cp = doc.add_paragraph()
-                    cr = cp.add_run(country)
+                    cr = cp.add_run(country.upper())
                     cr.underline = True
                     cr.font.size = Pt(10)
                     cp.paragraph_format.space_before = Pt(4)
                     cp.paragraph_format.space_after = Pt(1)
 
-                # Playlist info line
-                info_parts = [m.get('playlist_name', '')]
-                if m.get('playlist_followers'):
-                    info_parts.append(m['playlist_followers'])
+                # Playlist info line (once per playlist)
+                first = matches[0]
+                info_parts = [playlist_name]
+                if first.get('playlist_followers'):
+                    info_parts.append(_format_followers(first['playlist_followers']))
                 info_parts.append(today_str)
 
                 ip = doc.add_paragraph()
@@ -525,26 +542,27 @@ def _generate_full_docx(
                 ip.paragraph_format.space_before = Pt(2)
                 ip.paragraph_format.space_after = Pt(4)
 
-                # Embed proof image
-                img_path = _find_proof_image(
-                    m.get('playlist_track', ''),
-                    m.get('playlist_name', ''),
-                    output_path,
-                )
-                if img_path:
-                    img_para = doc.add_paragraph()
-                    img_para.paragraph_format.space_after = Pt(8)
-                    run = img_para.add_run()
-                    run.add_picture(str(img_path), width=Inches(6.2))
-                else:
-                    fp = doc.add_paragraph()
-                    track = m.get('playlist_track', '')
-                    fr = fp.add_run(
-                        f'  #{m.get("position", "?")} \u2014 {track} by {m.get("playlist_artist", "")}'
+                # Embed proof images / track entries for all matches in this playlist
+                for m in matches:
+                    img_path = _find_proof_image(
+                        m.get('playlist_track', ''),
+                        playlist_name,
+                        output_path,
                     )
-                    fr.font.size = Pt(9)
-                    fr.font.color.rgb = GRAY
-                    fp.paragraph_format.space_after = Pt(8)
+                    if img_path:
+                        img_para = doc.add_paragraph()
+                        img_para.paragraph_format.space_after = Pt(8)
+                        run = img_para.add_run()
+                        run.add_picture(str(img_path), width=Inches(6.2))
+                    else:
+                        fp = doc.add_paragraph()
+                        track = m.get('playlist_track', '')
+                        fr = fp.add_run(
+                            f'  #{m.get("position", "?")} \u2014 {track} by {m.get("playlist_artist", "")}'
+                        )
+                        fr.font.size = Pt(9)
+                        fr.font.color.rgb = GRAY
+                        fp.paragraph_format.space_after = Pt(8)
 
     # ─── Press pickup ─────────────────────────────────────────
     if press_data:
@@ -626,7 +644,7 @@ def _find_proof_image(track_name, playlist_name, output_path):
         return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
 
     safe_track = _ascii_safe(track_name, 30)
-    safe_playlist = _ascii_safe(playlist_name, 20)
+    safe_playlist = _ascii_safe(playlist_name, 40)
     img_filename = f'proof_{safe_track}_{safe_playlist}.png'
 
     proof_dir = Path(output_path).parent / 'dsp_proofs'

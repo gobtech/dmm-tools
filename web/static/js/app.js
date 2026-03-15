@@ -237,6 +237,19 @@ function pressModeChanged() {
   loadBatchPreview(mode, 'press-week', 'press-batch-preview');
 }
 
+function reportModeChanged() {
+  const mode = document.querySelector('input[name="report-mode"]:checked').value;
+  const isArtist = mode === 'artist';
+  document.getElementById('report-artist-field').style.display = isArtist ? '' : 'none';
+  document.getElementById('report-efforts-field').style.display = isArtist ? '' : 'none';
+  document.getElementById('report-week-field').classList.toggle('visible', mode === 'week');
+  document.getElementById('report-auto-append-field').classList.toggle('visible', !isArtist);
+  const btn = document.getElementById('report-btn');
+  btn.textContent = isArtist ? 'Generate Full Report' : 'Run Batch Full Reports';
+  btn.disabled = isArtist && !document.getElementById('report-artist').value.trim();
+  loadBatchPreview(mode, 'report-week', 'report-batch-preview');
+}
+
 // =====================================================================
 // Dropzone
 // =====================================================================
@@ -1424,6 +1437,9 @@ function toggleReportPressCustomDates() {
 }
 
 async function runReport() {
+  const batchMode = document.querySelector('input[name="report-mode"]:checked').value;
+  if (batchMode !== 'artist') return runReportBatch(batchMode);
+
   const resultEl = document.getElementById('report-result');
   const av = validateArtist(document.getElementById('report-artist').value);
   if (av.error) { showError(resultEl, av.error); return; }
@@ -1470,6 +1486,7 @@ async function runReport() {
   logEl.textContent = '';
 
   const body = {
+    mode: 'artist',
     artist,
     press_days: pressDays,
     radio_region: region,
@@ -1542,6 +1559,120 @@ async function runReport() {
         resultEl.innerHTML = html;
         const reportArtist = document.getElementById('report-artist').value.trim();
         if (reportArtist) appendGoogleDocSectionToResults(resultEl, reportArtist, data.job_id);
+      }
+    });
+  } catch (e) {
+    setLoading(btn, false);
+    showError(resultEl, e.message || 'Could not connect to the server. Check your connection and try again.');
+  }
+}
+
+async function runReportBatch(batchMode) {
+  const resultEl = document.getElementById('report-result');
+  const btn = document.getElementById('report-btn');
+  const logEl = document.getElementById('report-log');
+  const progressEl = document.getElementById('report-progress');
+
+  const previewEl = document.getElementById('report-batch-preview');
+  const artists = previewEl._selectedArtists ? Array.from(previewEl._selectedArtists) : [];
+  if (artists.length === 0) return showToast('Please select at least one artist.');
+
+  const radioRange = document.querySelector('input[name="report-radio-range"]:checked').value;
+  const pressRange = document.querySelector('input[name="report-press-range"]:checked').value;
+  const region = document.querySelector('input[name="report-region"]:checked').value;
+  const includeRadio = document.getElementById('report-inc-radio').checked;
+  const includeDsp = document.getElementById('report-inc-dsp').checked;
+  const includePress = document.getElementById('report-inc-press').checked;
+
+  if (!includeRadio && !includeDsp && !includePress) {
+    return showToast('Please select at least one section to include.');
+  }
+
+  // Radio: custom date range validation
+  let radioStartDate, radioEndDate;
+  if (radioRange === 'custom') {
+    radioStartDate = document.getElementById('report-radio-date-from').value;
+    radioEndDate = document.getElementById('report-radio-date-to').value;
+    const rv = validateDateRange(radioStartDate, radioEndDate, 'Radio');
+    if (rv.error) { showError(resultEl, rv.error); return; }
+  }
+
+  // Press: custom date range or preset days
+  let pressDays, pressStartDate, pressEndDate;
+  if (pressRange === 'custom') {
+    pressStartDate = document.getElementById('report-press-date-from').value;
+    pressEndDate = document.getElementById('report-press-date-to').value;
+    const pv = validateDateRange(pressStartDate, pressEndDate, 'Press');
+    if (pv.error) { showError(resultEl, pv.error); return; }
+    pressDays = 28;
+  } else {
+    pressDays = parseInt(pressRange);
+  }
+
+  setLoading(btn, true);
+  logEl.textContent = '';
+
+  const body = {
+    mode: batchMode,
+    week: document.getElementById('report-week').value || 'current',
+    artists,
+    auto_append: document.getElementById('report-auto-append').checked,
+    press_days: pressDays,
+    radio_region: region,
+    radio_time_range: radioRange,
+    include_radio: includeRadio,
+    include_dsp: includeDsp,
+    include_press: includePress,
+  };
+  if (pressStartDate) {
+    body.press_start_date = pressStartDate;
+    body.press_end_date = pressEndDate;
+  }
+  if (radioStartDate) {
+    body.radio_start_date = radioStartDate;
+    body.radio_end_date = radioEndDate;
+  }
+
+  try {
+    const resp = await fetch('/api/report/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await parseResponse(resp);
+    if (data.error) {
+      setLoading(btn, false);
+      showError(resultEl, data.error);
+      return;
+    }
+
+    const runId = data.batch_id;
+    if (!runId) {
+      setLoading(btn, false);
+      showError(resultEl, 'Batch job started but no job ID was returned.');
+      return;
+    }
+
+    pollJob(runId, logEl, progressEl, resultEl, null, (result) => {
+      setLoading(btn, false);
+      resultEl.classList.add('visible');
+      if (result.status === 'error') {
+        showError(resultEl, result.error);
+      } else {
+        let html = `<div class="result-success"><span class="check-icon">${checkSvg}</span><strong>Batch full reports complete!</strong></div>`;
+        if (result.result) {
+          html += `<div style="margin:12px 0 16px; font-size:14px; color:var(--text-secondary); line-height:1.8;">${escapeHtml(result.result)}</div>`;
+        }
+        html += renderAppendSummary(result.append_results, runId);
+        html += `<div class="result-actions">`;
+        if (result.has_batch_combined_docx) {
+          html += `<a class="btn btn-small" href="/api/download/${runId}/combined" download>Download Combined .docx</a>`;
+        }
+        if (result.has_batch_zip) {
+          html += `<a class="btn btn-small" href="/api/download/${runId}/zip" download>Download Individual (.zip)</a>`;
+        }
+        html += `</div>`;
+        resultEl.innerHTML = html;
       }
     });
   } catch (e) {

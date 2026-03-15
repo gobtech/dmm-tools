@@ -417,21 +417,83 @@ MAX_ARTIST_NAME_LENGTH = 100
 
 
 def combine_docx(paths, output_path):
-    """Merge multiple .docx files into one with page breaks between them."""
+    """Merge multiple .docx files into one with page breaks between them.
+
+    Properly remaps image/hyperlink relationships so embedded images and links
+    from sub-documents resolve correctly in the combined output.
+    """
     import copy
     from docx import Document
+    from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
+    from docx.opc.part import Part as OpcPart
+    from docx.opc.packuri import PackURI
 
     if not paths:
         return
     combined = Document(str(paths[0]))
+    body = combined.element.body
+    sect_pr = body.find(qn('w:sectPr'))
+
+    # Track the next available image number to avoid filename collisions
+    _img_counter = [0]
+    for rel in combined.part.rels.values():
+        if 'image' in rel.reltype:
+            _img_counter[0] += 1
+
     for path in paths[1:]:
-        # Add page break
-        combined.add_page_break()
-        # Append all body elements from the sub-document
+        # Page break between documents
+        bp = OxmlElement('w:p')
+        bpr = OxmlElement('w:r')
+        bbr = OxmlElement('w:br')
+        bbr.set(qn('w:type'), 'page')
+        bpr.append(bbr)
+        bp.append(bpr)
+        if sect_pr is not None:
+            sect_pr.addprevious(bp)
+        else:
+            body.append(bp)
+
         sub = Document(str(path))
+
+        # Build a mapping from sub-doc rIds → new rIds in combined doc.
+        # Only copy image and hyperlink relationships — document-level parts
+        # (styles, settings, numbering, etc.) already exist from the base doc.
+        rid_map = {}
+        for rel in sub.part.rels.values():
+            if rel.is_external:
+                new_rid = combined.part.relate_to(
+                    rel.target_ref, rel.reltype, is_external=True)
+            elif 'image' in rel.reltype:
+                # Copy image blob into a fresh part with a unique name
+                _img_counter[0] += 1
+                src = rel.target_part
+                ext = src.partname.rsplit('.', 1)[-1] if '.' in src.partname else 'png'
+                new_name = PackURI(f'/word/media/merged_{_img_counter[0]}.{ext}')
+                new_part = OpcPart(new_name, src.content_type, src.blob,
+                                   combined.part.package)
+                new_rid = combined.part.relate_to(new_part, rel.reltype)
+            else:
+                continue  # skip document-level parts (styles, settings, etc.)
+            rid_map[rel.rId] = new_rid
+
+        # Clone body elements, remapping all rId references
+        r_ns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+        rid_attrs = [f'{{{r_ns}}}embed', f'{{{r_ns}}}link', f'{{{r_ns}}}id']
         for element in sub.element.body:
-            combined.element.body.append(copy.deepcopy(element))
+            if element.tag == qn('w:sectPr'):
+                continue
+            clone = copy.deepcopy(element)
+            for node in clone.iter():
+                for attr_name in rid_attrs:
+                    old_rid = node.get(attr_name)
+                    if old_rid and old_rid in rid_map:
+                        node.set(attr_name, rid_map[old_rid])
+            if sect_pr is not None:
+                sect_pr.addprevious(clone)
+            else:
+                body.append(clone)
+
     combined.save(str(output_path))
 
 
@@ -551,13 +613,15 @@ def finish_job(job_id, result=None, output_path=None, error=None):
     jobs[job_id]['result'] = result
     jobs[job_id]['output_path'] = str(output_path) if output_path else None
     jobs[job_id]['error'] = error
+    jobs[job_id]['finished_at'] = time.time()
     # Clean up uploads
     upload_dir = UPLOAD_DIR / job_id
     if upload_dir.exists():
         shutil.rmtree(upload_dir, ignore_errors=True)
 
 
-JOB_EXPIRE_SECONDS = 3600  # remove finished jobs after 1 hour
+JOB_EXPIRE_SECONDS = 3600        # remove finished single jobs after 1 hour
+BATCH_EXPIRE_SECONDS = 14400     # remove finished batch jobs after 4 hours
 
 
 def _reap_stale_jobs():
@@ -574,8 +638,10 @@ def _reap_stale_jobs():
                 job['error'] = f'This operation timed out after {mins} minutes. Please try again.'
                 job['log'].append('Job timed out.')
         else:
-            # Clean up finished jobs older than 1 hour
-            if now - started > JOB_EXPIRE_SECONDS:
+            # Expire from when the job finished, not when it started
+            finished_at = job.get('finished_at', started)
+            expire = BATCH_EXPIRE_SECONDS if job.get('batch') else JOB_EXPIRE_SECONDS
+            if now - finished_at > expire:
                 to_delete.append(job_id)
     for job_id in to_delete:
         jobs.pop(job_id, None)
@@ -2151,7 +2217,10 @@ def releases_preview():
 @app.route('/api/report/compile', methods=['POST'])
 def report_compile():
     data = request.get_json(silent=True) or {}
+    mode = data.get('mode', 'artist')  # artist | week | all
     artist = (data.get('artist') or '').strip()
+    week = (data.get('week') or 'current').strip()
+    auto_append = data.get('auto_append', False)
     press_days = data.get('press_days', data.get('days', 28))
     press_start_date = data.get('press_start_date')
     press_end_date = data.get('press_end_date')
@@ -2164,9 +2233,17 @@ def report_compile():
     include_dsp = data.get('include_dsp', True)
     include_press = data.get('include_press', True)
 
-    err = validate_artist(artist)
-    if err:
-        return jsonify({'error': err}), 400
+    if mode == 'artist':
+        err = validate_artist(artist)
+        if err:
+            return jsonify({'error': err}), 400
+
+    if mode == 'week' and week != 'current':
+        from datetime import datetime as _dt
+        try:
+            _dt.strptime(week, '%Y-%m-%d')
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid week date. Use YYYY-MM-DD format or "current".'}), 400
 
     if not include_radio and not include_dsp and not include_press:
         return jsonify({'error': 'Please enable at least one section (Radio, Press, or DSP).'}), 400
@@ -2181,68 +2258,230 @@ def report_compile():
         if press_days < 1:
             return jsonify({'error': 'Press days must be at least 1.'}), 400
 
-    job_id = new_job()
-    safe_artist = artist.lower().replace(' ', '_')
-    output_path = REPORT_DIR / f'{safe_artist}_full_report.docx'
+    # --- Single artist mode ---
+    if mode == 'artist':
+        job_id = new_job()
+        safe_artist = artist.lower().replace(' ', '_')
+        output_path = REPORT_DIR / f'{safe_artist}_full_report.docx'
 
-    def run():
+        def run():
+            try:
+                spec_path = ROOT_DIR / 'report-compiler' / 'compile_report.py'
+                spec = importlib.util.spec_from_file_location('compile_report', str(spec_path))
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+
+                result = mod.compile_report(
+                    artist=artist,
+                    press_days=press_days,
+                    press_start_date=press_start_date,
+                    press_end_date=press_end_date,
+                    radio_region=radio_region,
+                    radio_time_range=radio_time_range,
+                    radio_start_date=radio_start_date,
+                    radio_end_date=radio_end_date,
+                    efforts_text=efforts_text,
+                    output_path=str(output_path),
+                    log_fn=lambda msg: log_line(job_id, msg),
+                    include_radio=include_radio,
+                    include_dsp=include_dsp,
+                    include_press=include_press,
+                )
+
+                # Summary for result
+                sections = []
+                if result.get('radio_data'):
+                    sections.append(f"Radio: {len(result['radio_data'])} entries")
+                if result.get('dsp_data'):
+                    total_dsp = sum(len(m) for r in result['dsp_data'].values() for m in r.values())
+                    sections.append(f"DSP: {total_dsp} placements")
+                if result.get('press_data'):
+                    total_press = sum(len(v) for v in result['press_data'].values())
+                    sections.append(f"Press: {total_press} results")
+
+                summary = ' | '.join(sections) if sections else 'Report generated (no data found in selected sections)'
+
+                # Collect proof images
+                proof_dir = REPORT_DIR / 'dsp_proofs'
+                if proof_dir.exists():
+                    jobs[job_id]['proof_images'] = sorted([f.name for f in proof_dir.glob('proof_*.png')])
+
+                # Store structured data for Google Docs append
+                jobs[job_id]['artist'] = artist
+                jobs[job_id]['radio_data'] = result.get('radio_data')
+                jobs[job_id]['press_data'] = result.get('press_data')
+                jobs[job_id]['dsp_data'] = result.get('dsp_data')
+                jobs[job_id]['radio_date_range'] = compute_radio_date_range(
+                    radio_time_range, radio_start_date, radio_end_date)
+
+                finish_job(job_id, result=summary, output_path=output_path)
+
+            except Exception as e:
+                finish_job(job_id, error=str(e))
+
+        threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
+        return jsonify({'job_id': job_id})
+
+    # --- Batch mode (week / all) ---
+    artist_list = data.get('artists', [])
+    if not artist_list:
+        from shared.database import load_release_schedule
+        schedule_url = os.environ.get(
+            'RELEASE_SCHEDULE_URL',
+            'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'
+        )
         try:
-            import importlib.util
+            releases = load_release_schedule(schedule_url)
+        except Exception:
+            return jsonify({'error': 'Could not load release schedule.'}), 500
+
+        if mode == 'week':
+            dsp_spec_path = ROOT_DIR / 'dsp-pickup' / 'dsp_pickup.py'
+            dsp_spec = importlib.util.spec_from_file_location('dsp_pickup_filter', str(dsp_spec_path))
+            dsp_mod = importlib.util.module_from_spec(dsp_spec)
+            dsp_mod.loader.exec_module(dsp_mod)
+            releases = dsp_mod.filter_releases_by_week(releases, week)
+
+        seen = set()
+        for r in releases:
+            a = r['artist']
+            if a and a not in seen:
+                seen.add(a)
+                artist_list.append(a)
+
+    if not artist_list:
+        return jsonify({'error': 'No releases found matching your criteria.'}), 400
+
+    batch_id = new_job()
+    jobs[batch_id]['batch'] = True
+    jobs[batch_id]['artist_statuses'] = [
+        {'artist': a, 'status': 'queued', 'result_count': 0, 'error': None, 'output_path': None}
+        for a in artist_list
+    ]
+    if auto_append:
+        jobs[batch_id]['append_results'] = {}
+
+    radio_date_range = compute_radio_date_range(
+        radio_time_range, radio_start_date, radio_end_date)
+
+    def orchestrate():
+        try:
             spec_path = ROOT_DIR / 'report-compiler' / 'compile_report.py'
             spec = importlib.util.spec_from_file_location('compile_report', str(spec_path))
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
 
-            result = mod.compile_report(
-                artist=artist,
-                press_days=press_days,
-                press_start_date=press_start_date,
-                press_end_date=press_end_date,
-                radio_region=radio_region,
-                radio_time_range=radio_time_range,
-                radio_start_date=radio_start_date,
-                radio_end_date=radio_end_date,
-                efforts_text=efforts_text,
-                output_path=str(output_path),
-                log_fn=lambda msg: log_line(job_id, msg),
-                include_radio=include_radio,
-                include_dsp=include_dsp,
-                include_press=include_press,
-            )
+            if auto_append:
+                from shared.history import get_artist_doc
 
-            # Summary for result
-            sections = []
-            if result.get('radio_data'):
-                sections.append(f"Radio: {len(result['radio_data'])} entries")
-            if result.get('dsp_data'):
-                total_dsp = sum(len(m) for r in result['dsp_data'].values() for m in r.values())
-                sections.append(f"DSP: {total_dsp} placements")
-            if result.get('press_data'):
-                total_press = sum(len(v) for v in result['press_data'].values())
-                sections.append(f"Press: {total_press} results")
+            statuses = jobs[batch_id]['artist_statuses']
+            docx_paths = []
 
-            summary = ' | '.join(sections) if sections else 'Report generated (no data found in selected sections)'
+            for i, astat in enumerate(statuses):
+                art = astat['artist']
+                astat['status'] = 'running'
+                safe = art.lower().replace(' ', '_')
+                out = REPORT_DIR / f'{safe}_full_report.docx'
+                log_line(batch_id, f'[{i+1}/{len(statuses)}] Processing {art}...')
 
-            # Collect proof images
-            proof_dir = REPORT_DIR / 'dsp_proofs'
-            if proof_dir.exists():
-                jobs[job_id]['proof_images'] = sorted([f.name for f in proof_dir.glob('proof_*.png')])
+                try:
+                    result = mod.compile_report(
+                        artist=art,
+                        press_days=press_days,
+                        press_start_date=press_start_date,
+                        press_end_date=press_end_date,
+                        radio_region=radio_region,
+                        radio_time_range=radio_time_range,
+                        radio_start_date=radio_start_date,
+                        radio_end_date=radio_end_date,
+                        efforts_text='',
+                        output_path=str(out),
+                        log_fn=lambda msg, _bid=batch_id: log_line(_bid, msg),
+                        include_radio=include_radio,
+                        include_dsp=include_dsp,
+                        include_press=include_press,
+                    )
 
-            # Store structured data for Google Docs append
-            jobs[job_id]['artist'] = artist
-            jobs[job_id]['radio_data'] = result.get('radio_data')
-            jobs[job_id]['press_data'] = result.get('press_data')
-            jobs[job_id]['dsp_data'] = result.get('dsp_data')
-            jobs[job_id]['radio_date_range'] = compute_radio_date_range(
-                radio_time_range, radio_start_date, radio_end_date)
+                    # Count results
+                    total = 0
+                    if result.get('radio_data'):
+                        total += len(result['radio_data'])
+                    if result.get('dsp_data'):
+                        total += sum(len(m) for r in result['dsp_data'].values() for m in r.values())
+                    if result.get('press_data'):
+                        total += sum(len(v) for v in result['press_data'].values())
 
-            finish_job(job_id, result=summary, output_path=output_path)
+                    astat['status'] = 'done'
+                    astat['result_count'] = total
+                    astat['output_path'] = str(out)
+                    if out.exists():
+                        docx_paths.append(out)
+
+                    # Auto-append to Google Doc
+                    if auto_append:
+                        # Collect proof image paths
+                        proof_dir = REPORT_DIR / 'dsp_proofs'
+                        proof_paths = sorted([str(f) for f in proof_dir.glob('proof_*.png')]) if proof_dir.exists() else []
+
+                        doc = get_artist_doc(art)
+                        if doc:
+                            ar = _batch_auto_append(
+                                art, doc['doc_id'],
+                                radio_data=result.get('radio_data'),
+                                dsp_data=result.get('dsp_data'),
+                                press_data=result.get('press_data'),
+                                proof_image_paths=proof_paths or None,
+                                radio_date_range=radio_date_range,
+                            )
+                            jobs[batch_id]['append_results'][art] = ar
+                            if ar['status'] == 'appended':
+                                log_line(batch_id, f'  \u2713 Appended to Google Doc: {ar["doc_title"]}')
+                            elif ar['status'] == 'skipped':
+                                log_line(batch_id, f'  \u26a0 Skipped: {ar["detail"]}')
+                            else:
+                                log_line(batch_id, f'  \u2717 Append failed: {ar["detail"]}')
+                            time.sleep(1)  # Rate limiting
+                        else:
+                            jobs[batch_id]['append_results'][art] = {
+                                'status': 'no_doc', 'detail': 'No Google Doc linked', 'doc_title': None}
+
+                except Exception as e:
+                    astat['status'] = 'error'
+                    astat['error'] = str(e)
+                    log_line(batch_id, f'  Error: {e}')
+
+            # Generate combined outputs
+            safe_batch = f'batch_week_{week}' if mode == 'week' else 'batch_all'
+            if docx_paths:
+                import zipfile
+                zip_path = REPORT_DIR / f'{safe_batch}_reports.zip'
+                with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for dp in docx_paths:
+                        zf.write(str(dp), dp.name)
+                jobs[batch_id]['batch_zip'] = str(zip_path)
+
+                combined_docx = REPORT_DIR / f'{safe_batch}_reports.docx'
+                try:
+                    combine_docx(docx_paths, combined_docx)
+                    jobs[batch_id]['batch_combined_docx'] = str(combined_docx)
+                except Exception:
+                    pass
+
+            done = sum(1 for s in statuses if s['status'] == 'done')
+            errs = sum(1 for s in statuses if s['status'] == 'error')
+            summary = f'Batch complete: {done}/{len(statuses)} reports generated'
+            if errs:
+                summary += f' ({errs} failed)'
+            finish_job(batch_id, result=summary)
 
         except Exception as e:
-            finish_job(job_id, error=str(e))
+            finish_job(batch_id, error=str(e))
 
-    threading.Thread(target=run_with_limit(job_id, run), daemon=True).start()
-    return jsonify({'job_id': job_id})
+    threading.Thread(target=run_with_limit(batch_id, orchestrate), daemon=True).start()
+    return jsonify({
+        'batch_id': batch_id,
+        'artist_jobs': [{'artist': a, 'index': i} for i, a in enumerate(artist_list)]
+    })
 
 
 # ---------------------------------------------------------------------------

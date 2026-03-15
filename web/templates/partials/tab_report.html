@@ -12,15 +12,41 @@
               <li>Release timeline is <strong>auto-populated</strong> from the Google Sheets release schedule.</li>
               <li>Use the <strong>efforts summary</strong> to add custom bullet points (e.g. "Serviced PR", "Pitched to DSPs").</li>
               <li>You can <strong>disable sections</strong> you don't need &mdash; e.g. skip Radio if there's no airplay data yet.</li>
-              <li>This is a <strong>long-running task</strong> (2-5 min) since it checks all platforms. Be patient!</li>
+              <li>This is a <strong>long-running task</strong> (2-5 min per artist) since it checks all platforms. Be patient!</li>
             </ul>
           </div>
         </div>
       </div>
     </div>
 
-    <label for="report-artist">Artist Name</label>
-    <input type="text" id="report-artist" placeholder="e.g. PNAU" maxlength="100">
+    <label>Mode</label>
+    <div class="radio-group">
+      <label title="Generate a report for a single artist"><input type="radio" name="report-mode" value="artist" checked onchange="reportModeChanged()"><span>Specific artist</span></label>
+      <label title="Generate reports for all artists releasing this week"><input type="radio" name="report-mode" value="week" onchange="reportModeChanged()"><span>This week's releases</span></label>
+      <label title="Generate reports for every artist in the release schedule"><input type="radio" name="report-mode" value="all" onchange="reportModeChanged()"><span>All releases</span></label>
+    </div>
+
+    <div id="report-week-field" class="conditional">
+      <label for="report-week">Week (release Friday)</label>
+      <input type="date" id="report-week">
+    </div>
+
+    <div id="report-batch-preview" class="conditional batch-preview"></div>
+
+    <div id="report-auto-append-field" class="conditional" style="margin-top:8px;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="report-auto-append">
+        <label for="report-auto-append">Auto-append to Google Docs</label>
+      </div>
+      <p style="font-size:12px; color:var(--text-tertiary); margin:4px 0 0 24px;">
+        Reports will be appended to linked Google Docs. Artists without linked docs will be skipped.
+      </p>
+    </div>
+
+    <div id="report-artist-field">
+      <label for="report-artist">Artist Name</label>
+      <input type="text" id="report-artist" placeholder="e.g. PNAU" maxlength="100">
+    </div>
 
     <label>Radio Time Range</label>
     <div class="radio-group">
@@ -72,8 +98,10 @@
       </div>
     </div>
 
-    <label for="report-efforts" style="margin-top:20px;">Overall Efforts <span style="color:var(--text-tertiary); font-weight:400;">(optional — one per line)</span></label>
-    <textarea id="report-efforts" rows="4" placeholder="- Serviced PR to 50+ outlets across LATAM&#10;- Pitched to DSPs in MX, BR, AR, CL, CO&#10;- Radio servicing across 8 countries" style="width:100%; padding:12px 16px; border:1px solid var(--border-default); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical;"></textarea>
+    <div id="report-efforts-field">
+      <label for="report-efforts" style="margin-top:20px;">Overall Efforts <span style="color:var(--text-tertiary); font-weight:400;">(optional — one per line)</span></label>
+      <textarea id="report-efforts" rows="4" placeholder="- Serviced PR to 50+ outlets across LATAM&#10;- Pitched to DSPs in MX, BR, AR, CL, CO&#10;- Radio servicing across 8 countries" style="width:100%; padding:12px 16px; border:1px solid var(--border-default); border-radius:var(--radius-xs); background:var(--bg-input); color:var(--text-primary); font-family:var(--font-body); font-size:14px; resize:vertical;"></textarea>
+    </div>
 
     <button class="btn" id="report-btn" onclick="runReport()">Generate Full Report</button>
 
