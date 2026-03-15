@@ -985,46 +985,17 @@ def generate_dsp_docx(results, proof_image_paths, docx_path, grouping='platform'
         except ValueError:
             return 99
 
-    # Helper to render a single match entry (country, playlist info, proof image)
+    # Helpers for rendering grouped playlist entries
     import unicodedata as _ud
     def _ascii_safe(s, maxlen):
         s = _ud.normalize('NFKD', s).encode('ascii', 'ignore').decode()
         return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
 
-    def _render_match(m):
-        platform = m.get('platform', '')
-        playlist_name = m.get('playlist_name', '')
-        country = m.get('playlist_country', '')
-        followers = m.get('playlist_followers', '')
+    def _render_proof(m):
+        """Render proof image or text fallback for a single match."""
         track = m.get('playlist_track', '')
-        artist = m.get('playlist_artist', '')
-
-        # Country (underlined) if present
-        if country:
-            cp = doc.add_paragraph()
-            cr = cp.add_run(country)
-            cr.underline = True
-            cr.font.size = Pt(10)
-            cp.paragraph_format.space_before = Pt(4)
-            cp.paragraph_format.space_after = Pt(1)
-
-        # Playlist name + followers + date (bold black)
-        info_parts = [playlist_name]
-        if followers:
-            info_parts.append(followers)
-        info_parts.append(today_str)
-        info_text = ' - '.join(info_parts)
-
-        ip = doc.add_paragraph()
-        ir = ip.add_run(info_text)
-        ir.bold = True
-        ir.font.size = Pt(10)
-        ip.paragraph_format.space_before = Pt(2)
-        ip.paragraph_format.space_after = Pt(4)
-
-        # Embed proof image if available
         safe_track = _ascii_safe(track, 30)
-        safe_playlist = _ascii_safe(playlist_name, 40)
+        safe_playlist = _ascii_safe(m.get('playlist_name', ''), 40)
         img_filename = f"proof_{safe_track}_{safe_playlist}.png"
         img_path = os.path.join(os.path.dirname(docx_path), 'dsp_proofs', img_filename)
 
@@ -1034,63 +1005,108 @@ def generate_dsp_docx(results, proof_image_paths, docx_path, grouping='platform'
             run = img_para.add_run()
             run.add_picture(img_path, width=Inches(6.2))
         else:
-            # Fallback: show text description
             fp = doc.add_paragraph()
-            fr = fp.add_run(f'  #{m.get("position", "?")} — {track} by {artist}')
+            fr = fp.add_run(f'  #{m.get("position", "?")} — {track} by {m.get("playlist_artist", "")}')
             fr.font.size = Pt(9)
             fr.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
             fp.paragraph_format.space_after = Pt(8)
 
+    def _render_playlist_group(country, playlist_name, matches):
+        """Render country + playlist header once, then proof images for all matches."""
+        if country:
+            cp = doc.add_paragraph()
+            cr = cp.add_run(country.upper())
+            cr.underline = True
+            cr.font.size = Pt(10)
+            cp.paragraph_format.space_before = Pt(4)
+            cp.paragraph_format.space_after = Pt(1)
+
+        first = matches[0]
+        info_parts = [playlist_name]
+        if first.get('playlist_followers'):
+            info_parts.append(first['playlist_followers'])
+        info_parts.append(today_str)
+
+        ip = doc.add_paragraph()
+        ir = ip.add_run(' - '.join(info_parts))
+        ir.bold = True
+        ir.font.size = Pt(10)
+        ip.paragraph_format.space_before = Pt(2)
+        ip.paragraph_format.space_after = Pt(4)
+
+        for m in matches:
+            _render_proof(m)
+
+    from collections import OrderedDict
+
     if grouping == 'artist':
-        # Sort by artist, then release, then platform
-        all_matches.sort(key=lambda m: (m['_artist'].lower(), m['_release'].lower(), platform_idx(m), m.get('playlist_name', '')))
+        # Sort by artist → release → platform → country → playlist
+        all_matches.sort(key=lambda m: (
+            m['_artist'].lower(), m['_release'].lower(), platform_idx(m),
+            m.get('playlist_country', ''), m.get('playlist_name', '')))
+
+        grouped = OrderedDict()
+        for m in all_matches:
+            key = (m['_artist'], m['_release'], m.get('platform', ''),
+                   m.get('playlist_country', ''), m.get('playlist_name', ''))
+            grouped.setdefault(key, []).append(m)
 
         current_artist = None
         current_release = None
-        for m in all_matches:
+        current_platform = None
+        for (artist, release, platform, country, playlist_name), matches in grouped.items():
             # Artist header (red bold)
-            if m['_artist'] != current_artist:
+            if artist != current_artist:
                 if current_artist is not None:
                     doc.add_paragraph().paragraph_format.space_before = Pt(6)
                 p = doc.add_paragraph()
-                run = p.add_run(m['_artist'])
+                run = p.add_run(artist)
                 run.bold = True
                 run.font.color.rgb = RGBColor(0xC4, 0x30, 0x30)
                 run.font.size = Pt(13)
                 p.paragraph_format.space_before = Pt(10)
                 p.paragraph_format.space_after = Pt(2)
-                current_artist = m['_artist']
+                current_artist = artist
                 current_release = None
+                current_platform = None
 
             # Release sub-header (dark gray bold)
-            if m['_release'] != current_release:
+            if release != current_release:
                 rp = doc.add_paragraph()
-                rr = rp.add_run(m['_release'])
+                rr = rp.add_run(release)
                 rr.bold = True
                 rr.font.size = Pt(11)
                 rr.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
                 rp.paragraph_format.space_before = Pt(6)
                 rp.paragraph_format.space_after = Pt(2)
-                current_release = m['_release']
+                current_release = release
+                current_platform = None
 
-            # Platform label (blue, smaller)
-            pp = doc.add_paragraph()
-            pr = pp.add_run(m.get('platform', ''))
-            pr.bold = True
-            pr.font.color.rgb = RGBColor(0x00, 0x56, 0xD2)
-            pr.font.size = Pt(10)
-            pp.paragraph_format.space_before = Pt(4)
-            pp.paragraph_format.space_after = Pt(1)
+            # Platform label (blue) — only when platform changes
+            if platform != current_platform:
+                pp = doc.add_paragraph()
+                pr = pp.add_run(platform)
+                pr.bold = True
+                pr.font.color.rgb = RGBColor(0x00, 0x56, 0xD2)
+                pr.font.size = Pt(10)
+                pp.paragraph_format.space_before = Pt(4)
+                pp.paragraph_format.space_after = Pt(1)
+                current_platform = platform
 
-            _render_match(m)
+            _render_playlist_group(country, playlist_name, matches)
     else:
-        # Default: group by platform, then playlist name
-        all_matches.sort(key=lambda m: (platform_idx(m), m.get('playlist_name', '')))
+        # Default: group by platform → country → playlist
+        all_matches.sort(key=lambda m: (
+            platform_idx(m), m.get('playlist_country', ''), m.get('playlist_name', '')))
+
+        grouped = OrderedDict()
+        for m in all_matches:
+            key = (m.get('platform', ''), m.get('playlist_country', ''),
+                   m.get('playlist_name', ''))
+            grouped.setdefault(key, []).append(m)
 
         current_platform = None
-        for m in all_matches:
-            platform = m.get('platform', '')
-
+        for (platform, country, playlist_name), matches in grouped.items():
             # Platform header (blue bold) — only when platform changes
             if platform != current_platform:
                 if current_platform is not None:
@@ -1104,7 +1120,7 @@ def generate_dsp_docx(results, proof_image_paths, docx_path, grouping='platform'
                 p.paragraph_format.space_after = Pt(2)
                 current_platform = platform
 
-            _render_match(m)
+            _render_playlist_group(country, playlist_name, matches)
 
     doc.save(docx_path)
     print(f"  DSP report saved: {docx_path}")

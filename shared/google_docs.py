@@ -305,9 +305,14 @@ def _format_dsp_section(dsp_data, proof_images=None):
     current_platform = None
     today_str = datetime.now().strftime('%b %d, %Y')
 
+    # Group matches by (platform, country, playlist) to avoid duplicate headers
+    from collections import OrderedDict
+    grouped = OrderedDict()
     for m in all_matches:
-        platform = m.get('platform', '')
+        key = (m.get('platform', ''), m.get('playlist_country', ''), m.get('playlist_name', ''))
+        grouped.setdefault(key, []).append(m)
 
+    for (platform, country, playlist_name), matches in grouped.items():
         if platform != current_platform:
             if current_platform is not None:
                 text_parts.append('\n')
@@ -318,34 +323,34 @@ def _format_dsp_section(dsp_data, proof_images=None):
             text_parts.append(platform_line)
             current_platform = platform
 
-        # Country (underline)
-        country = m.get('playlist_country', '')
+        # Country (underline) — once per group
         if country:
-            country_line = f'{country}\n'
+            country_line = f'{country.upper()}\n'
             pos = sum(len(p) for p in text_parts)
             formats.append({'start': pos, 'end': pos + len(country_line) - 1, 'underline': True})
             text_parts.append(country_line)
 
-        # Playlist info
-        info_parts = [m.get('playlist_name', '')]
-        if m.get('playlist_followers'):
-            info_parts.append(m['playlist_followers'])
+        # Playlist info — once per group
+        first = matches[0]
+        info_parts = [playlist_name]
+        if first.get('playlist_followers'):
+            info_parts.append(first['playlist_followers'])
         info_parts.append(today_str)
         info_line = ' - '.join(info_parts) + '\n'
         pos = sum(len(p) for p in text_parts)
         formats.append({'start': pos, 'end': pos + len(info_line) - 1, 'bold': True})
         text_parts.append(info_line)
 
-        # Image placeholder — a newline where the image will be inserted
+        # Image placeholders for all matches in this group
         if proof_images:
-            track = m.get('playlist_track', '')
-            playlist = m.get('playlist_name', '')
-            img_url = proof_images.get((track, playlist))
-            if img_url:
-                placeholder = '\n'
-                pos = sum(len(p) for p in text_parts)
-                formats.append({'image_url': img_url, 'start': pos})
-                text_parts.append(placeholder)
+            for m in matches:
+                track = m.get('playlist_track', '')
+                img_url = proof_images.get((track, playlist_name))
+                if img_url:
+                    placeholder = '\n'
+                    pos = sum(len(p) for p in text_parts)
+                    formats.append({'image_url': img_url, 'start': pos})
+                    text_parts.append(placeholder)
 
     text_parts.append('\n')
     return ''.join(text_parts), formats
