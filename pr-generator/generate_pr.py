@@ -123,6 +123,18 @@ def _translate_google(text, target_lang, source_lang=None, log_fn=print):
     return '\n'.join(translated_chunks)
 
 
+def _strip_markdown(text):
+    """Remove stray markdown formatting artifacts from AI translation output."""
+    if not text:
+        return text
+    # Remove bold/italic markers: **text**, *text*, __text__, _text_ at word boundaries
+    text = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', text)
+    text = re.sub(r'_{1,3}(.+?)_{1,3}', r'\1', text)
+    # Remove escaped asterisks/underscores
+    text = text.replace('\\*', '').replace('\\_', '')
+    return text
+
+
 # ═════════════════════════════════════════════════════════════════════════
 #  GEMINI AI — PLAIN TEXT (for pasted text input)
 # ═════════════════════════════════════════════════════════════════════════
@@ -144,11 +156,14 @@ def _translate_gemini(text, target_lang, source_lang=None, notes='', log_fn=prin
         f"CRITICAL RULES:\n"
         f"- Preserve ALL formatting: paragraph breaks, section headers, bullet points, tracklists, tour dates, links.\n"
         f"- Keep artist names, song/album titles, venue names, label names, and proper nouns EXACTLY as-is (do NOT translate them).\n"
+        f"- Never translate EP, album, song, show, or series titles even when they appear as the subject of a sentence.\n"
         f"- Keep all URLs and email addresses exactly as-is.\n"
         f"- Translate quotes naturally — they should sound like the person said them in {lang_name}.\n"
         f"- Use professional music press release tone appropriate for {lang_name}-speaking media outlets.\n"
         f"- Localize date formats (e.g., 'June 5' → '5 de junio' for Spanish, '5 de junho' for Portuguese).\n"
         f"- If the PR contains sections in multiple languages, translate ALL sections into {lang_name}.\n"
+        f"- \"Shortlisted\" for music prizes should be translated as \"preseleccionada/o\" (not \"nominada/o\").\n"
+        f"- Do NOT use markdown formatting (no asterisks, no bold/italic markers). Output plain text only.\n"
         f"- Output ONLY the translated press release. No preamble, no notes, no commentary.\n"
     )
 
@@ -182,7 +197,7 @@ def _translate_gemini(text, target_lang, source_lang=None, notes='', log_fn=prin
             if candidates:
                 parts = candidates[0].get('content', {}).get('parts', [])
                 if parts:
-                    return parts[0].get('text', '').strip()
+                    return _strip_markdown(parts[0].get('text', '').strip())
             log_fn('  Gemini returned empty response.')
             return None
         else:
@@ -194,13 +209,100 @@ def _translate_gemini(text, target_lang, source_lang=None, notes='', log_fn=prin
 
 
 # ═════════════════════════════════════════════════════════════════════════
+#  MISTRAL AI — PLAIN TEXT (fallback for Gemini)
+# ═════════════════════════════════════════════════════════════════════════
+
+def _translate_mistral(text, target_lang, source_lang=None, notes='', log_fn=print):
+    """Translate plain text using Mistral Large (fallback engine)."""
+    api_key = os.environ.get('MISTRAL_API_KEY', '')
+    if not api_key:
+        return None
+
+    import requests as req
+
+    lang_name = 'Latin American Spanish' if target_lang == 'es' else 'Brazilian Portuguese'
+    src_label = source_lang or 'the source language'
+
+    system_prompt = (
+        f"You are an expert music industry translator specializing in press releases for Latin American markets. "
+        f"Translate the following press release from {src_label} into {lang_name}.\n\n"
+        f"CRITICAL RULES:\n"
+        f"- Preserve ALL formatting: paragraph breaks, section headers, bullet points, tracklists, tour dates, links.\n"
+        f"- Keep artist names, song/album titles, venue names, label names, and proper nouns EXACTLY as-is (do NOT translate them).\n"
+        f"- Never translate EP, album, song, show, or series titles even when they appear as the subject of a sentence.\n"
+        f"- Keep all URLs and email addresses exactly as-is.\n"
+        f"- Translate quotes naturally — they should sound like the person said them in {lang_name}.\n"
+        f"- Use professional music press release tone appropriate for {lang_name}-speaking media outlets.\n"
+        f"- Localize date formats (e.g., 'June 5' → '5 de junio' for Spanish, '5 de junho' for Portuguese).\n"
+        f"- If the PR contains sections in multiple languages, translate ALL sections into {lang_name}.\n"
+        f"- \"Shortlisted\" for music prizes should be translated as \"preseleccionada/o\" (not \"nominada/o\").\n"
+        f"- Do NOT use markdown formatting (no asterisks, no bold/italic markers). Output plain text only.\n"
+        f"- Output ONLY the translated press release. No preamble, no notes, no commentary.\n"
+    )
+
+    if notes:
+        system_prompt += f"\nAdditional instructions from the user: {notes}\n"
+
+    try:
+        resp = req.post(
+            'https://api.mistral.ai/v1/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={
+                'model': 'mistral-large-latest',
+                'messages': [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': text},
+                ],
+                'max_tokens': 8192,
+                'temperature': 0.3,
+            },
+            timeout=120,
+        )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            choices = data.get('choices', [])
+            if choices:
+                content = choices[0].get('message', {}).get('content', '').strip()
+                if content:
+                    return _strip_markdown(content)
+            log_fn('  Mistral returned empty response.')
+            return None
+        else:
+            log_fn(f'  Mistral API error: {resp.status_code} — {resp.text[:200]}')
+            return None
+    except Exception as e:
+        log_fn(f'  Mistral translation error: {e}')
+        return None
+
+
+# ═════════════════════════════════════════════════════════════════════════
 #  DOCX FORMAT-PRESERVING TRANSLATION
 # ═════════════════════════════════════════════════════════════════════════
+
+def _get_all_runs(para):
+    """Get all Run objects in a paragraph, including those inside hyperlinks.
+
+    python-docx's para.runs only returns direct <w:r> children, missing
+    runs inside <w:hyperlink> elements. This function yields all runs
+    in document order.
+    """
+    from docx.oxml.ns import qn
+    from docx.text.run import Run
+    runs = []
+    for child in para._element:
+        if child.tag == qn('w:r'):
+            runs.append(Run(child, para))
+        elif child.tag == qn('w:hyperlink'):
+            for r in child.findall(qn('w:r')):
+                runs.append(Run(r, para))
+    return runs
+
 
 def _collect_run_info(para):
     """Collect text and formatting metadata for each run in a paragraph."""
     runs_info = []
-    for run in para.runs:
+    for run in _get_all_runs(para):
         runs_info.append({
             'text': run.text,
             'bold': run.bold,
@@ -248,7 +350,7 @@ def _apply_translation_proportional(para, translated_text):
     if not translated_text:
         return
 
-    runs = list(para.runs)
+    runs = _get_all_runs(para)
     if not runs:
         return
 
@@ -426,9 +528,12 @@ def _translate_batch_gemini(texts, target_lang, source_lang, notes, log_fn):
             f"- The input has {len(chunk)} text sections separated by {PARA_MARKER} markers.\n"
             f"- Your output MUST have exactly {len(chunk) - 1} {PARA_MARKER} markers (preserving all {len(chunk)} sections).\n"
             f"- Keep artist names, song/album titles, venue names, label names, and proper nouns EXACTLY as-is (do NOT translate them).\n"
+            f"- Never translate EP, album, song, show, or series titles even when they appear as the subject of a sentence.\n"
             f"- Keep all URLs and email addresses exactly as-is.\n"
             f"- Localize date formats (June 5 \u2192 5 de junio / 5 de junho).\n"
             f"- Professional music press release tone.\n"
+            f"- \"Shortlisted\" for music prizes should be translated as \"preseleccionada/o\" (not \"nominada/o\").\n"
+            f"- Do NOT use markdown formatting (no asterisks, no bold/italic markers). Output plain text only.\n"
             f"- Output ONLY the translated text with {PARA_MARKER} markers. No preamble, no commentary.\n"
         )
         if notes:
@@ -438,7 +543,7 @@ def _translate_batch_gemini(texts, target_lang, source_lang, notes, log_fn):
 
         if result_text:
             parts = result_text.split(PARA_MARKER)
-            parts = [p.strip() for p in parts]
+            parts = [_strip_markdown(p.strip()) for p in parts]
 
             if len(parts) == len(chunk):
                 all_translated.extend(parts)
@@ -456,9 +561,108 @@ def _translate_batch_gemini(texts, target_lang, source_lang, notes, log_fn):
     return all_translated
 
 
+def _mistral_api_call(system_prompt, user_text, max_tokens=16384, log_fn=print):
+    """Make a Mistral API call. Returns response text or None."""
+    api_key = os.environ.get('MISTRAL_API_KEY', '')
+    if not api_key:
+        return None
+
+    import requests as req
+
+    try:
+        resp = req.post(
+            'https://api.mistral.ai/v1/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={
+                'model': 'mistral-large-latest',
+                'messages': [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_text},
+                ],
+                'max_tokens': max_tokens,
+                'temperature': 0.3,
+            },
+            timeout=180,
+        )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            choices = data.get('choices', [])
+            if choices:
+                content = choices[0].get('message', {}).get('content', '').strip()
+                if content:
+                    return content
+            log_fn('  Mistral returned empty response.')
+        else:
+            log_fn(f'  Mistral API error: {resp.status_code} \u2014 {resp.text[:200]}')
+    except Exception as e:
+        log_fn(f'  Mistral error: {e}')
+
+    return None
+
+
+def _translate_batch_mistral(texts, target_lang, source_lang, notes, log_fn):
+    """
+    Translate paragraphs using Mistral, chunked for reliability.
+
+    Same marker-based approach as Gemini batch.
+    Falls back to Google Translate for any chunk that fails.
+    """
+    lang_name = 'Latin American Spanish' if target_lang == 'es' else 'Brazilian Portuguese'
+    src_label = source_lang or 'the source language'
+
+    PARA_MARKER = '|||PARA|||'
+    CHUNK_SIZE = 15
+
+    all_translated = []
+
+    for chunk_start in range(0, len(texts), CHUNK_SIZE):
+        chunk = texts[chunk_start:chunk_start + CHUNK_SIZE]
+        combined = f'\n{PARA_MARKER}\n'.join(chunk)
+
+        system_prompt = (
+            f"You are an expert music industry translator for Latin American press releases.\n"
+            f"Translate from {src_label} into {lang_name}.\n\n"
+            f"CRITICAL RULES:\n"
+            f"- The input has {len(chunk)} text sections separated by {PARA_MARKER} markers.\n"
+            f"- Your output MUST have exactly {len(chunk) - 1} {PARA_MARKER} markers (preserving all {len(chunk)} sections).\n"
+            f"- Keep artist names, song/album titles, venue names, label names, and proper nouns EXACTLY as-is (do NOT translate them).\n"
+            f"- Never translate EP, album, song, show, or series titles even when they appear as the subject of a sentence.\n"
+            f"- Keep all URLs and email addresses exactly as-is.\n"
+            f"- Localize date formats (June 5 \u2192 5 de junio / 5 de junho).\n"
+            f"- Professional music press release tone.\n"
+            f"- \"Shortlisted\" for music prizes should be translated as \"preseleccionada/o\" (not \"nominada/o\").\n"
+            f"- Do NOT use markdown formatting (no asterisks, no bold/italic markers). Output plain text only.\n"
+            f"- Output ONLY the translated text with {PARA_MARKER} markers. No preamble, no commentary.\n"
+        )
+        if notes:
+            system_prompt += f"\nAdditional instructions: {notes}\n"
+
+        result_text = _mistral_api_call(system_prompt, combined, max_tokens=8192, log_fn=log_fn)
+
+        if result_text:
+            parts = result_text.split(PARA_MARKER)
+            parts = [_strip_markdown(p.strip()) for p in parts]
+
+            if len(parts) == len(chunk):
+                all_translated.extend(parts)
+                if len(texts) > CHUNK_SIZE:
+                    log_fn(f'  Chunk {chunk_start // CHUNK_SIZE + 1}/{(len(texts) + CHUNK_SIZE - 1) // CHUNK_SIZE} translated ({len(chunk)} paragraphs).')
+                continue
+            else:
+                log_fn(f'  Mistral marker mismatch ({len(parts)} vs {len(chunk)}), falling back for this chunk...')
+
+        # Fallback for this chunk
+        fallback = _translate_batch_google(chunk, target_lang, source_lang, log_fn)
+        all_translated.extend(fallback)
+
+    log_fn(f'  Mistral translated {len(all_translated)} paragraphs.')
+    return all_translated
+
+
 # ── Main .docx translation orchestrator ───────────────────────────────
 
-def _translate_docx(docx_path, target_lang, source_lang, use_ai, notes, log_fn, output_dir):
+def _translate_docx(docx_path, target_lang, source_lang, use_ai, notes, log_fn, output_dir, engine='google'):
     """
     Translate a .docx preserving all formatting (alignment, bold, italic,
     font sizes, paragraph spacing, images, headers, footers).
@@ -486,7 +690,7 @@ def _translate_docx(docx_path, target_lang, source_lang, use_ai, notes, log_fn, 
     para_entries = []  # [(paragraph_obj, plain_text), ...]
 
     def _collect(para):
-        run_text = ''.join(r.text for r in para.runs)
+        run_text = ''.join(r.text for r in _get_all_runs(para))
         if run_text.strip():
             para_entries.append((para, run_text))
 
@@ -503,8 +707,10 @@ def _translate_docx(docx_path, target_lang, source_lang, use_ai, notes, log_fn, 
     # Get translations for all paragraphs
     orig_texts = [text for _, text in para_entries]
 
-    if use_ai:
+    if engine == 'gemini':
         translations = _translate_batch_gemini(orig_texts, target_lang, source_lang, notes, log_fn)
+    elif engine == 'mistral':
+        translations = _translate_batch_mistral(orig_texts, target_lang, source_lang, notes, log_fn)
     else:
         translations = _translate_batch_google(orig_texts, target_lang, source_lang, log_fn)
 
@@ -530,6 +736,7 @@ def translate_pr(
     notes='',
     output_dir='',
     log_fn=None,
+    preferred_engine='',
 ):
     """
     Translate a press release into Spanish and/or Portuguese.
@@ -543,7 +750,7 @@ def translate_pr(
       - source_lang: detected source language
       - es_text / pt_text: plain text translations
       - es_docx_path / pt_docx_path: paths to translated .docx files (when input was .docx)
-      - engine: 'google' or 'gemini'
+      - engine: 'google', 'gemini', or 'mistral'
     """
     if log_fn is None:
         log_fn = print
@@ -578,18 +785,68 @@ def translate_pr(
     log_fn(f'Detected source language: {source_lang}')
 
     # ── Choose engine ─────────────────────────────────────────
-    if use_ai:
-        api_key = os.environ.get('GEMINI_API_KEY', '')
-        if not api_key:
-            log_fn('GEMINI_API_KEY not set — falling back to Google Translate.')
-            use_ai = False
-        else:
-            log_fn('Using Gemini Flash AI for translation.')
+    engine = 'google'
+    if preferred_engine in ('gemini', 'mistral'):
+        # User explicitly chose an engine
+        engine = preferred_engine
+    elif use_ai:
+        # Legacy use_ai=True: default to gemini
+        engine = 'gemini'
 
-    if not use_ai:
+    if engine == 'gemini':
+        if os.environ.get('GEMINI_API_KEY', ''):
+            log_fn('Using Gemini Flash AI for translation.')
+        else:
+            log_fn('GEMINI_API_KEY not set — trying Mistral...')
+            engine = 'mistral'
+    if engine == 'mistral':
+        if os.environ.get('MISTRAL_API_KEY', ''):
+            log_fn('Using Mistral Large AI for translation.')
+        else:
+            log_fn('MISTRAL_API_KEY not set — falling back to Google Translate.')
+            engine = 'google'
+    if engine == 'google':
         log_fn('Using Google Translate (free).')
 
-    result['engine'] = 'gemini' if use_ai else 'google'
+    result['engine'] = engine
+
+    def _translate_plain_with_fallback(src, tgt_lang, lang_label):
+        """Translate plain text with engine fallback chain."""
+        nonlocal engine
+        if engine == 'gemini':
+            out = _translate_gemini(src, tgt_lang, source_lang, notes, log_fn)
+            if out:
+                return out
+            log_fn(f'  Gemini failed for {lang_label} — trying Mistral...')
+            engine = 'mistral'
+            result['engine'] = 'mistral'
+        if engine == 'mistral':
+            out = _translate_mistral(src, tgt_lang, source_lang, notes, log_fn)
+            if out:
+                return out
+            log_fn(f'  Mistral failed for {lang_label} — falling back to Google Translate.')
+            engine = 'google'
+            result['engine'] = 'google'
+        return _translate_google(src, tgt_lang, source_lang, log_fn)
+
+    def _translate_docx_with_fallback(src_path, tgt_lang, lang_label):
+        """Translate .docx with engine fallback chain."""
+        nonlocal engine
+        if engine == 'gemini':
+            try:
+                return _translate_docx(src_path, tgt_lang, source_lang, True, notes, log_fn, output_dir, engine='gemini')
+            except Exception as e:
+                log_fn(f'  Gemini docx failed for {lang_label} ({e}) — trying Mistral...')
+                engine = 'mistral'
+                result['engine'] = 'mistral'
+        if engine == 'mistral':
+            try:
+                return _translate_docx(src_path, tgt_lang, source_lang, True, notes, log_fn, output_dir, engine='mistral')
+            except Exception as e:
+                log_fn(f'  Mistral docx failed for {lang_label} ({e}) — falling back to Google Translate.')
+                engine = 'google'
+                result['engine'] = 'google'
+        return _translate_docx(src_path, tgt_lang, source_lang, False, notes, log_fn, output_dir, engine='google')
 
     # ── Translate to Spanish ──────────────────────────────────
     if target_es:
@@ -601,15 +858,12 @@ def translate_pr(
         else:
             log_fn('Translating to Spanish...')
             if docx_path:
-                es_path = _translate_docx(docx_path, 'es', source_lang, use_ai, notes, log_fn, output_dir)
+                es_path = _translate_docx_with_fallback(docx_path, 'es', 'Spanish')
                 result['es_docx_path'] = es_path
                 result['es_text'] = extract_docx_text(es_path)
                 log_fn(f'  Spanish translation complete ({len(result["es_text"]):,} chars).')
             else:
-                if use_ai:
-                    es = _translate_gemini(text, 'es', source_lang, notes, log_fn)
-                else:
-                    es = _translate_google(text, 'es', source_lang, log_fn)
+                es = _translate_plain_with_fallback(text, 'es', 'Spanish')
                 if es:
                     result['es_text'] = es
                     log_fn(f'  Spanish translation complete ({len(es):,} chars).')
@@ -626,15 +880,12 @@ def translate_pr(
         else:
             log_fn('Translating to Portuguese...')
             if docx_path:
-                pt_path = _translate_docx(docx_path, 'pt', source_lang, use_ai, notes, log_fn, output_dir)
+                pt_path = _translate_docx_with_fallback(docx_path, 'pt', 'Portuguese')
                 result['pt_docx_path'] = pt_path
                 result['pt_text'] = extract_docx_text(pt_path)
                 log_fn(f'  Portuguese translation complete ({len(result["pt_text"]):,} chars).')
             else:
-                if use_ai:
-                    pt = _translate_gemini(text, 'pt', source_lang, notes, log_fn)
-                else:
-                    pt = _translate_google(text, 'pt', source_lang, log_fn)
+                pt = _translate_plain_with_fallback(text, 'pt', 'Portuguese')
                 if pt:
                     result['pt_text'] = pt
                     log_fn(f'  Portuguese translation complete ({len(pt):,} chars).')

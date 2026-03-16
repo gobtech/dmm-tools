@@ -9,10 +9,11 @@
             <ul class="tab-tips-list">
               <li><strong>Translates press releases</strong> from labels/artists into Spanish and/or Brazilian Portuguese for LATAM distribution.</li>
               <li>Paste the PR text directly <strong>or upload the .docx</strong> file from the label.</li>
-              <li>Uses <strong>Gemini Flash AI</strong> for high-quality music-industry translation that preserves formatting, quotes, tracklists, tour dates, and links.</li>
-              <li>Artist names, song titles, venue names, and URLs are <strong>kept as-is</strong> &mdash; only prose is translated.</li>
+              <li>.docx mode <strong>preserves all formatting</strong> &mdash; fonts, bold, italic, sizes, images, headers, footers, and hyperlinks.</li>
+              <li>Artist names, song/album/EP titles, venue names, and URLs are <strong>kept as-is</strong> &mdash; only prose is translated.</li>
               <li>Auto-detects the <strong>source language</strong> (English, French, Spanish, Portuguese).</li>
-              <li>AI mode requires <strong>GEMINI_API_KEY</strong> in .env (free tier: 1,500 req/day).</li>
+              <li>Three engines: <strong>Gemini AI</strong> (primary), <strong>Mistral AI</strong> (fallback), and <strong>Google Translate</strong> (free). Each falls back to the next on failure.</li>
+              <li>Chunked API calls (<strong>15 paragraphs/batch</strong>) for reliability with large documents.</li>
             </ul>
           </div>
         </div>
@@ -52,13 +53,12 @@
       </div>
     </div>
 
-    <!-- Engine toggle -->
-    <div style="margin-top:16px;">
-      <div class="checkbox-row">
-        <input type="checkbox" id="pr-use-ai">
-        <label for="pr-use-ai">Use Gemini AI <span style="color:var(--text-tertiary); font-weight:400;">(higher quality, preserves proper nouns &amp; music-industry tone — free)</span></label>
-      </div>
-      <div style="font-size:12px; color:var(--text-tertiary); margin-top:4px; padding-left:24px;">Default: Google Translate (free, no API key needed)</div>
+    <!-- Engine selection -->
+    <label style="margin-top:16px;" title="Gemini is the primary AI engine. Mistral is used as fallback when Gemini is saturated (429).">Translation Engine</label>
+    <div class="radio-group">
+      <label title="Higher quality, music-industry tone. Falls back to Mistral on rate limit."><input type="radio" name="pr-engine" value="gemini" checked><span>Gemini AI</span></label>
+      <label title="Fallback AI engine. Also used automatically when Gemini hits rate limits."><input type="radio" name="pr-engine" value="mistral"><span>Mistral AI</span></label>
+      <label title="Free, no API key needed"><input type="radio" name="pr-engine" value="google"><span>Google Translate</span></label>
     </div>
 
     <!-- Adaptation notes (only relevant for AI mode) -->

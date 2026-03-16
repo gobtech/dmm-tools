@@ -712,14 +712,18 @@ def check_release_in_playlist(release, playlist_tracks):
     return None
 
 
-def generate_proof_image(match, output_dir):
+def generate_proof_image(matches, output_dir):
     """
-    Generate a composite 'proof' image for a DSP playlist match.
-    Two-section layout: playlist header (with playlist cover art) + highlighted track row.
+    Generate a composite 'proof' image for DSP playlist matches.
+    Accepts a list of matches for the SAME playlist — renders one playlist
+    header with multiple track rows stacked below.
     Returns the path to the generated image, or None on failure.
     """
     import requests as _requests
     import unicodedata
+
+    if not matches:
+        return None
 
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -727,26 +731,25 @@ def generate_proof_image(match, output_dir):
         print("    Pillow not installed — skipping proof image generation")
         return None
 
-    track_artwork_url = match.get('artwork_url', '')
-    playlist_cover_url = match.get('playlist_cover_url', '')
-    # Spotify: resolve track artwork from URI via oEmbed (lazy, only for matches)
-    if not track_artwork_url and match.get('spotify_uri', ''):
-        try:
-            track_id = match['spotify_uri'].split(':')[-1]
-            oembed_url = f"https://open.spotify.com/oembed?url=https://open.spotify.com/track/{track_id}"
-            oembed_resp = _requests.get(oembed_url, timeout=8)
-            if oembed_resp.ok:
-                track_artwork_url = oembed_resp.json().get('thumbnail_url', '')
-        except Exception:
-            pass
+    # Resolve track artwork URLs (Spotify oEmbed) for all matches
+    for match in matches:
+        if not match.get('artwork_url', '') and match.get('spotify_uri', ''):
+            try:
+                track_id = match['spotify_uri'].split(':')[-1]
+                oembed_url = f"https://open.spotify.com/oembed?url=https://open.spotify.com/track/{track_id}"
+                oembed_resp = _requests.get(oembed_url, timeout=8)
+                if oembed_resp.ok:
+                    match['artwork_url'] = oembed_resp.json().get('thumbnail_url', '')
+            except Exception:
+                pass
 
-    track_name = match.get('playlist_track', '')
-    artist_name = match.get('playlist_artist', '')
-    playlist_name = match.get('playlist_name', '')
-    position = match.get('position', '?')
-    platform = match.get('platform', '')
-    country = match.get('playlist_country', '')
-    followers = match.get('playlist_followers', '')
+    # Playlist-level data from first match (shared across all)
+    first = matches[0]
+    playlist_cover_url = first.get('playlist_cover_url', '')
+    playlist_name = first.get('playlist_name', '')
+    platform = first.get('platform', '')
+    country = first.get('playlist_country', '')
+    followers = first.get('playlist_followers', '')
 
     # Platform accent colors
     platform_colors = {
@@ -764,7 +767,8 @@ def generate_proof_image(match, output_dir):
     W = 640 * S
     HEADER_H = 120 * S
     TRACK_H = 60 * S
-    H = HEADER_H + TRACK_H
+    num_tracks = len(matches)
+    H = HEADER_H + TRACK_H * num_tracks
     PAD = 16 * S
     PL_COVER_SIZE = 88 * S
     TRACK_ART_SIZE = 40 * S
@@ -860,48 +864,63 @@ def generate_proof_image(match, output_dir):
     y += 20 * S
 
     # Playlist link hint
-    link = match.get('playlist_link', '')
+    link = first.get('playlist_link', '')
     if link:
         draw.text((txt_x, y), truncate(link, font_pl_meta, txt_max_w), fill=(100, 100, 100), font=font_pl_meta)
 
-    # ─── SECTION 2: Track row (highlighted) ────────────────────────
-    row_y = HEADER_H
-    # Highlight background
-    draw.rectangle([0, row_y, W, H], fill=(40, 40, 40))
-    # Left accent bar on the track row
-    draw.rectangle([0, row_y, 3 * S, H], fill=accent)
+    # ─── SECTION 2: Track rows (one per match) ────────────────────
+    for i, match in enumerate(matches):
+        track_artwork_url = match.get('artwork_url', '')
+        track_name = match.get('playlist_track', '')
+        artist_name = match.get('playlist_artist', '')
+        position = match.get('position', '?')
 
-    # Position number
-    pos_text = f"#{position}"
-    pos_bbox = draw.textbbox((0, 0), pos_text, font=font_pos)
-    pos_w = pos_bbox[2] - pos_bbox[0]
-    draw.text((PAD + 4 * S, row_y + (TRACK_H - 14 * S) // 2), pos_text, fill=accent, font=font_pos)
+        row_y = HEADER_H + TRACK_H * i
+        row_bottom = row_y + TRACK_H
 
-    # Track album art (small thumbnail)
-    art_x = PAD + max(pos_w, 24 * S) + 12 * S
-    art_y = row_y + (TRACK_H - TRACK_ART_SIZE) // 2
-    if track_artwork_url:
-        t_img = _fetch_image(track_artwork_url, (TRACK_ART_SIZE, TRACK_ART_SIZE))
-        if t_img:
-            img.paste(t_img, (art_x, art_y))
+        # Alternate row shade for visual separation
+        row_bg = (40, 40, 40) if i % 2 == 0 else (34, 34, 34)
+        draw.rectangle([0, row_y, W, row_bottom], fill=row_bg)
+        # Left accent bar
+        draw.rectangle([0, row_y, 3 * S, row_bottom], fill=accent)
+
+        # Position number
+        pos_text = f"#{position}"
+        pos_bbox = draw.textbbox((0, 0), pos_text, font=font_pos)
+        pos_w = pos_bbox[2] - pos_bbox[0]
+        draw.text((PAD + 4 * S, row_y + (TRACK_H - 14 * S) // 2), pos_text, fill=accent, font=font_pos)
+
+        # Track album art (small thumbnail)
+        art_x = PAD + max(pos_w, 24 * S) + 12 * S
+        art_y = row_y + (TRACK_H - TRACK_ART_SIZE) // 2
+        if track_artwork_url:
+            t_img = _fetch_image(track_artwork_url, (TRACK_ART_SIZE, TRACK_ART_SIZE))
+            if t_img:
+                img.paste(t_img, (art_x, art_y))
+            else:
+                draw.rectangle([art_x, art_y, art_x + TRACK_ART_SIZE, art_y + TRACK_ART_SIZE], fill=(60, 60, 60))
         else:
             draw.rectangle([art_x, art_y, art_x + TRACK_ART_SIZE, art_y + TRACK_ART_SIZE], fill=(60, 60, 60))
-    else:
-        draw.rectangle([art_x, art_y, art_x + TRACK_ART_SIZE, art_y + TRACK_ART_SIZE], fill=(60, 60, 60))
 
-    # Track name + artist
-    track_txt_x = art_x + TRACK_ART_SIZE + 12 * S
-    track_max_w = W - track_txt_x - PAD
-    draw.text((track_txt_x, row_y + 10 * S), truncate(track_name, font_track, track_max_w), fill=(255, 255, 255), font=font_track)
-    draw.text((track_txt_x, row_y + 30 * S), truncate(artist_name, font_artist, track_max_w), fill=(180, 180, 180), font=font_artist)
+        # Track name + artist
+        track_txt_x = art_x + TRACK_ART_SIZE + 12 * S
+        track_max_w = W - track_txt_x - PAD
+        draw.text((track_txt_x, row_y + 10 * S), truncate(track_name, font_track, track_max_w), fill=(255, 255, 255), font=font_track)
+        draw.text((track_txt_x, row_y + 30 * S), truncate(artist_name, font_artist, track_max_w), fill=(180, 180, 180), font=font_artist)
 
     # ─── Save ──────────────────────────────────────────────────────
     def _ascii_safe(s, maxlen):
         s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode()
         return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
-    safe_track = _ascii_safe(track_name, 30)
+    query_artist = first.get('_query_artist', '')
+    safe_platform = _ascii_safe(platform, 20)
+    safe_artist = _ascii_safe(query_artist, 30) if query_artist else ''
     safe_playlist = _ascii_safe(playlist_name, 40)
-    filename = f"proof_{safe_track}_{safe_playlist}.png"
+    name_parts = ['proof', safe_platform]
+    if safe_artist:
+        name_parts.append(safe_artist)
+    name_parts.append(safe_playlist)
+    filename = '_'.join(name_parts) + '.png'
     os.makedirs(output_dir, exist_ok=True)
     filepath = os.path.join(output_dir, filename)
     img.save(filepath, 'PNG', dpi=(300, 300))
@@ -911,17 +930,40 @@ def generate_proof_image(match, output_dir):
 def generate_proof_images(results, output_dir):
     """
     Generate proof images for all DSP matches.
+    Groups matches by (artist, platform, playlist) so each artist's
+    playlist gets one combined image with all their matched tracks.
     Returns a dict: { artist: { title: [image_paths] } }
     """
+    # Tag each match with the query artist, then group per-artist per-playlist
+    from collections import defaultdict
+    playlist_groups = defaultdict(list)
+    for artist, releases in results.items():
+        for title, matches in releases.items():
+            for match in matches:
+                match['_query_artist'] = artist
+                key = (artist, match.get('platform', ''), match.get('playlist_name', ''))
+                playlist_groups[key].append(match)
+
+    # Generate one combined image per (artist, platform, playlist) group
+    generated = {}
+    for (artist, platform, playlist_name), group_matches in playlist_groups.items():
+        path = generate_proof_image(group_matches, output_dir)
+        if path:
+            generated[(artist, platform, playlist_name)] = path
+
+    # Build the legacy return structure for callers
     image_paths = {}
     for artist, releases in results.items():
         image_paths[artist] = {}
         for title, matches in releases.items():
             image_paths[artist][title] = []
+            seen = set()
             for match in matches:
-                path = generate_proof_image(match, output_dir)
-                if path:
+                key = (artist, match.get('platform', ''), match.get('playlist_name', ''))
+                path = generated.get(key)
+                if path and key not in seen:
                     image_paths[artist][title].append(path)
+                    seen.add(key)
     return image_paths
 
 
@@ -991,28 +1033,8 @@ def generate_dsp_docx(results, proof_image_paths, docx_path, grouping='platform'
         s = _ud.normalize('NFKD', s).encode('ascii', 'ignore').decode()
         return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
 
-    def _render_proof(m):
-        """Render proof image or text fallback for a single match."""
-        track = m.get('playlist_track', '')
-        safe_track = _ascii_safe(track, 30)
-        safe_playlist = _ascii_safe(m.get('playlist_name', ''), 40)
-        img_filename = f"proof_{safe_track}_{safe_playlist}.png"
-        img_path = os.path.join(os.path.dirname(docx_path), 'dsp_proofs', img_filename)
-
-        if os.path.exists(img_path):
-            img_para = doc.add_paragraph()
-            img_para.paragraph_format.space_after = Pt(8)
-            run = img_para.add_run()
-            run.add_picture(img_path, width=Inches(6.2))
-        else:
-            fp = doc.add_paragraph()
-            fr = fp.add_run(f'  #{m.get("position", "?")} — {track} by {m.get("playlist_artist", "")}')
-            fr.font.size = Pt(9)
-            fr.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
-            fp.paragraph_format.space_after = Pt(8)
-
     def _render_playlist_group(country, playlist_name, matches):
-        """Render country + playlist header once, then proof images for all matches."""
+        """Render country + playlist header once, then one combined proof image."""
         if country:
             cp = doc.add_paragraph()
             cr = cp.add_run(country.upper())
@@ -1034,8 +1056,33 @@ def generate_dsp_docx(results, proof_image_paths, docx_path, grouping='platform'
         ip.paragraph_format.space_before = Pt(2)
         ip.paragraph_format.space_after = Pt(4)
 
-        for m in matches:
-            _render_proof(m)
+        # Single combined proof image per artist+playlist
+        platform = first.get('platform', '')
+        query_artist = first.get('_query_artist', '') or first.get('_artist', '')
+        safe_platform = _ascii_safe(platform, 20)
+        safe_artist = _ascii_safe(query_artist, 30) if query_artist else ''
+        safe_playlist = _ascii_safe(playlist_name, 40)
+        name_parts = ['proof', safe_platform]
+        if safe_artist:
+            name_parts.append(safe_artist)
+        name_parts.append(safe_playlist)
+        img_filename = '_'.join(name_parts) + '.png'
+        img_path = os.path.join(os.path.dirname(docx_path), 'dsp_proofs', img_filename)
+
+        if os.path.exists(img_path):
+            img_para = doc.add_paragraph()
+            img_para.paragraph_format.space_after = Pt(8)
+            run = img_para.add_run()
+            run.add_picture(img_path, width=Inches(6.2))
+        else:
+            # Fallback: text for each match
+            for m in matches:
+                fp = doc.add_paragraph()
+                track = m.get('playlist_track', '')
+                fr = fp.add_run(f'  #{m.get("position", "?")} — {track} by {m.get("playlist_artist", "")}')
+                fr.font.size = Pt(9)
+                fr.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+                fp.paragraph_format.space_after = Pt(8)
 
     from collections import OrderedDict
 

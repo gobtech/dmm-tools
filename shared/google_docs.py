@@ -266,7 +266,7 @@ def _format_dsp_section(dsp_data, proof_images=None):
 
     Args:
         dsp_data: DSP results dict
-        proof_images: dict mapping (track, playlist) -> image_url for inline images
+        proof_images: dict mapping (platform, playlist) -> image_url for inline images
 
     Returns: (text, formatting_ranges)
     where formatting_ranges may include {'image_url': url, 'start': offset} entries
@@ -341,16 +341,14 @@ def _format_dsp_section(dsp_data, proof_images=None):
         formats.append({'start': pos, 'end': pos + len(info_line) - 1, 'bold': True})
         text_parts.append(info_line)
 
-        # Image placeholders for all matches in this group
+        # Single combined proof image per playlist group
         if proof_images:
-            for m in matches:
-                track = m.get('playlist_track', '')
-                img_url = proof_images.get((track, playlist_name))
-                if img_url:
-                    placeholder = '\n'
-                    pos = sum(len(p) for p in text_parts)
-                    formats.append({'image_url': img_url, 'start': pos})
-                    text_parts.append(placeholder)
+            img_url = proof_images.get((platform, playlist_name))
+            if img_url:
+                placeholder = '\n'
+                pos = sum(len(p) for p in text_parts)
+                formats.append({'image_url': img_url, 'start': pos})
+                text_parts.append(placeholder)
 
     text_parts.append('\n')
     return ''.join(text_parts), formats
@@ -415,7 +413,7 @@ def format_report_for_docs(dsp_data, radio_data, press_data, artist_name,
     """Build the complete report text and Google Docs API formatting requests.
 
     Args:
-        proof_images: dict mapping (track, playlist) -> image_url for inline images
+        proof_images: dict mapping (platform, playlist) -> image_url for inline images
 
     Returns: (full_text, all_formats)
     """
@@ -581,19 +579,24 @@ def _build_batch_requests(insert_at, full_text, all_formats):
     return requests
 
 
-def _find_proof_for_match(match, proof_image_paths):
-    """Find the proof image path for a DSP match, using the same naming as dsp_pickup."""
+def _find_proof_for_match(match, proof_image_paths, query_artist=''):
+    """Find the combined proof image path for an artist+platform+playlist, using the same naming as dsp_pickup."""
     import unicodedata
 
     def _ascii_safe(s, maxlen):
         s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode()
         return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
 
-    track = match.get('playlist_track', '')
+    platform = match.get('platform', '')
     playlist = match.get('playlist_name', '')
-    safe_track = _ascii_safe(track, 30)
+    safe_platform = _ascii_safe(platform, 20)
+    safe_artist = _ascii_safe(query_artist, 30) if query_artist else ''
     safe_playlist = _ascii_safe(playlist, 40)
-    target = f'proof_{safe_track}_{safe_playlist}.png'
+    name_parts = ['proof', safe_platform]
+    if safe_artist:
+        name_parts.append(safe_artist)
+    name_parts.append(safe_playlist)
+    target = '_'.join(name_parts) + '.png'
 
     for p in proof_image_paths:
         if Path(p).name == target:
@@ -602,20 +605,26 @@ def _find_proof_for_match(match, proof_image_paths):
 
 
 def _upload_proof_images(proof_image_paths, dsp_data):
-    """Upload proof images to Drive and return mapping of (track, playlist) -> url."""
+    """Upload proof images to Drive and return mapping of (platform, playlist) -> url."""
     proof_images = {}
 
-    # Flatten all matches to find which ones have proof images
-    for releases_dict in dsp_data.values():
+    # Flatten all matches, deduplicate by (artist, platform, playlist)
+    seen = set()
+    for artist, releases_dict in dsp_data.items():
         for matches in releases_dict.values():
             for m in matches:
-                track = m.get('playlist_track', '')
+                platform = m.get('platform', '')
                 playlist = m.get('playlist_name', '')
-                img_path = _find_proof_for_match(m, proof_image_paths)
+                key = (platform, playlist)
+                dedup_key = (artist, platform, playlist)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+                img_path = _find_proof_for_match(m, proof_image_paths, query_artist=artist)
                 if img_path:
                     url = upload_proof_image(img_path)
                     if url:
-                        proof_images[(track, playlist)] = url
+                        proof_images[key] = url
 
     return proof_images
 

@@ -7,11 +7,12 @@
         <div class="tab-tips-body">
           <div>
             <ul class="tab-tips-list">
-              <li>Checks <strong>85+ LATAM editorial playlists</strong> across Spotify, Deezer, Apple Music, Amazon Music, Claro M&uacute;sica, and YouTube Music.</li>
-              <li><strong>"Spotify only"</strong> is significantly faster &mdash; use it when you just need a quick check.</li>
+              <li>Checks <strong>99+ LATAM editorial playlists</strong> across Spotify, Deezer, Apple Music, Amazon Music, Claro M&uacute;sica, and YouTube Music.</li>
+              <li>All <strong>6 platforms fully automated</strong> &mdash; zero API keys needed. Uses embed scraping, public APIs, anonymous login, and innertube.</li>
+              <li>Generates <strong>composite proof images</strong> (playlist cover + track position + platform badge). Multiple songs in the same playlist are combined into one image.</li>
               <li><strong>"This week's releases"</strong> and <strong>"All releases"</strong> pull from the live release schedule in Google Sheets.</li>
-              <li>Checks <strong>all 6 platforms</strong> automatically &mdash; no API keys required for any of them.</li>
               <li>Matching uses <strong>fuzzy search</strong>, so minor spelling differences between the release schedule and playlists are handled.</li>
+              <li>Manage the playlist database from the <a href="/playlists" style="color:var(--accent);">Playlist Database</a> page.</li>
             </ul>
           </div>
         </div>
@@ -59,8 +60,8 @@
 
     <label>Report grouping</label>
     <div class="radio-group">
-      <label title="Organize results by platform (Spotify, Deezer, etc.)"><input type="radio" name="dsp-grouping" value="platform" checked><span>Group by platform</span></label>
-      <label title="Organize results by artist name"><input type="radio" name="dsp-grouping" value="artist"><span>Group by artist</span></label>
+      <label title="Organize results by artist name"><input type="radio" name="dsp-grouping" value="artist" checked><span>Group by artist</span></label>
+      <label title="Organize results by platform (Spotify, Deezer, etc.)"><input type="radio" name="dsp-grouping" value="platform"><span>Group by platform</span></label>
     </div>
 
     <button class="btn" id="dsp-btn" onclick="runDsp()">Check Playlists</button>

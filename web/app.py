@@ -162,7 +162,7 @@ logger = app.logger
 _SENSITIVE_ENV_KEYS = [
     'SOUNDCHARTS_PASSWORD', 'SOUNDCHARTS_EMAIL',
     'SERPER_API_KEY', 'TAVILY_API_KEY',
-    'GROQ_API_KEY', 'GEMINI_API_KEY',
+    'GROQ_API_KEY', 'GEMINI_API_KEY', 'MISTRAL_API_KEY',
     'GITHUB_PAT',
 ]
 _REDACT_PATTERNS = []  # list of (value, replacement) tuples
@@ -2893,12 +2893,14 @@ def pr_translate():
     notes = ''
 
     use_ai = False
+    engine = 'google'
 
     if request.content_type and 'multipart/form-data' in request.content_type:
         text = request.form.get('text', '').strip()
         target_es = request.form.get('target_es', 'true') == 'true'
         target_pt = request.form.get('target_pt', 'true') == 'true'
         use_ai = request.form.get('use_ai', 'false') == 'true'
+        engine = request.form.get('engine', 'google')
         notes = request.form.get('notes', '')
 
         # Handle file upload
@@ -2918,6 +2920,7 @@ def pr_translate():
         target_es = data.get('target_es', True)
         target_pt = data.get('target_pt', True)
         use_ai = data.get('use_ai', False)
+        engine = data.get('engine', 'google')
         notes = data.get('notes', '')
 
     if not text and not docx_path:
@@ -2948,6 +2951,7 @@ def pr_translate():
                 notes=notes,
                 output_dir=pr_output_dir,
                 log_fn=lambda msg: log_line(job_id, msg),
+                preferred_engine=engine,
             )
 
             jobs[job_id]['pr_es_text'] = result['es_text']
@@ -2962,7 +2966,8 @@ def pr_translate():
             if result['pt_text']:
                 langs.append('Portuguese')
 
-            engine_label = 'Gemini Flash' if result.get('engine') == 'gemini' else 'Google Translate'
+            engine_labels = {'gemini': 'Gemini Flash', 'mistral': 'Mistral Large', 'google': 'Google Translate'}
+            engine_label = engine_labels.get(result.get('engine', ''), 'Google Translate')
             finish_job(
                 job_id,
                 result=f"Translated from {result['source_lang']} \u2192 {' + '.join(langs)} (via {engine_label})",
@@ -3227,6 +3232,13 @@ def health_internet():
 # ---------------------------------------------------------------------------
 
 CREDENTIAL_SERVICES = {
+    'release_schedule': {
+        'keys': ['RELEASE_SCHEDULE_URL'],
+        'labels': {'RELEASE_SCHEDULE_URL': 'Published CSV URL'},
+        'defaults': {'RELEASE_SCHEDULE_URL': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTSd9mhkVibb7AwXtsZjRgBfuRT9sLY_qhhu-rB_P35CX2vFk_fZw_f31AJyW84KrCzWLLMUcTzzgqU/pub?gid=497066221&single=true&output=csv'},
+        'label': 'Release Calendar',
+        'used_by': 'Radio, Press, DSP, Full Report, Digest — artist list & release enrichment',
+    },
     'soundcharts': {
         'keys': ['SOUNDCHARTS_EMAIL', 'SOUNDCHARTS_PASSWORD'],
         'labels': {'SOUNDCHARTS_EMAIL': 'Email', 'SOUNDCHARTS_PASSWORD': 'Password'},
@@ -3262,7 +3274,13 @@ CREDENTIAL_SERVICES = {
         'keys': ['GEMINI_API_KEY'],
         'labels': {'GEMINI_API_KEY': 'API Key'},
         'label': 'Google Gemini',
-        'used_by': 'PR Translator (AI mode)',
+        'used_by': 'PR Translator (AI mode — primary)',
+    },
+    'mistral': {
+        'keys': ['MISTRAL_API_KEY'],
+        'labels': {'MISTRAL_API_KEY': 'API Key'},
+        'label': 'Mistral AI',
+        'used_by': 'PR Translator (AI mode — fallback)',
     },
     'gsheets': {
         'keys': ['GSHEETS_SERVICE_ACCOUNT'],
@@ -3344,6 +3362,17 @@ def test_credential(service):
                 return jsonify({'ok': True, 'message': 'Logged in successfully.'})
             return jsonify({'ok': False, 'error': 'No token returned.'})
 
+        elif service == 'release_schedule':
+            url = os.environ.get('RELEASE_SCHEDULE_URL', '').strip()
+            if not url:
+                return jsonify({'ok': False, 'error': 'URL not configured.'})
+            resp = req.get(url, timeout=15)
+            resp.raise_for_status()
+            lines = resp.text.strip().split('\n')
+            if len(lines) < 2:
+                return jsonify({'ok': False, 'error': 'CSV appears empty.'})
+            return jsonify({'ok': True, 'message': f'Loaded {len(lines) - 1} releases from sheet.'})
+
         elif service == 'serper':
             key = os.environ.get('SERPER_API_KEY', '').strip()
             if not key:
@@ -3396,6 +3425,19 @@ def test_credential(service):
                 headers={'Content-Type': 'application/json'},
                 json={'contents': [{'parts': [{'text': 'hi'}]}],
                       'generationConfig': {'maxOutputTokens': 5}}, timeout=15)
+            resp.raise_for_status()
+            return jsonify({'ok': True, 'message': 'Connected successfully.'})
+
+        elif service == 'mistral':
+            key = os.environ.get('MISTRAL_API_KEY', '').strip()
+            if not key:
+                return jsonify({'ok': False, 'error': 'API key not configured.'})
+            resp = req.post(
+                'https://api.mistral.ai/v1/chat/completions',
+                headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+                json={'model': 'mistral-large-latest',
+                      'messages': [{'role': 'user', 'content': 'hi'}],
+                      'max_tokens': 5}, timeout=15)
             resp.raise_for_status()
             return jsonify({'ok': True, 'message': 'Connected successfully.'})
 
@@ -3501,6 +3543,11 @@ def save_credential(service):
     for key, val in updates.items():
         os.environ[key] = val
     _build_redact_patterns()
+
+    # Update module-level URL if release schedule changed
+    if service == 'release_schedule':
+        global RELEASE_SCHEDULE_URL
+        RELEASE_SCHEDULE_URL = os.environ.get('RELEASE_SCHEDULE_URL', RELEASE_SCHEDULE_URL)
 
     # Invalidate Soundcharts token cache if credentials changed
     if service == 'soundcharts':

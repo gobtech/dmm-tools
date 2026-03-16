@@ -9,9 +9,12 @@
       Enter the admin password to view and manage settings.
     </p>
     <div style="max-width:300px;margin:0 auto;">
-      <input type="password" id="admin-pass-input" placeholder="Admin password"
-        style="width:100%;padding:10px 14px;border:1.5px solid var(--border-strong);border-radius:8px;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-body);font-size:14px;margin-bottom:10px;"
-        onkeydown="if(event.key==='Enter')unlockSettings()">
+      <div style="position:relative;">
+        <input type="password" id="admin-pass-input" placeholder="Admin password"
+          style="width:100%;padding:10px 14px;padding-right:42px;border:1.5px solid var(--border-strong);border-radius:8px;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-body);font-size:14px;margin-bottom:10px;"
+          onkeydown="if(event.key==='Enter')unlockSettings()">
+        <button type="button" onclick="toggleAdminPassVisibility(this)" style="position:absolute;right:10px;top:50%;transform:translateY(-60%);background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:16px;padding:4px;" title="Show password">&#128065;</button>
+      </div>
       <button class="btn btn-small" onclick="unlockSettings()" style="width:100%;padding:10px;">Unlock</button>
       <div id="admin-gate-error" style="color:#b91c1c;font-size:13px;margin-top:8px;display:none;"></div>
     </div>

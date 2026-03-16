@@ -29,7 +29,7 @@ function goToTool(name) {
 
 function goToLanding() {
   document.getElementById('tool-view').style.display = 'none';
-  document.getElementById('landing').style.display = 'grid';
+  document.getElementById('landing').style.display = 'block';
   // Animate in
   const lg = document.getElementById('landing');
   lg.style.animation = 'none';
@@ -40,13 +40,13 @@ function goToLanding() {
 // =====================================================================
 // Tabs
 // =====================================================================
-const TOOL_TITLES = {radio:'Radio Report',press:'Press Pickup',dsp:'DSP Pickup',report:'Full Report',proposal:'Proposal Generator',digest:'Weekly Digest',discovery:'Discovery',pr:'PR Translator',schedules:'Schedules',settings:'Settings'};
+const TOOL_TITLES = {radio:'Radio Report',press:'Press Pickup — powered by <a href="/gangsigns" class="gs" style="font-size:inherit;text-decoration:none;">GANGSIGNS</a>',dsp:'DSP Pickup',report:'Full Report',proposal:'Proposal Generator',digest:'Weekly Digest',discovery:'Discovery',pr:'PR Translator',schedules:'Schedules',settings:'Settings'};
 function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById('tab-' + name);
   panel.classList.add('active');
   const titleEl = document.getElementById('tool-title');
-  if (titleEl) titleEl.textContent = TOOL_TITLES[name] || name;
+  if (titleEl) titleEl.innerHTML = TOOL_TITLES[name] || escapeHtml(name);
   // Re-trigger entrance animation
   panel.style.animation = 'none';
   panel.offsetHeight; // reflow
@@ -304,6 +304,10 @@ document.getElementById('dsp-week')?.addEventListener('change', () => {
   const mode = document.querySelector('input[name="dsp-mode"]:checked').value;
   if (mode === 'week') loadBatchPreview('week', 'dsp-week', 'dsp-batch-preview');
 });
+document.getElementById('report-week')?.addEventListener('change', () => {
+  const mode = document.querySelector('input[name="report-mode"]:checked').value;
+  if (mode === 'week') loadBatchPreview('week', 'report-week', 'report-batch-preview');
+});
 
 // Initial disabled state for mode-dependent buttons (default = artist mode, empty input)
 if (document.getElementById('press-btn')) document.getElementById('press-btn').disabled = true;
@@ -454,6 +458,37 @@ function updateStepper(stepper, logLines) {
 // =====================================================================
 // Polling helper
 // =====================================================================
+function playNotificationSound(success = true) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (success) {
+      // Two-tone chime: rising notes
+      [440, 660].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime + i * 0.15);
+        osc.stop(ctx.currentTime + i * 0.15 + 0.3);
+      });
+    } else {
+      // Low tone for error
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 280;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.4);
+    }
+  } catch (e) { /* Audio not available */ }
+}
+
 function pollJob(jobId, logEl, progressEl, resultEl, toolName, onDone) {
   if (typeof toolName === 'function') { onDone = toolName; toolName = null; }
   progressEl.classList.add('visible');
@@ -521,6 +556,7 @@ function pollJob(jobId, logEl, progressEl, resultEl, toolName, onDone) {
       if (data.status === 'done' || data.status === 'error') {
         if (settled) return;
         settled = true;
+        playNotificationSound(data.status === 'done');
         // Mark all steps done on success
         if (stepper && data.status === 'done') {
           stepper.el.querySelectorAll('.step-row').forEach(r => {
@@ -2572,7 +2608,7 @@ async function runPrTranslate() {
   logEl.textContent = '';
 
   try {
-    const useAi = document.getElementById('pr-use-ai').checked;
+    const engine = document.querySelector('input[name="pr-engine"]:checked').value;
 
     const formData = new FormData();
     if (mode === 'paste') {
@@ -2582,7 +2618,8 @@ async function runPrTranslate() {
     }
     formData.append('target_es', targetEs ? 'true' : 'false');
     formData.append('target_pt', targetPt ? 'true' : 'false');
-    formData.append('use_ai', useAi ? 'true' : 'false');
+    formData.append('use_ai', engine !== 'google' ? 'true' : 'false');
+    formData.append('engine', engine);
     formData.append('notes', notes);
 
     const resp = await fetch('/api/pr/translate', {
@@ -4127,6 +4164,19 @@ async function appendToGoogleDoc(artistName) {
 // =====================================================================
 
 window._adminUnlocked = false;
+
+function toggleAdminPassVisibility(btn) {
+  const input = document.getElementById('admin-pass-input');
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.innerHTML = '&#128064;';
+    btn.title = 'Hide password';
+  } else {
+    input.type = 'password';
+    btn.innerHTML = '&#128065;';
+    btn.title = 'Show password';
+  }
+}
 
 async function unlockSettings() {
   const input = document.getElementById('admin-pass-input');

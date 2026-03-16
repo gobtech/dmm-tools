@@ -144,7 +144,10 @@ html.dark .error-msg {
   {% endif %}
   <form method="POST">
     <label for="password">Password</label>
-    <input type="password" id="password" name="password" autocomplete="current-password" autofocus>
+    <div style="position:relative;">
+      <input type="password" id="password" name="password" autocomplete="current-password" autofocus style="padding-right:42px;">
+      <button type="button" onclick="togglePasswordVisibility('password', this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:16px;padding:4px;margin-bottom:16px;" title="Show password">&#128065;</button>
+    </div>
     <button type="submit" class="btn">Sign In</button>
   </form>
 </div>
@@ -153,6 +156,18 @@ html.dark .error-msg {
   const theme = localStorage.getItem('dmm_theme');
   if (theme === 'dark') document.documentElement.classList.add('dark');
 })();
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.innerHTML = '&#128064;';
+    btn.title = 'Hide password';
+  } else {
+    input.type = 'password';
+    btn.innerHTML = '&#128065;';
+    btn.title = 'Show password';
+  }
+}
 </script>
 </body>
 </html>

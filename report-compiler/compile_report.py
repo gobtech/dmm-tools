@@ -468,6 +468,7 @@ def _generate_full_docx(
         for a, releases_dict in dsp_data.items():
             for title, matches in releases_dict.items():
                 for m in matches:
+                    m['_query_artist'] = a
                     all_matches.append(m)
 
         if all_matches:
@@ -542,19 +543,17 @@ def _generate_full_docx(
                 ip.paragraph_format.space_before = Pt(2)
                 ip.paragraph_format.space_after = Pt(4)
 
-                # Embed proof images / track entries for all matches in this playlist
-                for m in matches:
-                    img_path = _find_proof_image(
-                        m.get('playlist_track', ''),
-                        playlist_name,
-                        output_path,
-                    )
-                    if img_path:
-                        img_para = doc.add_paragraph()
-                        img_para.paragraph_format.space_after = Pt(8)
-                        run = img_para.add_run()
-                        run.add_picture(str(img_path), width=Inches(6.2))
-                    else:
+                # Embed single combined proof image for this playlist group
+                query_artist = matches[0].get('_query_artist', '')
+                img_path = _find_proof_image(platform, playlist_name, output_path, artist=query_artist)
+                if img_path:
+                    img_para = doc.add_paragraph()
+                    img_para.paragraph_format.space_after = Pt(8)
+                    run = img_para.add_run()
+                    run.add_picture(str(img_path), width=Inches(6.2))
+                else:
+                    # Fallback: text for each match
+                    for m in matches:
                         fp = doc.add_paragraph()
                         track = m.get('playlist_track', '')
                         fr = fp.add_run(
@@ -635,17 +634,22 @@ def _add_section_header(doc, text, color):
     p.paragraph_format.space_after = Pt(8)
 
 
-def _find_proof_image(track_name, playlist_name, output_path):
-    """Find the proof image file for a given track + playlist combo."""
+def _find_proof_image(platform, playlist_name, output_path, artist=''):
+    """Find the combined proof image for an artist + platform + playlist."""
     import unicodedata
 
     def _ascii_safe(s, maxlen):
         s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode()
         return re.sub(r'[^\w\s-]', '', s)[:maxlen].strip().replace(' ', '_') or 'item'
 
-    safe_track = _ascii_safe(track_name, 30)
+    safe_platform = _ascii_safe(platform, 20)
+    safe_artist = _ascii_safe(artist, 30) if artist else ''
     safe_playlist = _ascii_safe(playlist_name, 40)
-    img_filename = f'proof_{safe_track}_{safe_playlist}.png'
+    name_parts = ['proof', safe_platform]
+    if safe_artist:
+        name_parts.append(safe_artist)
+    name_parts.append(safe_playlist)
+    img_filename = '_'.join(name_parts) + '.png'
 
     proof_dir = Path(output_path).parent / 'dsp_proofs'
     img_path = proof_dir / img_filename
